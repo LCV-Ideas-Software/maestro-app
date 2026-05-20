@@ -6,16 +6,16 @@
 
 Portable Windows editorial workbench for protocol-driven AI drafting, source verification, and multi-agent editorial convergence.
 
-[![CI](https://github.com/lcv-ideas-software/maestro-app/actions/workflows/ci.yml/badge.svg)](https://github.com/lcv-ideas-software/maestro-app/actions/workflows/ci.yml)
-[![Pages](https://github.com/lcv-ideas-software/maestro-app/actions/workflows/pages.yml/badge.svg)](https://github.com/lcv-ideas-software/maestro-app/actions/workflows/pages.yml)
-[![Release](https://github.com/lcv-ideas-software/maestro-app/actions/workflows/release.yml/badge.svg)](https://github.com/lcv-ideas-software/maestro-app/actions/workflows/release.yml)
-![CodeQL](https://img.shields.io/badge/CodeQL-default%20setup-enabled-brightgreen)
-![status](https://img.shields.io/badge/status-operational%20stable%20baseline-blue)
-![target](https://img.shields.io/badge/target-Windows%2011%2B-blue)
-![stack](https://img.shields.io/badge/stack-Tauri%202%20%2B%20React%2019-blueviolet)
-![runtime](https://img.shields.io/badge/runtime-portable-green)
-![state](https://img.shields.io/badge/state-JSON%2FNDJSON-informational)
-![license](https://img.shields.io/badge/license-AGPL--3.0-blue)
+[![release](https://img.shields.io/github/v/release/LCV-Ideas-Software/maestro-app?sort=semver)](https://github.com/LCV-Ideas-Software/maestro-app/releases)
+[![CI](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/ci.yml/badge.svg)](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/ci.yml)
+[![Pages](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/pages.yml/badge.svg)](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/pages.yml)
+[![Release](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/release.yml/badge.svg)](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/release.yml)
+[![CodeQL](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/codeql.yml/badge.svg)](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/codeql.yml)
+[![Public Format](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/format-public.yml/badge.svg)](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/format-public.yml)
+[![status: stable](https://img.shields.io/badge/status-stable-brightgreen.svg)](#status)
+[![target: Windows 11+](https://img.shields.io/badge/target-Windows%2011%2B-blue.svg)](#status)
+[![stack: Tauri 2 + React 19](https://img.shields.io/badge/stack-Tauri%202%20%2B%20React%2019-blueviolet.svg)](#architecture)
+[![license: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 
 **Status.** Operational stable baseline as of `v0.5.25`, with live bootstrap, diagnostics, navigation, Cloudflare credential provisioning, AI API credential checks, PostEditor parity, link auditing, and a real background Claude/Codex/Gemini/DeepSeek/Grok editorial session path. From `v0.5.27`, Maestro also supports Perplexity as an API-only Sonar peer. Runtime evidence from session `run-2026-05-11T01-09-30-556Z` confirms the first documented end-to-end unanimous editorial delivery: Maestro `0.5.25` resumed a real API-mode session, reached `READY_UNANIMOUS`, and wrote a clean `texto-final.md`.
 
@@ -152,30 +152,27 @@ ABNT citation/reference formatting and Maestro's deterministic fourth-peer role 
 
 Link checking, sanitization, correction proposals, and cross-review escalation are planned under `docs/link-integrity-engine.md`.
 
-## Day-Zero Security Posture
+## Repository conventions
 
-- No secrets or API keys in the repository.
-- GitHub Secret Scanning, Code Scanning, CodeQL, and Dependabot are assumed active.
-- CodeQL uses GitHub Default Setup. Advanced Setup requires prior justification and explicit operator authorization.
-- Dependabot alert triage is tracked in `docs/dependabot-alert-triage.md`.
-- Operator-supplied editorial protocols are imported through the app and stored locally, not committed.
-- Public release requires pre-cloud exposure audit and full-history secret scan.
-
-## Release Planning
-
-GitHub Releases, GitHub Packages, GitHub Pages, and GitHub Sponsors are planned from day zero. Releases publish a portable Windows ZIP; GitHub Packages publishes a GHCR/OCI automation mirror, not NuGet. See `docs/release-engineering-plan.md`.
-
-Version tags, changelog headings, and release labels use the `vX.X.X` format.
-
+- **License**: [AGPL-3.0-or-later](./LICENSE). Network-service trigger applies: running a modified fork as a public service obligates you to publish modifications.
+- **Notices**: see [NOTICE](./NOTICE) and [THIRDPARTY](./THIRDPARTY.md).
+- **Security disclosure**: see [SECURITY.md](./SECURITY.md).
+- **Code of conduct**: see [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
+- **Changelog**: [CHANGELOG.md](./CHANGELOG.md).
+- **Contributing**: see [CONTRIBUTING.md](./CONTRIBUTING.md).
+- **Sponsorship**: see the repo's `Sponsor` button or [central sponsor page](https://www.lcv.dev/sponsor).
+- **Action pinning**: all GitHub Actions are pinned by full SHA per supply-chain hardening baseline.
+- **Code owners**: [.github/CODEOWNERS](.github/CODEOWNERS).
 
 ## Links
+
 - Site: [https://maestro-app.lcv.dev](https://maestro-app.lcv.dev)
 - GitHub: [https://github.com/LCV-Ideas-Software/maestro-app](https://github.com/LCV-Ideas-Software/maestro-app)
 - Sponsors: [https://github.com/sponsors/LCV-Ideas-Software](https://github.com/sponsors/LCV-Ideas-Software)
 
 ## License
 
-AGPL-3.0-or-later. See [LICENSE](./LICENSE).
+AGPL-3.0-or-later. See [LICENSE](./LICENSE), [NOTICE](./NOTICE), and [THIRDPARTY](./THIRDPARTY.md).
 
 ---
 

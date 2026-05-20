@@ -1,29 +1,33 @@
 # Security Policy
 
-## Supported Status
+## Supported status
 
-Maestro Editorial AI is in planning stage. No production version is supported yet.
+Latest supported release tag: v00.05.30 for project version v0.5.30. The current main branch is also supported for security fixes until the next release is published.
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-Do not open public issues for suspected secrets, credential leaks, private editorial material, authentication bypasses, or executable-supply-chain issues.
+Please do not open a public issue for suspected vulnerabilities, credential leaks, private data exposure, authentication bypasses, payment-flow issues, supply-chain issues, or deployment misconfiguration.
 
-Use GitHub private vulnerability reporting for this repository:
+Report privately by email:
 
-<https://github.com/LCV-Ideas-Software/maestro-app/security/advisories/new>
+- lcv@lcv.dev
 
-If GitHub blocks private reporting for your account, contact the repository owner privately through the LCV Ideas & Software GitHub organization. Include:
+If GitHub private vulnerability reporting is enabled for this repository, that channel is also acceptable.
 
-- affected version or commit SHA;
-- operating system and installation method;
-- minimal reproduction steps;
-- expected impact;
-- whether any credentials, session files, or editorial drafts may have been exposed.
+Please include:
 
-We aim to acknowledge valid reports within 7 days while the project remains pre-production.
+- affected repository, component, route, package, workflow, or public surface;
+- affected version, release tag, commit SHA, or deployment URL when known;
+- impact and exploitability;
+- reproduction steps or a safe proof of concept, if available;
+- whether any credential, personal data, payment data, private editorial material, or operational secret may be involved.
 
-## Repository Rules
+## Scope
 
-- Never commit `.env`, credentials, tokens, vaults, runtime session data, private protocols, drafts, evidence caches, or CLI transcripts.
-- Use sanitized placeholders such as `<api_key_redacted>`.
-- Treat CodeQL, secret scanning, and dependency alerts as release blockers until triaged.
+In scope: application code, Workers/Pages functions, package publication, GitHub Actions, dependency and supply-chain configuration, repository publication boundaries, security documentation, and public service configuration documented in this repository.
+
+Out of scope: social engineering, physical attacks, denial-of-service testing without prior written authorization, spam, automated noisy scanning, and reports that rely only on outdated browser or dependency versions without a concrete vulnerable path in this repository.
+
+## Coordinated disclosure
+
+LCV Ideas & Software will triage reports privately, request clarification when needed, and coordinate remediation before public disclosure. Public disclosure should wait until a fix or mitigation is available, unless there is an immediate user-safety reason to do otherwise.

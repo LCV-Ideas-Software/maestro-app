@@ -1,6 +1,11 @@
 # Code of Conduct
 
-This project follows the Contributor Covenant Code of Conduct, version 2.1.
+This project follows the Contributor Covenant Code of Conduct, version 3.0.
+
+The full canonical text is available at:
+
+- https://www.contributor-covenant.org/version/3/0/code_of_conduct/
+- Plain-text mirror: https://www.contributor-covenant.org/version/3/0/code_of_conduct/code_of_conduct.md
 
 ## Expected Behavior
 
