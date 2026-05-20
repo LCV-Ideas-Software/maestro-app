@@ -61,7 +61,7 @@ Future package surfaces, such as npm packages for shared schemas, require a sepa
 
 ## GitHub Sponsors
 
-Sponsors support is active through `.github/FUNDING.yml`, with `github: lcv-leo` as the current sponsor recipient and the Maestro organization GitHub Pages URL as the custom funding link.
+Sponsors support is active through `.github/FUNDING.yml`, with `github: example-beneficiary` as the current sponsor recipient and the Maestro organization GitHub Pages URL as the custom funding link.
 
 ## GitHub Pages
 

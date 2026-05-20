@@ -4,6 +4,14 @@ This folder is for local operator-supplied editorial protocols used during plann
 
 Protocol documents placed here are ignored by Git by default. Do not commit private editorial protocols unless the operator explicitly approves a public fixture.
 
+## Change History
+
+The version history at a glance:
+
+| Change  | Notes                                                                                                  |
+| ------- | ------------------------------------------------------------------------------------------------------ |
+| Current | Local operator protocol staging area; content remains ignored unless a public fixture is approved.       |
+
 ---
 
 <p align="center"><span style="font-size: 1.5em;"><strong>© LCV Ideas &amp; Software</strong></span><br><sub>LEONARDO CARDOZO VARGAS TECNOLOGIA DA INFORMACAO LTDA<br>Rua Pais Leme, 215 Conj 1713&nbsp;&nbsp;- Pinheiros<br>São Paulo - SP<br>CEP 05.424-150<br>CNPJ: 66.584.678/0001-77<br>IM 05.424-150</sub></p>

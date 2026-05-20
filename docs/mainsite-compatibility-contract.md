@@ -2,7 +2,7 @@
 
 Status: compatibility baseline extracted from `admin-app` and `mainsite-app` on 2026-04-26.
 
-Maestro must be able to read and write `bigdata_db.mainsite_posts` directly, while producing content that renders in `mainsite-app/mainsite-frontend/PostReader` exactly like content produced by `admin-app/MainSite/PostEditor`.
+Maestro must be able to read and write `example_db.mainsite_posts` directly, while producing content that renders in `mainsite-app/mainsite-frontend/PostReader` exactly like content produced by `admin-app/MainSite/PostEditor`.
 
 This is not an approximate Markdown export. The persisted `content` column must be MainSite-compatible HTML.
 
@@ -13,7 +13,7 @@ Because the required result is exact PostEditor behavior, Maestro's MainSite edi
 Target database and table:
 
 ```text
-bigdata_db.mainsite_posts
+example_db.mainsite_posts
 ```
 
 Current required fields used by admin and reader flows:

@@ -37,4 +37,4 @@ The decisive reason is existing production compatibility: `admin-app/MainSite/Po
 
 ## Non-Negotiable Gate
 
-No Maestro direct write to `bigdata_db.mainsite_posts` may be labeled stable until parity fixtures prove that Maestro-authored content and PostEditor-authored content render equivalently in `PostReader`.
+No Maestro direct write to `example_db.mainsite_posts` may be labeled stable until parity fixtures prove that Maestro-authored content and PostEditor-authored content render equivalently in `PostReader`.

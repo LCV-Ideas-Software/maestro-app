@@ -44,7 +44,7 @@ If a provider or website requires human interaction, Maestro must pause, open an
 Target:
 
 ```text
-bigdata_db.mainsite_posts
+example_db.mainsite_posts
 ```
 
 Maestro may read, import, export, insert, and update records, but the stable write path is gated by:

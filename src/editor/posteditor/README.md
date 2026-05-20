@@ -16,6 +16,14 @@ Hard rule: if Maestro uses TipTap for MainSite content, it must match the PostEd
 
 When `admin-app/MainSite/PostEditor` changes, Maestro must receive the equivalent change or explicitly record why the behavior does not apply. A planned parity check should compare this folder against a reviewed admin-source snapshot and fail CI on unreviewed drift once the public repo has access to that baseline.
 
+## Change History
+
+The version history at a glance:
+
+| Change             | Notes                                                                                  |
+| ------------------ | -------------------------------------------------------------------------------------- |
+| 2026-04-26 snapshot | Maestro-local compatibility copy imported from `admin-app/src/modules/mainsite/`.      |
+
 ## Source Snapshot
 
 Snapshot imported on 2026-04-26 from the local `admin-app/src/modules/mainsite/` tree.

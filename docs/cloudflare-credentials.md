@@ -9,7 +9,7 @@ Maestro must provide a settings screen for Cloudflare credentials used by D1 imp
 
 - Cloudflare Account ID.
 - Cloudflare API Token.
-- Target D1 database name or ID, defaulting to `bigdata_db` when configured by the operator.
+- Target D1 database name or ID, defaulting to `example_db` when configured by the operator.
 - Target table, defaulting to `mainsite_posts` for MainSite publishing.
 - Maestro configuration D1 database name, defaulting to `maestro_db` when Cloudflare persistence is selected.
 - Cloudflare Secrets Store name or ID for Maestro secrets.

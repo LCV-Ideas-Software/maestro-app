@@ -65,7 +65,7 @@ Local prerequisite recheck observed 2026-04-26: Rust is installed through rustup
 - `claim-map`: argument-support map by claim, source, locator, certainty, and risk.
 - `posteditor-parity-editor`: MainSite-bound editor copied/adapted from `admin-app/MainSite/PostEditor`, with the same effective TipTap extension set and HTML output contract.
 - `shared-chat-importer`: ChatGPT, Claude, and Gemini shared-link classification, browser-capable extraction, Markdown conversion, and provenance capture.
-- `mainsite-d1-bridge`: guarded read/write/import/export bridge for `bigdata_db.mainsite_posts`, using Cloudflare API as the primary path and `wrangler@latest` only as fallback.
+- `mainsite-d1-bridge`: guarded read/write/import/export bridge for `example_db.mainsite_posts`, using Cloudflare API as the primary path and `wrangler@latest` only as fallback.
 - `json-store`: event-sourced JSON/NDJSON persistence with locks, atomic writes, checksums, and recovery.
 - `cloudflare-persistence-bridge`: API-first provisioning and synchronization for D1 `maestro_db`, schema migrations, Cloudflare Secrets Store, and secret reference mapping.
 - `exporter`: Markdown, Markdown plus HTML, PDF, MainSite-compatible HTML, internal audit report, and semantic diff.

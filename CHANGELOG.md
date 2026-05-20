@@ -1992,7 +1992,7 @@ The operator analyzed session `run-2026-04-26T19-28-26-698Z` (75 rounds, 34/219 
 
 ## [v0.3.2] - 2026-04-26
 
-- Transferred the public repository from `lcv-leo/maestro-app` to `lcv-ideas-software/maestro-app`.
+- Transferred the public repository from `example-beneficiary/maestro-app` to `lcv-ideas-software/maestro-app`.
 - Updated README workflow badges, GitHub Pages funding link, site organization links, and release engineering docs for the organization namespace.
 - Bumped app/package metadata so the post-migration release verifies GitHub Releases and GHCR publication under the organization owner.
 
@@ -2057,7 +2057,7 @@ The operator analyzed session `run-2026-04-26T19-28-26-698Z` (75 rounds, 34/219 
 - Added the first Tauri/React scaffold and structured NDJSON diagnostic logging under ignored `data/logs/`.
 - Added the first background-orchestration UI concept with friendly progress indicators and selectable interface verbosity.
 - Added editorial session workflow documentation for prompt intake, full protocol reading, trilateral unanimity, final Markdown, and session minutes.
-- Added MainSite compatibility and Cloudflare D1 import/export planning for `bigdata_db.mainsite_posts`.
+- Added MainSite compatibility and Cloudflare D1 import/export planning for `example_db.mainsite_posts`.
 - Added the integrated editor decision: Maestro uses PostEditor parity over generic TipTap so functionality and final HTML match the existing MainSite editor.
 - Added a Maestro-local PostEditor parity module copied from the current `admin-app/MainSite/PostEditor` support surface.
 - Added Web Evidence Engine planning for fetch, curl-compatible replay, web search, rendered collection, and human-assisted browser capture for CAPTCHA/login/consent workflows.

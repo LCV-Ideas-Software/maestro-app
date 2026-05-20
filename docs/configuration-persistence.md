@@ -152,7 +152,7 @@ Required permission areas shown to the operator:
 - Token verification.
 - Account read.
 - D1 read/edit for `maestro_db`.
-- D1 read/edit for `bigdata_db.mainsite_posts` when MainSite publishing is enabled.
+- D1 read/edit for `example_db.mainsite_posts` when MainSite publishing is enabled.
 - Secrets Store read/edit or the current Cloudflare equivalent for creating stores and writing secrets.
 
 ## Selection Semantics
