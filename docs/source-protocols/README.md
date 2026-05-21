@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../../.github/assets/lcv-ideas-software-logo.svg" alt="LCV Ideas &amp; Software" width="520" />
+</p>
+
 # Source Protocols
 
 [![release](https://img.shields.io/github/v/release/LCV-Ideas-Software/maestro-app?sort=semver)](https://github.com/LCV-Ideas-Software/maestro-app/releases)
