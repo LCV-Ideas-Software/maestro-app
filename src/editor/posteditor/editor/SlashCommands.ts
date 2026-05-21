@@ -218,10 +218,12 @@ function createSlashPopup(editor: Editor, query: string, triggerPos: number): ((
   };
 
   const selectCommand = (index: number) => {
+    const item = filtered[index];
+    if (!item) return;
     // Delete the '/' + query
     const { from } = editor.state.selection;
     editor.chain().deleteRange({ from: triggerPos, to: from }).run();
-    filtered[index].command(editor);
+    item.command(editor);
     cleanup();
   };
 

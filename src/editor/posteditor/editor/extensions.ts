@@ -165,7 +165,8 @@ export const createMentionSuggestion = (rawItems: string[]) => ({
           return true;
         }
         if (event.key === "Enter") {
-          command?.(itemsState[selectedIndex]);
+          const item = itemsState[selectedIndex];
+          if (item) command?.(item);
           return true;
         }
         if (event.key === "Escape") {

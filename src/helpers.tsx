@@ -294,7 +294,7 @@ export function agentStateFromTone(tone: EditorialAgentResult["tone"]): AgentSta
 
 export function agentResultRank(agent: EditorialAgentResult) {
   const match = agent.output_path.match(/round-(\d{3})-/i);
-  const round = match ? Number.parseInt(match[1], 10) : 0;
+  const round = match?.[1] ? Number.parseInt(match[1], 10) : 0;
   const roleRank =
     agent.role === "review" ? 3 : agent.role === "revision" ? 2 : agent.role === "draft" ? 1 : 0;
   return round * 10 + roleRank;

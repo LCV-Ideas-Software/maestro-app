@@ -17,11 +17,12 @@ const TRAILING_SIGNATURE_RE = /^\s*\*\*[^*\n]+\*\*\s*$/;
 function stripTrailingSignature(md: string): string {
   const lines = md.split(/\r?\n/);
   let i = lines.length - 1;
-  while (i >= 0 && lines[i].trim() === "") i--;
+  while (i >= 0 && (lines[i] ?? "").trim() === "") i--;
   if (i < 0) return md;
-  if (!TRAILING_SIGNATURE_RE.test(lines[i])) return md;
+  const signatureLine = lines[i];
+  if (!signatureLine || !TRAILING_SIGNATURE_RE.test(signatureLine)) return md;
   lines.splice(i, lines.length - i);
-  while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+  while (lines.length > 0 && (lines[lines.length - 1] ?? "").trim() === "") {
     lines.pop();
   }
   return lines.join("\n");
@@ -30,15 +31,16 @@ function stripTrailingSignature(md: string): string {
 function extractFirstH1(md: string): { title: string | null; body: string } {
   const lines = md.split(/\r?\n/);
   let i = 0;
-  while (i < lines.length && lines[i].trim() === "") i++;
+  while (i < lines.length && (lines[i] ?? "").trim() === "") i++;
   if (i >= lines.length) return { title: null, body: md };
 
-  const match = lines[i].match(/^#\s+(.+?)\s*#*\s*$/);
+  const match = (lines[i] ?? "").match(/^#\s+(.+?)\s*#*\s*$/);
   if (!match) return { title: null, body: md };
 
-  const title = match[1].trim();
+  const title = match[1]?.trim() ?? null;
+  if (!title) return { title: null, body: md };
   lines.splice(i, 1);
-  while (i < lines.length && lines[i].trim() === "") {
+  while (i < lines.length && (lines[i] ?? "").trim() === "") {
     lines.splice(i, 1);
   }
   return { title, body: lines.join("\n") };

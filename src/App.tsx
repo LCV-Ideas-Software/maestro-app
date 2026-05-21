@@ -1156,7 +1156,10 @@ export function App() {
       }
 
       if (sessions.length === 1) {
-        await startResumeSession(sessions[0], hasLoadedProtocolForResume);
+        const session = sessions[0];
+        if (session) {
+          await startResumeSession(session, hasLoadedProtocolForResume);
+        }
         return;
       }
 
@@ -2408,7 +2411,7 @@ export function App() {
       <main className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">{activeNavItem.label}</p>
+            <p className="eyebrow">{activeNavItem?.label ?? "Workspace"}</p>
             <input
               className="session-title"
               value={sessionName}
