@@ -27,6 +27,8 @@ When `admin-app/MainSite/PostEditor` changes, Maestro must receive the equivalen
 
 ## Change History
 
+**Status.** Snapshot. Current release: **2026-04-26 snapshot**. See [CHANGELOG.md](../../../CHANGELOG.md) for the full release history.
+
 The version history at a glance:
 
 | Change             | Notes                                                                                  |

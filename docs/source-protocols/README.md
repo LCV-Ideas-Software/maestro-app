@@ -15,6 +15,8 @@ Protocol documents placed here are ignored by Git by default. Do not commit priv
 
 ## Change History
 
+**Status.** Active local protocol staging area. Current release: **not versioned**. See [CHANGELOG.md](../../CHANGELOG.md) for the full release history.
+
 The version history at a glance:
 
 | Change  | Notes                                                                                                  |
