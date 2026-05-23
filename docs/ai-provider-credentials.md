@@ -7,7 +7,7 @@ Maestro must keep CLI orchestration and official API/SDK orchestration as first-
 
 ## Provider Modes
 
-- `cli`: use the local `codex`, `claude`, and `gemini` CLIs.
+- `cli`: use the local `codex`, `claude`, and Google Antigravity `agy` CLIs.
 - `api`: use official provider APIs/SDKs only.
 - `hybrid`: prefer API/SDK for agents with validated credentials and fall back to CLI only when explicitly allowed by policy.
 

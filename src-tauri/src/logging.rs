@@ -17,6 +17,9 @@
 //!   (general redaction utilities used app-wide; planned for the separate
 //!   `text_utils.rs` / `redaction.rs` extraction).
 
+use crate::app_paths::{app_root, checked_data_child_path, logs_dir};
+use crate::human_logs::{human_log_summary, severity_number_for, write_human_log_projection};
+use crate::{sanitize_short, sanitize_text, sanitize_value};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -30,9 +33,6 @@ use std::{
         Arc, Mutex,
     },
 };
-use crate::app_paths::{app_root, checked_data_child_path, logs_dir};
-use crate::human_logs::{human_log_summary, severity_number_for, write_human_log_projection};
-use crate::{sanitize_short, sanitize_text, sanitize_value};
 
 pub(crate) type LogEventEmitter = Arc<dyn Fn(Value) + Send + Sync + 'static>;
 
@@ -165,7 +165,8 @@ pub(crate) fn write_log_record(
             .append(true)
             .open(&log_path)
             .map_err(|error| format!("failed to open log file: {error}"))?;
-        writeln!(file, "{record}").map_err(|error| format!("failed to write log record: {error}"))?;
+        writeln!(file, "{record}")
+            .map_err(|error| format!("failed to write log record: {error}"))?;
         let _ = write_human_log_projection(&log_session.path, &record);
     }
     if let Some(emitter) = &log_session.event_emitter {

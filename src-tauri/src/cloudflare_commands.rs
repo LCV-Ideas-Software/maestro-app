@@ -14,7 +14,7 @@
 //     verify_completed` NDJSON log emission.
 //   - `dependency_preflight` (async) + `dependency_preflight_inner` —
 //     Settings panel command that runs CLI/version checks for Claude /
-//     Codex / Gemini / Node / npm / cargo / gh plus Cloudflare env state
+//     Codex / Antigravity (`agy`) / Node / npm / cargo / gh plus Cloudflare env state
 //     and Wrangler hint. Async wrapper uses `spawn_blocking` to keep the
 //     IPC thread free.
 //
@@ -97,7 +97,7 @@ fn dependency_preflight_inner() -> Value {
             },
             command_check("Claude CLI", "claude", &["--version"]),
             command_check("Codex CLI", "codex", &["--version"]),
-            command_check("Gemini CLI", "gemini", &["--version"]),
+            command_check("Antigravity CLI (agy)", "agy", &["--version"]),
             command_check("Node.js", "node", &["--version"]),
             command_check("npm", "npm", &["--version"]),
             command_check("Rust cargo", "cargo", &["--version"]),

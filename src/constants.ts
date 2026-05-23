@@ -44,7 +44,7 @@ import type {
 export const initialAgents: AgentCard[] = [
   { name: "Claude", cli: "claude", state: "blocked", note: "aguardando sessao editorial" },
   { name: "Codex", cli: "codex", state: "blocked", note: "aguardando sessao editorial" },
-  { name: "Gemini", cli: "gemini", state: "blocked", note: "aguardando sessao editorial" },
+  { name: "Gemini", cli: "agy", state: "blocked", note: "aguardando sessao editorial" },
   { name: "DeepSeek", cli: "deepseek-api", state: "blocked", note: "aguardando chave de API" },
   { name: "Grok", cli: "grok-api", state: "blocked", note: "aguardando chave de API" },
   { name: "Perplexity", cli: "perplexity-api", state: "blocked", note: "aguardando chave de API" },
@@ -110,7 +110,7 @@ export const initialBootstrapChecks: BootstrapCheckRow[] = [
   { label: "WebView2", value: "verificacao pendente", tone: "pending" },
   { label: "Claude CLI", value: "verificacao pendente", tone: "pending" },
   { label: "Codex CLI", value: "verificacao pendente", tone: "pending" },
-  { label: "Gemini CLI", value: "verificacao pendente", tone: "pending" },
+  { label: "Antigravity CLI (agy)", value: "verificacao pendente", tone: "pending" },
   { label: "Cloudflare env", value: "verificacao pendente", tone: "pending" },
   { label: "Wrangler", value: "aguardando autorizacao", tone: "pending" },
 ];
@@ -179,9 +179,9 @@ export const aiProviderRows = [
   {
     key: "gemini",
     name: "Google / Gemini",
-    cli: "gemini",
+    cli: "agy",
     secretLabel: "Gemini API key",
-    meta: "Developer API ou Vertex AI, projeto e regiao",
+    meta: "Developer API ou Vertex AI; CLI local via Antigravity (agy)",
   },
   {
     key: "deepseek",

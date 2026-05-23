@@ -4,10 +4,10 @@
 // `docs/code-split-plan.md` migration step 5.
 //
 // What's here (4 functions):
-//   - `effective_agent_input` — CLI-aware adapter. Gemini receives sidecar
-//     pointers through argv (`--prompt <text>`); Codex receives the full prompt
-//     through stdin to avoid a shell/tool loop trying to read the sidecar file;
-//     other CLIs keep the compact stdin pointer.
+//   - `effective_agent_input` — CLI-aware adapter. Gemini/Antigravity receives
+//     inline prompts or sidecar pointers through argv (`--print <text>`);
+//     Codex receives the full prompt through stdin to avoid a shell/tool loop
+//     trying to read the sidecar file; other CLIs keep the compact stdin pointer.
 //   - `prepare_agent_input` — write large prompts (> 48k chars) to a
 //     `<output>-input.md` sidecar and return a short stdin pointer; smaller
 //     prompts pass through untouched.
@@ -54,9 +54,12 @@ pub(crate) fn effective_agent_input(
         };
     }
 
-    if command == "gemini" && prepared.input_path.is_some() {
+    if command == "agy" || command == "antigravity" || command == "gemini" {
         let mut next_args = args;
-        if let Some(prompt_index) = next_args.iter().position(|arg| arg == "--prompt") {
+        if let Some(prompt_index) = next_args
+            .iter()
+            .position(|arg| arg == "--print" || arg == "--prompt" || arg == "-p")
+        {
             if let Some(prompt) = next_args.get_mut(prompt_index + 1) {
                 *prompt = prepared.stdin_text.clone();
             }
@@ -66,7 +69,11 @@ pub(crate) fn effective_agent_input(
             args: next_args,
             stdin_text: None,
             stdin_chars: 0,
-            delivery: "prompt_arg_sidecar",
+            delivery: if prepared.input_path.is_some() {
+                "print_arg_sidecar"
+            } else {
+                "print_arg_inline"
+            },
         };
     }
 

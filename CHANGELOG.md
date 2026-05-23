@@ -6,6 +6,27 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.31] - 2026-05-23
+
+### Changed
+- Migrated the Gemini local CLI transport from the deprecated `gemini` binary to Google Antigravity CLI (`agy`) while preserving `gemini` as Maestro's internal peer/provider key for saved sessions, provider settings, artifacts, and convergence logic.
+- Updated CLI preflight, bootstrap rows, provider settings metadata, startup diagnostics, active-agent aliases, and documentation to report Antigravity CLI (`agy`) as the current local Google/Gemini transport.
+- Added `%LOCALAPPDATA%\agy\bin` to the Windows command resolver so the locally installed `agy.exe` is found even when the process PATH is incomplete.
+
+### Fixed
+- Routed `agy` through a PTY-backed command runner because local official print-mode probes authenticated and generated output but did not return the generated text through plain stdout pipes. Other CLI peers continue to use the existing pipe runner.
+- Updated Gemini prompt delivery to use Antigravity print arguments (`--print <prompt>`) instead of legacy Gemini CLI flags (`--prompt`, `--output-format`, `--approval-mode`, `--skip-trust`).
+- Applied the same Windows `taskkill /T /F` process-tree termination policy to PTY children, so timeout/cancel paths do not wait for a stuck PTY child to finish naturally.
+
+### Validation
+- `npm run typecheck`: passed.
+- `cargo check`: passed after regenerating `Cargo.lock` for the new `portable-pty` dependency; existing dead-code warning debt remains.
+- `cargo check --locked`: passed with the same pre-existing dead-code warning debt.
+- Focused Rust tests passed: `resolves_requested_initial_agent_aliases`, `gemini_sidecar_input_is_delivered_through_antigravity_print_arg`, and `editorial_agent_environment_does_not_apply_legacy_gemini_trust_to_agy`.
+- Added and passed `pty_runner_times_out_for_agy_stem`, which forces the PTY path with a temporary `agy.ps1` and confirms Maestro returns on timeout before the script's final marker.
+- `git diff --check`: passed.
+- `cross-review-v2` session `104cb00d-343f-4aff-ab3b-f9b8e96c214e`: R1 requested inline evidence and a PTY timeout proof; R2 converged `unanimous_ready` after the PTY process-tree kill fix and evidence-backed validation.
+
 ## [v0.5.30] - 2026-05-15
 
 **Patch — 4-gate quality directive compliance (eslint + biome + prettier + cross-review).** Adds `@biomejs/biome` ^2.4.15 + `biome.json` aligned with prettier conventions (lineWidth 100, indent space 2, double quotes, trailing commas all, semicolons always). New `npm run biome` + `npm run biome:write` scripts scoped to `src/` (excludes `src-tauri/`, which is gated by `cargo check` + `cargo clippy` in the existing Rust-gates CI job). CI workflow now runs `npm run biome` between `npm ci` and the existing hygiene gates.

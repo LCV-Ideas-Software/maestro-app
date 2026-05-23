@@ -17,7 +17,7 @@ Portable Windows editorial workbench for protocol-driven AI drafting, source ver
 [![stack: Tauri 2 + React 19](https://img.shields.io/badge/stack-Tauri%202%20%2B%20React%2019-blueviolet.svg)](#architecture)
 [![license: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 
-**Status.** Stable. Current release: **v0.5.30** (release tag `v00.05.30`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release: **v0.5.31** (release tag `v00.05.31`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 Operational stable baseline started at `v0.5.25`, with live bootstrap, diagnostics, navigation, Cloudflare credential provisioning, AI API credential checks, PostEditor parity, link auditing, and a real background Claude/Codex/Gemini/DeepSeek/Grok editorial session path. From `v0.5.27`, Maestro also supports Perplexity as an API-only Sonar peer. Runtime evidence from session `run-2026-05-11T01-09-30-556Z` confirms the first documented end-to-end unanimous editorial delivery: Maestro `0.5.25` resumed a real API-mode session, reached `READY_UNANIMOUS`, and wrote a clean `texto-final.md`.
 
@@ -25,6 +25,7 @@ The version history at a glance:
 
 | Release | Scope |
 | --- | --- |
+| **`v0.5.31`** | Gemini local CLI transport migrated from deprecated Gemini CLI to Google Antigravity CLI (`agy`). |
 | **`v0.5.30`** | Patch — 4-gate quality directive compliance (eslint + biome + prettier + cross-review). |
 | **`v0.5.29`** | Added a live "Agente em turno" indicator that tracks the backend editorial run events and shows which peer is currently drafting, reviewing, or rewriting. |
 | **`v0.5.27`** | Perplexity / Sonar as the sixth editorial peer. |
@@ -117,7 +118,7 @@ Planned modern stack: Tauri 2 + WebView2, React 19, Vite 8, TypeScript 6, Vitest
 
 Diagnostic logs are structured NDJSON files under `data/logs/`, one file per app execution, with native/frontend context and per-agent process events so failures can be attached for precise analysis. The app UI shows a human-readable activity summary while the raw NDJSON remains available for deep debugging. See `docs/logging.md`.
 
-CLI agents run in background by design, without visible terminal windows in Windows release builds. DeepSeek, Grok, and Perplexity run through official API paths, not local CLIs. Real editorial calls do not have an artificial timeout. The operator can choose Claude, Codex, Gemini, DeepSeek, Grok, or Perplexity to write the first version; that choice is saved with the session. Maestro applies a tribunal-style editorial model: the agent that authored the current draft/revision is the petitioner for that cycle and can revise/contest through the next cycle, but cannot vote as reviewer of the same text. Review rounds use only independent active peers; if the author cannot be verified or no independent reviewer remains, the session pauses instead of allowing self-review. The operator sees friendly progress, elapsed-time heartbeat status, phase status, resume controls, and a selectable UI verbosity level, while raw prompts, stdout, stderr, working drafts, and transcripts stay out of the normal interface and remain protected as ignored local runtime artifacts under `data/sessions/`.
+CLI agents run in background by design, without visible terminal windows in Windows release builds. Claude and Codex use their local CLIs; Gemini uses Google Antigravity CLI (`agy`) as the local CLI transport after Google's Gemini CLI transition. DeepSeek, Grok, and Perplexity run through official API paths, not local CLIs. Real editorial calls do not have an artificial timeout. The operator can choose Claude, Codex, Gemini, DeepSeek, Grok, or Perplexity to write the first version; that choice is saved with the session. Maestro applies a tribunal-style editorial model: the agent that authored the current draft/revision is the petitioner for that cycle and can revise/contest through the next cycle, but cannot vote as reviewer of the same text. Review rounds use only independent active peers; if the author cannot be verified or no independent reviewer remains, the session pauses instead of allowing self-review. The operator sees friendly progress, elapsed-time heartbeat status, phase status, resume controls, and a selectable UI verbosity level, while raw prompts, stdout, stderr, working drafts, and transcripts stay out of the normal interface and remain protected as ignored local runtime artifacts under `data/sessions/`.
 
 Perplexity configuration:
 

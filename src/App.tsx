@@ -1975,7 +1975,7 @@ export function App() {
         },
         {
           name: "Gemini",
-          cli: "gemini",
+          cli: "agy",
           state: "blocked",
           note: "falha antes de resultado estruturado",
         },
@@ -3415,7 +3415,8 @@ export function App() {
                     <span>
                       <strong>API</strong> roda os 6 peers via provedores oficiais.{" "}
                       <strong>Hibrido</strong> reserva DeepSeek, Grok e Perplexity para API (nao tem
-                      CLI) e Claude, Codex, Gemini para CLI, sempre, independentemente das chaves.{" "}
+                      CLI) e Claude, Codex, Gemini via Antigravity CLI (agy), sempre,
+                      independentemente das chaves.{" "}
                       <strong>CLI</strong> roda os 3 peers com CLI; DeepSeek, Grok e Perplexity
                       ficam desabilitados porque nao possuem integracao CLI. Tarifas continuam
                       obrigatorias para qualquer chamada de API.

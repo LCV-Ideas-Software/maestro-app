@@ -7,10 +7,10 @@
 //   - `claude_args`, `codex_args`, `gemini_args`, `deepseek_args` — argv
 //     templates for each peer CLI; called as `(spec.args)()` to materialize
 //     a fresh `Vec<String>` per spawn.
-//   - `editorial_agent_specs` — 4-entry vector of `EditorialAgentSpec` keyed
+//   - `editorial_agent_specs` — vector of `EditorialAgentSpec` keyed
 //     by peer name.
 //   - `resolve_initial_agent_key` — normalizes operator's free-form initial
-//     agent string into one of {claude, codex, gemini, deepseek} with an
+//     agent string into one of the supported peer keys with an
 //     optional warning string for unrecognized inputs.
 //   - `ordered_editorial_agent_specs` — places the chosen first key at the
 //     head of the spec list, others follow in declaration order.
@@ -69,13 +69,12 @@ pub(crate) fn codex_args() -> Vec<String> {
 
 pub(crate) fn gemini_args() -> Vec<String> {
     vec![
-        "--prompt".to_string(),
-        "Read the complete stdin payload and follow Maestro's instructions exactly.".to_string(),
-        "--output-format".to_string(),
-        "text".to_string(),
-        "--approval-mode".to_string(),
-        "yolo".to_string(),
-        "--skip-trust".to_string(),
+        "--print".to_string(),
+        "Read the complete prompt supplied by Maestro and follow its instructions exactly."
+            .to_string(),
+        "--print-timeout".to_string(),
+        "240m".to_string(),
+        "--dangerously-skip-permissions".to_string(),
     ]
 }
 
@@ -108,7 +107,7 @@ pub(crate) fn editorial_agent_specs() -> Vec<EditorialAgentSpec> {
         EditorialAgentSpec {
             key: "gemini",
             name: "Gemini",
-            command: "gemini",
+            command: "agy",
             args: gemini_args,
         },
         EditorialAgentSpec {
@@ -140,7 +139,7 @@ pub(crate) fn resolve_initial_agent_key(value: Option<&str>) -> (&'static str, O
     match normalized.as_str() {
         "claude" | "anthropic" => ("claude", None),
         "codex" | "openai" | "chatgpt" => ("codex", None),
-        "gemini" | "google" => ("gemini", None),
+        "gemini" | "google" | "agy" | "antigravity" => ("gemini", None),
         "deepseek" | "deepseek-api" => ("deepseek", None),
         "grok" | "xai" | "grok-api" => ("grok", None),
         "perplexity" | "sonar" | "perplexity-api" => ("perplexity", None),

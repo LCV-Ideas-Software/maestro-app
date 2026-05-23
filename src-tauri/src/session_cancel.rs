@@ -3,7 +3,7 @@
 // shipped in v0.5.0 to support the operator-driven "Stop session" button.
 //
 // Rationale: a long editorial session may run for many minutes (Claude/Codex/
-// Gemini CLI peers regularly take 3-7 minutes each in real operator logs).
+// Google/Antigravity CLI peers regularly take 3-7 minutes each in real operator logs).
 // Pre-v0.5.0 the only way to abort was killing the entire app. v0.5.0 wires a
 // `tokio_util::sync::CancellationToken` per run_id so the operator can press
 // "Parar sessao" in the UI and:

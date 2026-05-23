@@ -3,7 +3,7 @@
 // extracted from lib.rs in v0.3.39.
 //
 // This module owns the dependency_preflight smoke probe machinery that
-// validates each external CLI (Claude, Codex, Gemini) is callable and
+// validates each external CLI (Claude, Codex, Gemini via Antigravity) is callable and
 // returns the expected marker. The Tauri command wrapper
 // (`run_cli_adapter_smoke`) stays in lib.rs because it lives on the
 // `#[tauri::command]` registry boundary and orchestrates calls to these
@@ -14,8 +14,8 @@
 //     marker, CLI args, per-CLI timeout). Args differ per CLI: Claude uses
 //     `--print --output-format text --permission-mode dontAsk`, Codex uses
 //     `--ask-for-approval never exec --skip-git-repo-check --sandbox
-//     read-only --color never`, and Gemini uses `--prompt --output-format
-//     text --approval-mode yolo --skip-trust`.
+//     read-only --color never`, and Gemini uses Antigravity CLI (`agy`) in
+//     print mode.
 //   - `run_cli_adapter_probe` — single-spec runner: resolves the command
 //     against the effective PATH (returns `blocked` tone with status "CLI
 //     nao encontrada no PATH efetivo" when missing), invokes
@@ -83,16 +83,14 @@ pub(crate) fn cli_adapter_specs(request: &CliAdapterSmokeRequest) -> Vec<CliAdap
         },
         CliAdapterSpec {
             name: "Gemini",
-            command: "gemini",
+            command: "agy",
             marker: "MAESTRO_CLI_SMOKE_GEMINI_READY",
             args: vec![
-                "--prompt".to_string(),
+                "--print".to_string(),
                 format!("{prompt_base} Marker: MAESTRO_CLI_SMOKE_GEMINI_READY"),
-                "--output-format".to_string(),
-                "text".to_string(),
-                "--approval-mode".to_string(),
-                "yolo".to_string(),
-                "--skip-trust".to_string(),
+                "--print-timeout".to_string(),
+                "90s".to_string(),
+                "--dangerously-skip-permissions".to_string(),
             ],
             timeout: Duration::from_secs(90),
         },

@@ -46,7 +46,7 @@ Local prerequisite recheck observed 2026-04-26: Rust is installed through rustup
 
 ## 4. Core Modules
 
-- `agent-adapters`: Codex CLI, Claude CLI, Gemini CLI process adapters with model pins, timeout policy, redaction, stdout/stderr capture, JSON/JSONL parser hardening, auth probes, update probes, and no silent model downgrade. See `docs/cli-agent-audit.md`.
+- `agent-adapters`: Codex CLI, Claude CLI, and Gemini via Antigravity CLI (`agy`) process adapters with model pins, timeout policy, redaction, stdout/stderr capture, JSON/JSONL parser hardening, auth probes, update probes, and no silent model downgrade. See `docs/cli-agent-audit.md`.
 - `ai-provider-adapters`: official API/SDK adapters for OpenAI/Codex, Anthropic/Claude, Google/Gemini, and DeepSeek with model pins, request budgets, provider request IDs, and transport provenance.
 - `credential-manager`: local JSON persistence, Windows environment variable reader/writer for secret-only hybrid mode, Cloudflare D1/Secrets Store remote mode, redaction checks, and per-provider credential validation.
 - `runtime-bootstrapper`: first-run dependency inventory, install/update/configuration plan, operator authorization, background execution, CLI authentication flow, and final readiness report.
@@ -178,7 +178,7 @@ Because AI models will keep finding failures and improvements in the editorial r
 
 ## 7.1 Background Agent UX
 
-Claude CLI, Codex CLI, and Gemini CLI are runtime workers, not visible terminal sessions. DeepSeek is an API peer. The operator experience must keep every peer in background and translate activity into clear UI states:
+Claude CLI, Codex CLI, and Gemini via Antigravity CLI (`agy`) are runtime workers, not visible terminal sessions. DeepSeek is an API peer. The operator experience must keep every peer in background and translate activity into clear UI states:
 
 - Current action, phase, progress, and blocker indicators.
 - Agent status cards using `READY`, `NOT_READY`, and `NEEDS_EVIDENCE`.

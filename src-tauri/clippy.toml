@@ -2,7 +2,7 @@
 #
 # Direct `std::process::Command::new` calls bypass the central
 # `hidden_command` -> `resolved_command_builder` -> `apply_editorial_agent_environment`
-# pipeline that injects PYTHONUTF8/LC_ALL/LANG/GEMINI_CLI_TRUST_WORKSPACE,
+# pipeline that injects PYTHONUTF8/LC_ALL/LANG and legacy GEMINI_CLI_TRUST_WORKSPACE,
 # CREATE_NO_WINDOW on Windows, and pipe-error classification. Bypassing
 # the funnel for an editorial CLI is exactly the "casca vazia" pattern
 # the operator coined: a UI/spec lever whose runtime ignores it.

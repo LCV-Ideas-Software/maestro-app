@@ -352,11 +352,11 @@ fn run_editorial_agent(
             } else if status == "CODEX_WINDOWS_SANDBOX_UPSTREAM" {
                 "\n> Codex CLI 0.128.0+ no Windows roda o sandbox em PowerShell ConstrainedLanguage e trava ao desmontar o tree de processos (stderr mostra `ConstrainedLanguage`, `Cannot set property` ou `ERRO: o processo` do taskkill). Bug upstream conhecido (rastreado no cross-review-mcp v1.5.0+). Tente outro peer ou ambiente sem o sandbox.\n"
             } else if status == "GEMINI_WORKSPACE_VIOLATION" {
-                "\n> Gemini CLI bloqueou uma chamada de ferramenta porque o agente tentou acessar caminho fora do workspace (`Path not in workspace` / `resolves outside the allowed workspace directories`). Esperado quando o protocolo pede recursos no diretorio pai. Tente outro peer.\n"
+                "\n> Google CLI bloqueou uma chamada de ferramenta porque o agente tentou acessar caminho fora do workspace (`Path not in workspace` / `resolves outside the allowed workspace directories`). Esperado quando o protocolo pede recursos no diretorio pai. Tente outro peer.\n"
             } else if status == "GEMINI_RIPGREP_UNAVAILABLE" {
-                "\n> Gemini CLI indicou que `rg`/ripgrep nao esta disponivel no ambiente do processo. A revisao foi tratada como falha operacional recuperavel; ajuste o PATH efetivo ou tente outro peer antes de retomar.\n"
+                "\n> Google CLI indicou que `rg`/ripgrep nao esta disponivel no ambiente do processo. A revisao foi tratada como falha operacional recuperavel; ajuste o PATH efetivo ou tente outro peer antes de retomar.\n"
             } else if status == "GEMINI_CLI_NO_FINAL_OUTPUT" {
-                "\n> Gemini CLI encerrou sem stdout nem diagnostico util. A revisao foi tratada como falha operacional recuperavel, nao como parecer editorial.\n"
+                "\n> Google CLI encerrou sem stdout nem diagnostico util. A revisao foi tratada como falha operacional recuperavel, nao como parecer editorial.\n"
             } else if status == "CODEX_CLI_NO_FINAL_OUTPUT" {
                 "\n> Codex CLI encerrou sem entregar parecer final em stdout. Quando o transcript aparece no stderr, ele e diagnostico operacional e nao substitui o parecer editorial estruturado.\n"
             } else if status == "AGENT_FAILED_NO_OUTPUT" {
@@ -483,7 +483,7 @@ fn run_editorial_agent(
 /// at `reference_codex_cli_sandbox_constrained_language.md`. Tracked
 /// upstream; deferred from cross-review-mcp v1.4.0 to v1.5.0+.
 ///
-/// **Gemini workspace violation** (Gemini CLI with `--skip-trust`): the CLI
+/// **Google workspace violation** (legacy Gemini CLI / Antigravity CLI): the CLI
 /// resolves the workspace as the agent's CWD (`agent-runs/`) and refuses
 /// any file-system tool that touches the parent session directory; emits
 /// `Error executing tool list_directory: Path not in workspace` /

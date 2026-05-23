@@ -60,7 +60,7 @@ pub(crate) fn filter_existing_agents_to_active_set(
             let normalized = match key.as_str() {
                 "claude" | "anthropic" => "claude",
                 "codex" | "openai" | "chatgpt" => "codex",
-                "gemini" | "google" => "gemini",
+                "gemini" | "google" | "agy" | "antigravity" => "gemini",
                 "deepseek" | "deepseek-api" => "deepseek",
                 "grok" | "xai" | "grok-api" => "grok",
                 _ => key.as_str(),

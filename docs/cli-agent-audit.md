@@ -1,9 +1,9 @@
 # CLI Agent Audit
 
 Status: implementation gate.
-Date: 2026-04-26.
+Date: 2026-05-23.
 
-This audit records what Maestro must rely on, verify, and defend against when orchestrating Codex CLI, Claude CLI, and Gemini CLI in background.
+This audit records what Maestro must rely on, verify, and defend against when orchestrating Codex CLI, Claude CLI, and Gemini via Google Antigravity CLI (`agy`) in background.
 
 It is not enough for a CLI to "answer a prompt". Maestro needs predictable non-interactive execution, auth probing, structured output, exit-code handling, stderr capture, tool/permission controls, model provenance, and safe update behavior.
 
@@ -15,7 +15,7 @@ Observed on this Windows 11+ development machine:
 | --- | --- | --- | --- | --- |
 | Codex | `codex` | `0.125.0` | `codex --ask-for-approval never exec --skip-git-repo-check --sandbox read-only --color never "<short prompt>"` accepted stdin appended as a `<stdin>` block and returned the requested marker; stdin-only `-` mode was observed hanging in one local probe | Text/JSONL-capable events depending on flags |
 | Claude | `claude` | `2.1.119` | `claude --print --input-format text --output-format text --permission-mode dontAsk` accepted stdin and returned the requested marker | Text, JSON object, or stream JSON depending on flags |
-| Gemini | `gemini` | `0.39.1` | `gemini --prompt "Read stdin and comply." --output-format text --approval-mode yolo --skip-trust` accepted stdin and returned the requested marker, with terminal warning noise possible | Text or JSON object depending on flags |
+| Gemini | `agy` | `1.0.1` | `agy --print "<prompt>" --print-timeout 30s --dangerously-skip-permissions` authenticated through Antigravity and generated output in terminal/print mode, but plain stdout pipes did not capture the answer locally; Maestro therefore runs `agy` through the PTY transport path. | Terminal print stream captured through PTY |
 
 Auth was present for the local smoke tests, but Maestro must never assume the operator's machine is already authenticated.
 
@@ -28,12 +28,11 @@ Auth was present for the local smoke tests, but Maestro must never assume the op
 - Claude Code CLI reference: https://code.claude.com/docs/en/cli-reference
 - Claude Code environment variables: https://code.claude.com/docs/en/env-vars
 - Claude Code permission modes: https://code.claude.com/docs/en/permission-modes
-- Gemini CLI docs: https://google-gemini.github.io/gemini-cli/docs/
-- Gemini CLI headless mode: https://google-gemini.github.io/gemini-cli/docs/cli/headless.html
-- Gemini CLI authentication: https://google-gemini.github.io/gemini-cli/docs/get-started/authentication.html
-- Gemini CLI shell tool: https://google-gemini.github.io/gemini-cli/docs/tools/shell.html
-- Gemini CLI web fetch/search tools: https://google-gemini.github.io/gemini-cli/docs/tools/web-fetch.html and https://google-gemini.github.io/gemini-cli/docs/tools/web-search.html
-- Gemini CLI release cadence: https://google-gemini.github.io/gemini-cli/docs/releases.html
+- Google Developers Blog transition notice: https://developers.googleblog.com/en/an-important-update-transitioning-gemini-cli-to-antigravity-cli/
+- Antigravity CLI overview: https://antigravity.google/docs/cli-overview
+- Antigravity CLI usage/settings: https://antigravity.google/docs/cli-using
+- Antigravity CLI features and slash commands: https://antigravity.google/docs/cli-features
+- Antigravity CLI getting started: https://antigravity.google/docs/cli-getting-started
 
 ## Suitability Findings
 
@@ -67,20 +66,18 @@ Required adapter choices:
 - Parse API cost and model usage from JSON output for diagnostics and operator budgeting.
 - Treat `ANTHROPIC_API_KEY` as overriding subscription auth in non-interactive mode when present.
 
-### Gemini CLI
+### Gemini / Antigravity CLI
 
-Gemini is suitable for Maestro orchestration through headless mode, with stricter parsing guards.
+Gemini remains a Maestro peer identity, but the local CLI transport is now Antigravity CLI (`agy`). Google announced the consumer/free Gemini CLI transition to Antigravity CLI, with consumer/free Gemini CLI requests stopping on June 18, 2026. Maestro must therefore treat the legacy `gemini` binary as fallback/diagnostic evidence only.
 
 Required adapter choices:
 
-- Use `gemini -p` / `--prompt` for headless runs.
-- Prefer `--output-format json` and parse a JSON object defensively.
-- Expect terminal warning noise even on successful runs; do not require byte-perfect stdout.
-- Use environment-variable auth for headless systems when no cached login exists.
-- Track token/tool statistics from JSON output.
-- Configure approval mode explicitly: `default`, `auto_edit`, `yolo`, or `plan`.
-- Treat Gemini web fetch/search as model-mediated evidence, not raw mechanical verification. Maestro's own Web Evidence Engine remains authoritative for link validation.
-- Monitor release cadence. Gemini stable releases are frequent; Maestro should run a version probe before long sessions.
+- Use `agy --print <prompt>` with an explicit `--print-timeout`.
+- Keep the internal peer key as `gemini`; only the command transport changes to `agy`.
+- Capture `agy` through the PTY runner, because local plain-pipe tests exited successfully without returning the generated answer on stdout.
+- Set `--dangerously-skip-permissions` only inside Maestro's controlled editorial prompts; the app must continue to prohibit agents from writing local files as part of the prompt contract.
+- Treat Antigravity tool/web evidence as model-mediated evidence, not raw mechanical verification. Maestro's own Web Evidence Engine remains authoritative for link validation.
+- Probe `agy --version` during dependency preflight and log `gemini_legacy` separately when present, so support can distinguish current and deprecated Google transports.
 
 ## Cross-Agent Adapter Contract
 

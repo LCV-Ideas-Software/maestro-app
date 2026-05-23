@@ -18,7 +18,7 @@ use serde_json::json;
 use serde_json::Value;
 #[cfg(test)]
 use std::{fs, path::Path, thread};
-use std::{path::PathBuf, process::Output, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use tauri::{Emitter, Manager};
 
 mod ai_probes;
@@ -549,8 +549,40 @@ pub(crate) struct CliAdapterSpec {
     pub(crate) timeout: Duration,
 }
 
+pub(crate) struct CommandExitStatus {
+    code: Option<i32>,
+    success: bool,
+}
+
+impl CommandExitStatus {
+    pub(crate) fn new(code: Option<i32>, success: bool) -> Self {
+        Self { code, success }
+    }
+
+    pub(crate) fn from_std(status: std::process::ExitStatus) -> Self {
+        Self {
+            code: status.code(),
+            success: status.success(),
+        }
+    }
+
+    pub(crate) fn code(&self) -> Option<i32> {
+        self.code
+    }
+
+    pub(crate) fn success(&self) -> bool {
+        self.success
+    }
+}
+
+pub(crate) struct CommandOutput {
+    pub(crate) status: CommandExitStatus,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: Vec<u8>,
+}
+
 pub(crate) struct TimedCommandOutput {
-    pub(crate) output: Output,
+    pub(crate) output: CommandOutput,
     pub(crate) duration_ms: u128,
     pub(crate) timed_out: bool,
     pub(crate) stdout_pipe_error: Option<String>,
@@ -714,7 +746,8 @@ pub fn run() {
                         "resolved_commands": {
                             "claude": resolve_command("claude").map(|path| path.to_string_lossy().to_string()),
                             "codex": resolve_command("codex").map(|path| path.to_string_lossy().to_string()),
-                            "gemini": resolve_command("gemini").map(|path| path.to_string_lossy().to_string()),
+                            "agy": resolve_command("agy").map(|path| path.to_string_lossy().to_string()),
+                            "gemini_legacy": resolve_command("gemini").map(|path| path.to_string_lossy().to_string()),
                             "node": resolve_command("node").map(|path| path.to_string_lossy().to_string()),
                             "npm": resolve_command("npm").map(|path| path.to_string_lossy().to_string()),
                             "cargo": resolve_command("cargo").map(|path| path.to_string_lossy().to_string()),
@@ -836,6 +869,8 @@ mod tests {
         assert_eq!(resolve_initial_agent_key(Some("Codex")).0, "codex");
         assert_eq!(resolve_initial_agent_key(Some("chatgpt")).0, "codex");
         assert_eq!(resolve_initial_agent_key(Some("Google")).0, "gemini");
+        assert_eq!(resolve_initial_agent_key(Some("agy")).0, "gemini");
+        assert_eq!(resolve_initial_agent_key(Some("Antigravity")).0, "gemini");
         assert_eq!(resolve_initial_agent_key(Some("Anthropic")).0, "claude");
         assert_eq!(resolve_initial_agent_key(Some("DeepSeek")).0, "deepseek");
         assert_eq!(resolve_initial_agent_key(Some("Sonar")).0, "perplexity");
@@ -1813,7 +1848,7 @@ mod tests {
     }
 
     #[test]
-    fn editorial_agent_environment_sets_gemini_trust_only_for_gemini_cli() {
+    fn editorial_agent_environment_sets_gemini_trust_only_for_legacy_gemini_cli() {
         #[allow(clippy::disallowed_methods)]
         let mut command = std::process::Command::new("gemini");
         let path = Path::new("gemini");
@@ -1831,6 +1866,22 @@ mod tests {
                 .map(String::as_str),
             Some("true")
         );
+    }
+
+    #[test]
+    fn editorial_agent_environment_does_not_apply_legacy_gemini_trust_to_agy() {
+        #[allow(clippy::disallowed_methods)]
+        let mut command = std::process::Command::new("agy");
+        let path = Path::new("agy");
+        apply_editorial_agent_environment(&mut command, path);
+        let envs: Vec<(String, String)> = command
+            .get_envs()
+            .filter_map(|(key, value)| {
+                Some((key.to_str()?.to_string(), value?.to_str()?.to_string()))
+            })
+            .collect();
+        let envs_map: std::collections::BTreeMap<_, _> = envs.into_iter().collect();
+        assert_eq!(envs_map.get("GEMINI_CLI_TRUST_WORKSPACE"), None);
     }
 
     #[test]
@@ -1963,7 +2014,7 @@ mod tests {
     }
 
     #[test]
-    fn gemini_sidecar_input_is_delivered_through_prompt_arg() {
+    fn gemini_sidecar_input_is_delivered_through_antigravity_print_arg() {
         let prepared = PreparedAgentInput {
             stdin_text: "Leia integralmente o arquivo local `large-input.md`.".to_string(),
             full_text: Some("conteudo completo".repeat(10_000)),
@@ -1971,12 +2022,12 @@ mod tests {
             input_path: Some(PathBuf::from("large-input.md")),
         };
 
-        let effective = effective_agent_input("gemini", gemini_args(), &prepared);
+        let effective = effective_agent_input("agy", gemini_args(), &prepared);
         let prompt_index = effective
             .args
             .iter()
-            .position(|arg| arg == "--prompt")
-            .expect("gemini args should include --prompt");
+            .position(|arg| arg == "--print")
+            .expect("Antigravity args should include --print");
 
         assert_eq!(
             effective.args.get(prompt_index + 1),
@@ -1984,7 +2035,7 @@ mod tests {
         );
         assert!(effective.stdin_text.is_none());
         assert_eq!(effective.stdin_chars, 0);
-        assert_eq!(effective.delivery, "prompt_arg_sidecar");
+        assert_eq!(effective.delivery, "print_arg_sidecar");
     }
 
     #[test]

@@ -77,7 +77,7 @@ pub(crate) fn canonical_editorial_agent_key(value: &str) -> Option<&'static str>
     match normalized.as_str() {
         "claude" | "anthropic" => Some("claude"),
         "codex" | "openai" | "chatgpt" => Some("codex"),
-        "gemini" | "google" => Some("gemini"),
+        "gemini" | "google" | "agy" | "antigravity" => Some("gemini"),
         "deepseek" | "deepseek-api" => Some("deepseek"),
         "grok" | "xai" | "grok-api" => Some("grok"),
         "perplexity" | "sonar" | "perplexity-api" => Some("perplexity"),

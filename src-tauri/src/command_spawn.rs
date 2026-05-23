@@ -17,6 +17,8 @@
 //     stdout/stderr in 2 reader threads with byte counters, polls every
 //     250ms, emits `session.agent.running` every 30s, honors optional
 //     timeout, and returns `TimedCommandOutput`.
+//     Antigravity CLI (`agy`) is routed through a PTY because its print mode
+//     writes through terminal APIs that are not reliably captured by pipes.
 //   - `read_pipe_to_end_counting_classified` — pipe reader that increments
 //     a shared atomic byte counter and classifies any I/O error.
 //   - `classify_pipe_error` — Windows-aware classifier (raw_os_error 109/
@@ -26,8 +28,9 @@
 //     -ExecutionPolicy Bypass -File`; everything else via `hidden_command`.
 //     Always applies `apply_editorial_agent_environment`.
 //   - `apply_editorial_agent_environment` — sets UTF-8 (`PYTHONIOENCODING`/
-//     `PYTHONUTF8`/`LC_ALL`/`LANG`) on every child + `GEMINI_CLI_TRUST_WORKSPACE`
-//     when the executable's stem is `gemini` (Gemini sandbox-trust env from B1).
+//     `PYTHONUTF8`/`LC_ALL`/`LANG`) on every child + the legacy
+//     `GEMINI_CLI_TRUST_WORKSPACE` shim only when the executable's stem is
+//     `gemini`.
 //
 // What stays in lib.rs (consumed via `pub(crate)` imports):
 //   - `TimedCommandOutput` struct (pub(crate) since v0.3.35 with all 5
@@ -48,14 +51,16 @@
 // 30-second progress interval, and Windows error code is identical to the
 // v0.3.34 lib.rs source (commit e00538e).
 
+use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::Path;
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
@@ -63,7 +68,8 @@ use crate::command_path::{command_search_dirs, resolve_command};
 use crate::logging::LogSession;
 use crate::{
     app_root, command_working_dir_for_output, hidden_command, log_editorial_agent_running,
-    log_editorial_agent_spawned, sanitize_text, TimedCommandOutput,
+    log_editorial_agent_spawned, sanitize_text, CommandExitStatus, CommandOutput,
+    TimedCommandOutput,
 };
 
 /// Cap per-pipe buffer at 64 MiB. Beyond the cap, bytes continue to be drained
@@ -158,6 +164,17 @@ pub(crate) fn run_resolved_command_observed(
     progress: Option<CommandProgressContext<'_>>,
     cancel_token: Option<&CancellationToken>,
 ) -> std::io::Result<TimedCommandOutput> {
+    if uses_pty_transport(path) {
+        return run_resolved_command_observed_pty(
+            path,
+            args,
+            timeout,
+            stdin_text,
+            progress,
+            cancel_token,
+        );
+    }
+
     let started = Instant::now();
     let mut command = resolved_command_builder(path, args);
     let working_dir = progress
@@ -208,8 +225,8 @@ pub(crate) fn run_resolved_command_observed(
                 .join()
                 .unwrap_or_else(|_| (Vec::new(), Some("stderr_thread_panic".to_string())));
             return Ok(TimedCommandOutput {
-                output: Output {
-                    status,
+                output: CommandOutput {
+                    status: CommandExitStatus::from_std(status),
                     stdout,
                     stderr,
                 },
@@ -231,8 +248,8 @@ pub(crate) fn run_resolved_command_observed(
                     .join()
                     .unwrap_or_else(|_| (Vec::new(), Some("stderr_thread_panic".to_string())));
                 return Ok(TimedCommandOutput {
-                    output: Output {
-                        status,
+                    output: CommandOutput {
+                        status: CommandExitStatus::from_std(status),
                         stdout,
                         stderr,
                     },
@@ -259,8 +276,8 @@ pub(crate) fn run_resolved_command_observed(
                     .join()
                     .unwrap_or_else(|_| (Vec::new(), Some("stderr_thread_panic".to_string())));
                 return Ok(TimedCommandOutput {
-                    output: Output {
-                        status,
+                    output: CommandOutput {
+                        status: CommandExitStatus::from_std(status),
                         stdout,
                         stderr,
                     },
@@ -280,6 +297,153 @@ pub(crate) fn run_resolved_command_observed(
                     started.elapsed(),
                     stdout_bytes.load(Ordering::Relaxed),
                     stderr_bytes.load(Ordering::Relaxed),
+                );
+            }
+            last_progress = Instant::now();
+        }
+
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn uses_pty_transport(path: &Path) -> bool {
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    matches!(stem.as_str(), "agy" | "antigravity")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_resolved_command_observed_pty(
+    path: &Path,
+    args: &[String],
+    timeout: Option<Duration>,
+    stdin_text: Option<&str>,
+    progress: Option<CommandProgressContext<'_>>,
+    cancel_token: Option<&CancellationToken>,
+) -> std::io::Result<TimedCommandOutput> {
+    let started = Instant::now();
+    let working_dir = progress
+        .as_ref()
+        .map(|progress| command_working_dir_for_output(progress.output_path))
+        .unwrap_or_else(app_root);
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize {
+            rows: 40,
+            cols: 160,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(pty_io_error)?;
+    let mut command = pty_command_builder(path, args);
+    command.cwd(working_dir.as_os_str());
+    apply_editorial_agent_environment_to_pty(&mut command, path);
+    let mut child = pair.slave.spawn_command(command).map_err(pty_io_error)?;
+    let child_id = child.process_id().unwrap_or(0);
+    if let Some(progress) = progress.as_ref() {
+        log_editorial_agent_spawned(progress, child_id, path, &working_dir);
+    }
+    drop(pair.slave);
+
+    let stdout_bytes = Arc::new(AtomicU64::new(0));
+    let stdout_counter = Arc::clone(&stdout_bytes);
+    let reader = pair.master.try_clone_reader().map_err(pty_io_error)?;
+    let stdout_handle =
+        thread::spawn(move || read_pipe_to_end_counting_classified(Some(reader), stdout_counter));
+
+    {
+        let mut writer = pair.master.take_writer().map_err(pty_io_error)?;
+        if let Some(text) = stdin_text {
+            writer.write_all(text.as_bytes())?;
+            writer.write_all(b"\r\n")?;
+        }
+    }
+
+    let mut last_progress = Instant::now();
+
+    loop {
+        if let Some(status) = child.try_wait()? {
+            drop(pair.master);
+            let (stdout, stdout_pipe_error) = stdout_handle
+                .join()
+                .unwrap_or_else(|_| (Vec::new(), Some("stdout_thread_panic".to_string())));
+            return Ok(TimedCommandOutput {
+                output: CommandOutput {
+                    status: CommandExitStatus::new(
+                        i32::try_from(status.exit_code()).ok(),
+                        status.success(),
+                    ),
+                    stdout,
+                    stderr: Vec::new(),
+                },
+                duration_ms: started.elapsed().as_millis(),
+                timed_out: false,
+                stdout_pipe_error,
+                stderr_pipe_error: None,
+            });
+        }
+
+        if let Some(timeout) = timeout {
+            if started.elapsed() >= timeout {
+                kill_pty_process_tree(child.as_mut());
+                let status = child.wait()?;
+                drop(pair.master);
+                let (stdout, stdout_pipe_error) = stdout_handle
+                    .join()
+                    .unwrap_or_else(|_| (Vec::new(), Some("stdout_thread_panic".to_string())));
+                return Ok(TimedCommandOutput {
+                    output: CommandOutput {
+                        status: CommandExitStatus::new(
+                            i32::try_from(status.exit_code()).ok(),
+                            status.success(),
+                        ),
+                        stdout,
+                        stderr: Vec::new(),
+                    },
+                    duration_ms: started.elapsed().as_millis(),
+                    timed_out: true,
+                    stdout_pipe_error,
+                    stderr_pipe_error: None,
+                });
+            }
+        }
+
+        if let Some(token) = cancel_token {
+            if token.is_cancelled() {
+                kill_pty_process_tree(child.as_mut());
+                let status = child.wait()?;
+                drop(pair.master);
+                let (stdout, stdout_pipe_error) = stdout_handle
+                    .join()
+                    .unwrap_or_else(|_| (Vec::new(), Some("stdout_thread_panic".to_string())));
+                return Ok(TimedCommandOutput {
+                    output: CommandOutput {
+                        status: CommandExitStatus::new(
+                            i32::try_from(status.exit_code()).ok(),
+                            status.success(),
+                        ),
+                        stdout,
+                        stderr: Vec::new(),
+                    },
+                    duration_ms: started.elapsed().as_millis(),
+                    timed_out: true,
+                    stdout_pipe_error,
+                    stderr_pipe_error: None,
+                });
+            }
+        }
+
+        if last_progress.elapsed() >= Duration::from_secs(30) {
+            if let Some(progress) = progress.as_ref() {
+                log_editorial_agent_running(
+                    progress,
+                    child_id,
+                    started.elapsed(),
+                    stdout_bytes.load(Ordering::Relaxed),
+                    0,
                 );
             }
             last_progress = Instant::now();
@@ -389,6 +553,44 @@ fn resolved_command_builder(path: &Path, args: &[String]) -> Command {
     command
 }
 
+fn pty_command_builder(path: &Path, args: &[String]) -> CommandBuilder {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    #[cfg(windows)]
+    {
+        if extension == "cmd" || extension == "bat" {
+            let mut command =
+                CommandBuilder::new(std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".into()));
+            command.arg("/C");
+            command.arg(path.as_os_str());
+            append_pty_args(&mut command, args);
+            return command;
+        }
+
+        if extension == "ps1" {
+            let mut command = CommandBuilder::new("powershell.exe");
+            command.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);
+            command.arg(path.as_os_str());
+            append_pty_args(&mut command, args);
+            return command;
+        }
+    }
+
+    let mut command = CommandBuilder::new(path.as_os_str());
+    append_pty_args(&mut command, args);
+    command
+}
+
+fn append_pty_args(command: &mut CommandBuilder, args: &[String]) {
+    for arg in args {
+        command.arg(arg.as_str());
+    }
+}
+
 /// Kill a child process AND its descendant tree.
 ///
 /// On Windows, `child.kill()` only terminates the direct PID. When a peer is
@@ -415,18 +617,43 @@ pub(crate) fn kill_process_tree(child: &mut Child) {
     }
 }
 
+fn kill_pty_process_tree(child: &mut dyn portable_pty::Child) {
+    #[cfg(windows)]
+    {
+        if let Some(pid) = child.process_id() {
+            let mut taskkill = hidden_command("taskkill");
+            taskkill.args(["/T", "/F", "/PID", &pid.to_string()]);
+            let _ = taskkill.output();
+        }
+    }
+    let _ = child.kill();
+}
+
 pub(crate) fn apply_editorial_agent_environment(command: &mut Command, path: &Path) {
-    command
-        .env("PYTHONIOENCODING", "utf-8")
-        .env("PYTHONUTF8", "1")
-        .env("LC_ALL", "C.UTF-8")
-        .env("LANG", "C.UTF-8")
-        .env("NO_COLOR", "1")
-        .env("TERM", "dumb")
-        .env("CI", "1");
+    for (key, value) in editorial_agent_environment(path) {
+        command.env(key, value);
+    }
+}
+
+fn apply_editorial_agent_environment_to_pty(command: &mut CommandBuilder, path: &Path) {
+    for (key, value) in editorial_agent_environment(path) {
+        command.env(key, value);
+    }
+}
+
+fn editorial_agent_environment(path: &Path) -> Vec<(&'static str, OsString)> {
+    let mut values = vec![
+        ("PYTHONIOENCODING", OsString::from("utf-8")),
+        ("PYTHONUTF8", OsString::from("1")),
+        ("LC_ALL", OsString::from("C.UTF-8")),
+        ("LANG", OsString::from("C.UTF-8")),
+        ("NO_COLOR", OsString::from("1")),
+        ("TERM", OsString::from("dumb")),
+        ("CI", OsString::from("1")),
+    ];
 
     if let Ok(path) = std::env::join_paths(command_search_dirs()) {
-        command.env("PATH", path);
+        values.push(("PATH", path));
     }
 
     let stem = path
@@ -435,13 +662,21 @@ pub(crate) fn apply_editorial_agent_environment(command: &mut Command, path: &Pa
         .unwrap_or_default()
         .to_ascii_lowercase();
     if stem == "gemini" {
-        command.env("GEMINI_CLI_TRUST_WORKSPACE", "true");
+        values.push(("GEMINI_CLI_TRUST_WORKSPACE", OsString::from("true")));
     }
+
+    values
+}
+
+fn pty_io_error(error: impl std::fmt::Display) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::Other, error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    use std::fs;
     use std::io::Cursor;
 
     #[test]
@@ -539,5 +774,33 @@ mod tests {
     fn max_pipe_bytes_is_64_mib() {
         // Pin the cap so accidental edits surface in CI.
         assert_eq!(MAX_PIPE_BYTES, 64 * 1024 * 1024);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn pty_runner_times_out_for_agy_stem() {
+        let dir =
+            std::env::temp_dir().join(format!("maestro-agy-pty-timeout-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("agy.ps1");
+        fs::write(
+            &script,
+            "Write-Output 'AGY_PTY_TIMEOUT_STARTED'\r\nStart-Sleep -Seconds 5\r\nWrite-Output 'AGY_PTY_TIMEOUT_DONE'\r\n",
+        )
+        .unwrap();
+
+        let result =
+            run_resolved_command_with_timeout(&script, &[], Duration::from_millis(750), None)
+                .unwrap();
+        let stdout = String::from_utf8_lossy(&result.output.stdout);
+
+        assert!(result.timed_out);
+        assert!(
+            !stdout.contains("AGY_PTY_TIMEOUT_DONE"),
+            "PTY timeout must return before the command reaches its final marker: {stdout:?}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

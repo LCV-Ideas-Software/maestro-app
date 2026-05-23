@@ -12,8 +12,8 @@
 //     extension; on POSIX, returns the path unchanged.
 //   - `command_search_dirs` — assembles the effective PATH-like search
 //     order: process PATH first, then well-known Windows install
-//     locations (USERPROFILE\.cargo\bin, APPDATA\npm, LOCALAPPDATA\Programs\
-//     nodejs, LOCALAPPDATA\Microsoft\WinGet\Links, C:\npm-global,
+//     locations (USERPROFILE\.cargo\bin, APPDATA\npm, LOCALAPPDATA\agy\bin,
+//     LOCALAPPDATA\Programs\nodejs, LOCALAPPDATA\Microsoft\WinGet\Links, C:\npm-global,
 //     WinGet ripgrep package dirs, C:\Program Files\nodejs, C:\nvm4w\nodejs,
 //     C:\Program Files\GitHub CLI). Deduplicates by
 //     case-insensitive path string.
@@ -90,6 +90,7 @@ pub(crate) fn command_search_dirs() -> Vec<PathBuf> {
         }
         if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
             let local_app_data = PathBuf::from(local_app_data);
+            dirs.push(local_app_data.join("agy").join("bin"));
             dirs.push(local_app_data.join("Programs").join("nodejs"));
             dirs.push(
                 local_app_data
