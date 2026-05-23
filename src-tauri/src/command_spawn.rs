@@ -354,18 +354,17 @@ fn run_resolved_command_observed_pty(
     let stdout_handle =
         thread::spawn(move || read_pipe_to_end_counting_classified(Some(reader), stdout_counter));
 
-    {
-        let mut writer = pair.master.take_writer().map_err(pty_io_error)?;
-        if let Some(text) = stdin_text {
-            writer.write_all(text.as_bytes())?;
-            writer.write_all(b"\r\n")?;
-        }
+    let mut writer = pair.master.take_writer().map_err(pty_io_error)?;
+    if let Some(text) = stdin_text {
+        writer.write_all(text.as_bytes())?;
+        writer.write_all(b"\r\n")?;
     }
 
     let mut last_progress = Instant::now();
 
     loop {
         if let Some(status) = child.try_wait()? {
+            drop(writer);
             drop(pair.master);
             let (stdout, stdout_pipe_error) = stdout_handle
                 .join()
@@ -390,6 +389,7 @@ fn run_resolved_command_observed_pty(
             if started.elapsed() >= timeout {
                 kill_pty_process_tree(child.as_mut());
                 let status = child.wait()?;
+                drop(writer);
                 drop(pair.master);
                 let (stdout, stdout_pipe_error) = stdout_handle
                     .join()
@@ -415,6 +415,7 @@ fn run_resolved_command_observed_pty(
             if token.is_cancelled() {
                 kill_pty_process_tree(child.as_mut());
                 let status = child.wait()?;
+                drop(writer);
                 drop(pair.master);
                 let (stdout, stdout_pipe_error) = stdout_handle
                     .join()
@@ -669,7 +670,7 @@ fn editorial_agent_environment(path: &Path) -> Vec<(&'static str, OsString)> {
 }
 
 fn pty_io_error(error: impl std::fmt::Display) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::Other, error.to_string())
+    std::io::Error::other(error.to_string())
 }
 
 #[cfg(test)]
@@ -783,22 +784,26 @@ mod tests {
             std::env::temp_dir().join(format!("maestro-agy-pty-timeout-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        let script = dir.join("agy.ps1");
-        fs::write(
-            &script,
-            "Write-Output 'AGY_PTY_TIMEOUT_STARTED'\r\nStart-Sleep -Seconds 5\r\nWrite-Output 'AGY_PTY_TIMEOUT_DONE'\r\n",
+        let shim = dir.join("agy.exe");
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+        fs::copy(Path::new(&system_root).join("System32\\ping.exe"), &shim).unwrap();
+
+        let result = run_resolved_command_with_timeout(
+            &shim,
+            &["-n".to_string(), "6".to_string(), "127.0.0.1".to_string()],
+            Duration::from_millis(750),
+            None,
         )
         .unwrap();
 
-        let result =
-            run_resolved_command_with_timeout(&script, &[], Duration::from_millis(750), None)
-                .unwrap();
-        let stdout = String::from_utf8_lossy(&result.output.stdout);
-
-        assert!(result.timed_out);
         assert!(
-            !stdout.contains("AGY_PTY_TIMEOUT_DONE"),
-            "PTY timeout must return before the command reaches its final marker: {stdout:?}"
+            result.timed_out,
+            "expected PTY timeout, got timed_out={}, status={:?}, success={}, duration_ms={}, stdout_pipe_error={:?}",
+            result.timed_out,
+            result.output.status.code(),
+            result.output.status.success(),
+            result.duration_ms,
+            result.stdout_pipe_error
         );
 
         let _ = fs::remove_dir_all(&dir);

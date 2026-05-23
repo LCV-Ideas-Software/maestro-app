@@ -3416,10 +3416,9 @@ export function App() {
                       <strong>API</strong> roda os 6 peers via provedores oficiais.{" "}
                       <strong>Hibrido</strong> reserva DeepSeek, Grok e Perplexity para API (nao tem
                       CLI) e Claude, Codex, Gemini via Antigravity CLI (agy), sempre,
-                      independentemente das chaves.{" "}
-                      <strong>CLI</strong> roda os 3 peers com CLI; DeepSeek, Grok e Perplexity
-                      ficam desabilitados porque nao possuem integracao CLI. Tarifas continuam
-                      obrigatorias para qualquer chamada de API.
+                      independentemente das chaves. <strong>CLI</strong> roda os 3 peers com CLI;
+                      DeepSeek, Grok e Perplexity ficam desabilitados porque nao possuem integracao
+                      CLI. Tarifas continuam obrigatorias para qualquer chamada de API.
                     </span>
                   </div>
 

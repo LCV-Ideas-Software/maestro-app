@@ -41,7 +41,8 @@ pub(crate) fn run_link_audit(text: &str) -> LinkAuditResult {
     let candidates = extract_url_candidates(text);
     let public_urls = candidates
         .iter()
-        .filter_map(|candidate| candidate.public.then(|| candidate.url.clone()))
+        .filter(|candidate| candidate.public)
+        .map(|candidate| candidate.url.clone())
         .collect::<Vec<_>>();
     let client = match Client::builder()
         .timeout(Duration::from_secs(15))

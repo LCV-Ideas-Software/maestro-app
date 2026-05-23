@@ -382,6 +382,7 @@ pub(crate) fn is_operational_agent_result(agent: &EditorialAgentResult) -> bool 
         || agent.status.starts_with("PROVIDER_")
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_serial_revision_prompt(
     request: &EditorialSessionRequest,
     run_id: &str,
@@ -573,7 +574,7 @@ mod tests {
         build_revision_history_block, build_revision_prompt, build_serial_revision_prompt,
     };
     use crate::{app_paths::sessions_dir, EditorialAgentResult, EditorialSessionRequest};
-    use std::path::PathBuf;
+    use std::path::Path;
 
     fn test_request() -> EditorialSessionRequest {
         EditorialSessionRequest {
@@ -747,7 +748,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    fn test_agent(name: &str, status: &str, path: &PathBuf) -> EditorialAgentResult {
+    fn test_agent(name: &str, status: &str, path: &Path) -> EditorialAgentResult {
         EditorialAgentResult {
             name: name.to_string(),
             role: "review".to_string(),

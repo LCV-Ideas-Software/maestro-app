@@ -33,6 +33,7 @@ pub(crate) struct ProviderCachePlan {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum ReviewPanelSelectionError {
     DraftAuthorUnknown,
 }
@@ -99,6 +100,7 @@ pub(crate) fn selected_editorial_agent_specs(
         .collect()
 }
 
+#[allow(dead_code)]
 pub(crate) fn selected_review_agent_specs(
     first_key: &str,
     active_agents: &[String],
@@ -111,6 +113,7 @@ pub(crate) fn selected_review_agent_specs(
         .collect()
 }
 
+#[allow(dead_code)]
 pub(crate) fn independent_review_agent_specs(
     first_key: &str,
     active_agents: &[String],
@@ -126,6 +129,7 @@ pub(crate) fn independent_review_agent_specs(
     ))
 }
 
+#[allow(dead_code)]
 pub(crate) fn can_agent_review_current_draft(
     candidate_key: &str,
     current_draft_author_key: Option<&str>,

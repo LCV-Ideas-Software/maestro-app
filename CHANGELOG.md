@@ -6,6 +6,19 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.32] - 2026-05-23
+
+### Fixed
+- Kept the PTY input writer alive while Antigravity CLI (`agy`) commands are running, preventing Windows ConPTY children from exiting immediately before timeout/cancel handling can operate.
+- Stabilized the PTY timeout regression test by using a local `agy.exe` shim copied from `ping.exe`, avoiding any dependency on a globally installed Google Antigravity CLI in GitHub Actions.
+- Applied the Biome formatting expected by the `Repository hygiene` job.
+- Cleared Rust clippy gate failures by marking intentional selection-helper dead code, using `std::io::Error::other`, replacing `filter_map(...then(...))`, and documenting accepted high-arity prompt/log helper signatures.
+
+### Validation
+- `npm run biome`: passed.
+- `cargo test --locked`: passed, 164 tests.
+- `cargo clippy --locked -- -D warnings`: passed.
+
 ## [v0.5.31] - 2026-05-23
 
 ### Changed

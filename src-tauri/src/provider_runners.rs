@@ -148,6 +148,7 @@ fn anthropic_system_prompt_with_cache_control(system_prompt: &str) -> Value {
     ])
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn log_provider_cache_configured(
     log_session: &LogSession,
     run_id: &str,
