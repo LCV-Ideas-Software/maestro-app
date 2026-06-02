@@ -36,8 +36,11 @@ jobs:
                 | select(.name != "StepSecurity Optional Checks")
                 | select(.name != "StepSecurity Harden-Runner")
               ] as $checks
+              | ([ $checks[] | select(.name == "CodeQL") ]) as $codeql
               | if ($checks | length) == 0 then "pending"
                 elif any($checks[]; .status != "COMPLETED") then "pending"
+                elif ($codeql | length) == 0 then "pending"
+                elif any($codeql[]; .conclusion != "SUCCESS") then "failure"
                 elif all($checks[]; (.conclusion == "SUCCESS" or .conclusion == "SKIPPED" or .conclusion == "NEUTRAL")) then "success"
                 else "failure"
                 end
@@ -87,18 +90,27 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
           set -euo pipefail
+          VALIDATED_HEAD=""
 
           wait_for_checks() {
             for attempt in {1..90}; do
-              state="$(gh pr view "$PR_URL" --json statusCheckRollup --jq '
+              # Read the rollup and the head commit in ONE query so the green
+              # verdict provably belongs to that exact SHA; export it so the
+              # merge below pins --match-head-commit to the validated head.
+              pr_json="$(gh pr view "$PR_URL" --json statusCheckRollup,headRefOid)"
+              head_sha="$(printf '%s' "$pr_json" | jq -r '.headRefOid')"
+              state="$(printf '%s' "$pr_json" | jq -r '
                 [
                   .statusCheckRollup[]
                   | select(.workflowName != "Dependabot Automerge")
                   | select(.name != "StepSecurity Optional Checks")
                   | select(.name != "StepSecurity Harden-Runner")
                 ] as $checks
+                | ([ $checks[] | select(.name == "CodeQL") ]) as $codeql
                 | if ($checks | length) == 0 then "pending"
                   elif any($checks[]; .status != "COMPLETED") then "pending"
+                  elif ($codeql | length) == 0 then "pending"
+                  elif any($codeql[]; .conclusion != "SUCCESS") then "failure"
                   elif all($checks[]; (.conclusion == "SUCCESS" or .conclusion == "SKIPPED" or .conclusion == "NEUTRAL")) then "success"
                   else "failure"
                   end
@@ -106,7 +118,8 @@ jobs:
 
               case "$state" in
                 success)
-                  echo "PR checks are green for $PR_URL."
+                  echo "PR checks are green for $PR_URL at ${head_sha}."
+                  VALIDATED_HEAD="$head_sha"
                   return 0
                   ;;
                 failure)
@@ -143,11 +156,15 @@ jobs:
               exit 0
             fi
 
-            if [ "$merge_attempt" != "1" ]; then
-              wait_for_checks
-            fi
+            # Re-validate checks on every attempt (including the first): a
+            # dependabot rebase can land a new head after the standalone wait
+            # step. wait_for_checks captures the validated head OID (from the
+            # same query as the check rollup) into VALIDATED_HEAD; we pin the
+            # merge to exactly that OID below, so the head we merge is provably
+            # the head whose CodeQL result (and all checks) we just saw green.
+            wait_for_checks
 
-            head_oid="$(gh pr view "$PR_URL" --json headRefOid --jq '.headRefOid')"
+            head_oid="$VALIDATED_HEAD"
             merge_state="$(gh pr view "$PR_URL" --json mergeStateStatus --jq '.mergeStateStatus')"
 
             case "$merge_state" in
