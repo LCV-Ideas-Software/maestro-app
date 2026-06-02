@@ -6,6 +6,20 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.33] - 2026-06-02
+
+### Security
+
+- **Fixed XSS in link insertion.** `PostEditor.tsx` link insertion via the prompt modal interpolated user-provided URL and link text directly into a raw HTML template literal string (`\`<a href="${url}">${text}</a>\``) passed to TipTap's `insertContent()`. Replaced with TipTap's structured content API (`{ type: "text", text, marks: [{ type: "link", attrs }] }`), which treats URL and text as data properties instead of HTML. This eliminates the HTML injection vector entirely.
+- **Replaced `innerHTML` with safe DOM APIs in SlashCommands.** `SlashCommands.ts` rendered menu items using `item.innerHTML` with template literals. While the interpolated values were compile-time constants, using `innerHTML` is an anti-pattern flagged by security scanners. Replaced with `createElement`/`textContent`/`appendChild`. Also replaced `menu.innerHTML = ""` with `menu.replaceChildren()`.
+- **Replaced `innerHTML` clearing in Mention popup.** `extensions.ts` mention popup used `popupEl.innerHTML = ""` to clear its content. Replaced with `popupEl.replaceChildren()` for defense-in-depth.
+
+### Validation
+
+- `tsc --noEmit`: passed.
+- `vite build`: passed; 3 chunks built successfully.
+- Post-fix `innerHTML` audit: only 2 safe instances remain in source (DOMParser `.body.innerHTML` reads inside sanitization pipelines in `PostEditor.tsx` and `extensions.ts`).
+
 ## [v0.5.32] - 2026-05-23
 
 ### Fixed
