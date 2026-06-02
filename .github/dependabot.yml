@@ -22,6 +22,8 @@ updates:
     groups:
       react:
         patterns:
+          - "@types/react"
+          - "@types/react-dom"
           - "react"
           - "react-dom"
         update-types:
