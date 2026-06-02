@@ -101,7 +101,7 @@ export const createMentionSuggestion = (rawItems: string[]) => ({
     const renderList = () => {
       if (!popup) return;
       const popupEl = popup;
-      popupEl.innerHTML = "";
+      popupEl.replaceChildren();
       if (!itemsState.length) {
         const emptyState = popupEl.ownerDocument.createElement("div");
         emptyState.className = "tiptap-mention-menu__empty";

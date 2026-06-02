@@ -193,19 +193,33 @@ function createSlashPopup(editor: Editor, query: string, triggerPos: number): ((
   let selectedIndex = 0;
 
   const renderItems = () => {
-    menu.innerHTML = "";
+    menu.replaceChildren();
     filtered.forEach((cmd, i) => {
       const item = ownerDoc.createElement("div");
       item.className = `slash-commands-item${i === selectedIndex ? " is-selected" : ""}`;
       item.setAttribute("role", "option");
       item.setAttribute("aria-selected", String(i === selectedIndex));
-      item.innerHTML = `
-        <span class="slash-cmd-icon">${cmd.icon}</span>
-        <span class="slash-cmd-text">
-          <span class="slash-cmd-label">${cmd.label}</span>
-          <span class="slash-cmd-desc">${cmd.description}</span>
-        </span>
-      `;
+
+      const iconSpan = ownerDoc.createElement("span");
+      iconSpan.className = "slash-cmd-icon";
+      iconSpan.textContent = cmd.icon;
+
+      const labelSpan = ownerDoc.createElement("span");
+      labelSpan.className = "slash-cmd-label";
+      labelSpan.textContent = cmd.label;
+
+      const descSpan = ownerDoc.createElement("span");
+      descSpan.className = "slash-cmd-desc";
+      descSpan.textContent = cmd.description;
+
+      const textSpan = ownerDoc.createElement("span");
+      textSpan.className = "slash-cmd-text";
+      textSpan.appendChild(labelSpan);
+      textSpan.appendChild(descSpan);
+
+      item.appendChild(iconSpan);
+      item.appendChild(textSpan);
+
       item.addEventListener("mousedown", (e) => {
         e.preventDefault();
         selectCommand(i);

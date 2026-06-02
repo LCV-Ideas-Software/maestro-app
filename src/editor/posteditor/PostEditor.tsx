@@ -556,13 +556,15 @@ export default function PostEditor({
           ? { href: url }
           : { href: url, target: "_blank" as const, rel: "noopener noreferrer" };
         if (editor.state.selection.empty && text) {
-          editor
-            .chain()
-            .focus()
-            .insertContent(
-              `<a href="${url}"${isYoutubeUrl(url) ? "" : ' target="_blank" rel="noopener noreferrer"'}>${text}</a>`,
-            )
-            .run();
+          const marks = [
+            {
+              type: "link",
+              attrs: isYoutubeUrl(url)
+                ? { href: url }
+                : { href: url, target: "_blank", rel: "noopener noreferrer" },
+            },
+          ];
+          editor.chain().focus().insertContent({ type: "text", text, marks }).run();
         } else {
           editor.chain().focus().extendMarkRange("link").setLink(linkAttrs).run();
         }
