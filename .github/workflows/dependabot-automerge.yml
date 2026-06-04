@@ -22,7 +22,27 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: Detect workflow-file changes
+        id: workflow_changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+          if ! changed_files="$(gh pr diff "$PR_URL" --name-only)"; then
+            echo "::warning::Unable to inspect PR diff; skipping automerge rather than merging without workflow-file classification."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if printf '%s\n' "$changed_files" | grep -Eq '^\.github/workflows/'; then
+            echo "::notice::Dependabot PR changes GitHub Actions workflow files. Skipping automerge because GITHUB_TOKEN cannot update workflows; merge this PR manually with a credential that has workflow permission."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
       - name: Wait for PR checks
+        if: steps.workflow_changes.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -78,6 +98,7 @@ jobs:
           exit 1
 
       - name: Auto-approve Dependabot PR
+        if: steps.workflow_changes.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -85,6 +106,7 @@ jobs:
           gh pr review "$PR_URL" --approve --body "Auto-approved Dependabot dependency update after the configured PR checks passed."
 
       - name: Merge PR
+        if: steps.workflow_changes.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -170,11 +192,14 @@ jobs:
             case "$merge_state" in
               CLEAN|HAS_HOOKS)
                 ;;
-              BEHIND|UNKNOWN|UNSTABLE)
+              BEHIND|UNKNOWN)
                 echo "PR merge state is ${merge_state}; updating branch before retry ${merge_attempt}/3."
                 gh pr update-branch "$PR_URL"
                 sleep 30
                 continue
+                ;;
+              UNSTABLE)
+                echo "PR merge state is ${merge_state} after non-automerge checks passed; attempting merge so GitHub returns the concrete blocker if one remains."
                 ;;
               DIRTY)
                 echo "::error::PR has merge conflicts; refusing automerge."
@@ -193,7 +218,7 @@ jobs:
             fi
 
             cat "$merge_log"
-            if grep -Eiq 'base branch was modified|not mergeable|merge conflict|not clean|head branch is not up to date' "$merge_log"; then
+            if grep -Eiq 'base branch was modified|head branch is not up to date' "$merge_log"; then
               if [ "$merge_attempt" = "3" ]; then
                 echo "::error::PR stayed unmergeable after 3 attempts."
                 exit 1
@@ -202,6 +227,11 @@ jobs:
               gh pr update-branch "$PR_URL"
               sleep 30
               continue
+            fi
+
+            if grep -Eiq 'merge conflict|not clean' "$merge_log"; then
+              echo "::error::Merge failed because the PR is not clean; refusing automerge."
+              exit 1
             fi
 
             echo "::error::Unexpected merge failure."
@@ -213,4 +243,4 @@ jobs:
     timeout-minutes: 30
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
