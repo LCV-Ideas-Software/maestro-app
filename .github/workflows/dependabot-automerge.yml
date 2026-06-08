@@ -56,9 +56,11 @@ jobs:
                 | select(.name != "StepSecurity Optional Checks")
                 | select(.name != "StepSecurity Harden-Runner")
               ] as $checks
-              | ([ $checks[] | select(.name == "CodeQL") ]) as $codeql
+              | ["Repository hygiene", "Rust gates (cargo --locked)", "Check index.html formatting"] as $required
+              | ([ $checks[] | select(.workflowName == "CodeQL" or .name == "CodeQL") ]) as $codeql
               | if ($checks | length) == 0 then "pending"
                 elif any($checks[]; .status != "COMPLETED") then "pending"
+                elif any($required[]; . as $required_name | all($checks[]; .name != $required_name)) then "pending"
                 elif ($codeql | length) == 0 then "pending"
                 elif any($codeql[]; .conclusion != "SUCCESS") then "failure"
                 elif all($checks[]; (.conclusion == "SUCCESS" or .conclusion == "SKIPPED" or .conclusion == "NEUTRAL")) then "success"
@@ -128,9 +130,11 @@ jobs:
                   | select(.name != "StepSecurity Optional Checks")
                   | select(.name != "StepSecurity Harden-Runner")
                 ] as $checks
-                | ([ $checks[] | select(.name == "CodeQL") ]) as $codeql
+                | ["Repository hygiene", "Rust gates (cargo --locked)", "Check index.html formatting"] as $required
+                | ([ $checks[] | select(.workflowName == "CodeQL" or .name == "CodeQL") ]) as $codeql
                 | if ($checks | length) == 0 then "pending"
                   elif any($checks[]; .status != "COMPLETED") then "pending"
+                  elif any($required[]; . as $required_name | all($checks[]; .name != $required_name)) then "pending"
                   elif ($codeql | length) == 0 then "pending"
                   elif any($codeql[]; .conclusion != "SUCCESS") then "failure"
                   elif all($checks[]; (.conclusion == "SUCCESS" or .conclusion == "SKIPPED" or .conclusion == "NEUTRAL")) then "success"
@@ -192,11 +196,12 @@ jobs:
             case "$merge_state" in
               CLEAN|HAS_HOOKS)
                 ;;
-              BEHIND|UNKNOWN)
-                echo "PR merge state is ${merge_state}; updating branch before retry ${merge_attempt}/3."
-                gh pr update-branch "$PR_URL"
-                sleep 30
-                continue
+              BEHIND)
+                echo "::error::PR merge state is ${merge_state}; refusing to update a Dependabot branch with GITHUB_TOKEN because the resulting commit may not receive required pull_request checks. Comment @dependabot rebase or @dependabot recreate on the PR, then let this workflow retry on the new Dependabot-authored head."
+                exit 1
+                ;;
+              UNKNOWN)
+                echo "PR merge state is ${merge_state} after non-automerge checks passed; attempting merge so GitHub returns the concrete blocker if one remains."
                 ;;
               UNSTABLE)
                 echo "PR merge state is ${merge_state} after non-automerge checks passed; attempting merge so GitHub returns the concrete blocker if one remains."
@@ -219,14 +224,8 @@ jobs:
 
             cat "$merge_log"
             if grep -Eiq 'base branch was modified|head branch is not up to date' "$merge_log"; then
-              if [ "$merge_attempt" = "3" ]; then
-                echo "::error::PR stayed unmergeable after 3 attempts."
-                exit 1
-              fi
-              echo "Merge failed because the branch is stale or temporarily unmergeable; updating branch before retry."
-              gh pr update-branch "$PR_URL"
-              sleep 30
-              continue
+              echo "::error::Merge failed because the branch is stale or temporarily unmergeable. Comment @dependabot rebase or @dependabot recreate on the PR, then let this workflow retry on the new Dependabot-authored head."
+              exit 1
             fi
 
             if grep -Eiq 'merge conflict|not clean' "$merge_log"; then
