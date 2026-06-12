@@ -316,9 +316,12 @@ pub(crate) fn extract_tagged_block(output: &str, tag: &str) -> Option<String> {
     }
     let open = format!("<{tag}>");
     let close = format!("</{tag}>");
-    let start = output.find(&open)? + open.len();
-    let end = output[start..].find(&close)? + start;
-    let value = output[start..end].trim();
+    // Resolve to the LAST complete <tag>..</tag> pair so a duplicated or echoed
+    // block (a common agent formatting slip) yields the agent's final version
+    // instead of being treated as a contract failure (audit R1).
+    let close_at = output.rfind(&close)?;
+    let open_at = output[..close_at].rfind(&open)? + open.len();
+    let value = output[open_at..close_at].trim();
     (!value.is_empty()).then(|| value.to_string())
 }
 
@@ -388,8 +391,8 @@ pub(crate) fn api_error_message(body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        read_text_file, strip_leading_maestro_status, strip_process_management_noise,
-        write_binary_file, write_text_file,
+        extract_tagged_block, read_text_file, strip_leading_maestro_status,
+        strip_process_management_noise, write_binary_file, write_text_file,
     };
     use crate::app_paths::data_dir;
 
@@ -427,6 +430,33 @@ mod tests {
     fn strip_process_management_noise_preserves_body_mentions() {
         let output = "# Titulo\n\nSUCCESS: The process is described in the article.";
         assert_eq!(strip_process_management_noise(output), output);
+    }
+
+    #[test]
+    fn extract_tagged_block_returns_single_block() {
+        let output = "preamble <maestro_final_text>Texto final</maestro_final_text> trailing";
+        assert_eq!(
+            extract_tagged_block(output, "maestro_final_text").as_deref(),
+            Some("Texto final")
+        );
+    }
+
+    #[test]
+    fn extract_tagged_block_takes_last_when_duplicated() {
+        // A duplicated/echoed block must resolve to the agent's final version
+        // rather than failing the contract (audit R1).
+        let output = "<maestro_final_text>rascunho</maestro_final_text>\n\
+            depois\n<maestro_final_text>versao final</maestro_final_text>";
+        assert_eq!(
+            extract_tagged_block(output, "maestro_final_text").as_deref(),
+            Some("versao final")
+        );
+    }
+
+    #[test]
+    fn extract_tagged_block_none_when_unclosed() {
+        let output = "<maestro_final_text>sem fechamento";
+        assert_eq!(extract_tagged_block(output, "maestro_final_text"), None);
     }
 
     #[test]
