@@ -29,10 +29,12 @@
 // range is identical to the v0.3.30 lib.rs source (commit 91aa863).
 
 use std::collections::BTreeSet;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+use std::sync::Arc;
 use std::time::Duration;
 
 use regex::Regex;
+use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use reqwest::{blocking::Client, redirect::Policy, Url};
 
 use crate::{sanitize_short, sanitize_text, LinkAuditResult, LinkAuditRow};
@@ -47,6 +49,7 @@ pub(crate) fn run_link_audit(text: &str) -> LinkAuditResult {
     let client = match Client::builder()
         .timeout(Duration::from_secs(15))
         .redirect(blocked_aware_redirect_policy())
+        .dns_resolver(Arc::new(PublicOnlyResolver))
         .user_agent(format!(
             "Maestro Editorial AI/{}",
             env!("CARGO_PKG_VERSION")
@@ -215,6 +218,41 @@ fn blocked_aware_redirect_policy() -> Policy {
         }
         attempt.follow()
     })
+}
+
+/// reqwest DNS resolver that resolves every host (initial request AND each
+/// redirect hop) and returns its addresses ONLY if none are private/reserved,
+/// erroring otherwise. Because reqwest connects to exactly the addresses this
+/// resolver returns, the private-network check is bound to the actual
+/// connection — closing the DNS-rebinding / resolver-mismatch window that a
+/// pre-flight-only check leaves open, and failing closed on resolution error
+/// (audit S1 hardening).
+struct PublicOnlyResolver;
+
+impl Resolve for PublicOnlyResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let host = name.as_str().to_string();
+        Box::pin(async move {
+            let resolved: Vec<SocketAddr> = (host.as_str(), 0u16)
+                .to_socket_addrs()
+                .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?
+                .collect();
+            if resolved.is_empty() {
+                return Err(format!("host '{host}' did not resolve to any address").into());
+            }
+            // Reject if ANY resolved address is private/reserved: a host that
+            // mixes public and private answers is exactly the rebinding case.
+            if resolved
+                .iter()
+                .any(|addr| is_blocked_link_audit_ip(addr.ip()))
+            {
+                return Err(
+                    format!("host '{host}' resolves to a private/reserved address").into(),
+                );
+            }
+            Ok(Box::new(resolved.into_iter()) as Addrs)
+        })
+    }
 }
 
 fn is_blocked_link_audit_ip(ip: IpAddr) -> bool {
