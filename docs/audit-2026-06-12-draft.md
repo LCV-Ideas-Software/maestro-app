@@ -46,3 +46,11 @@ Rev.3 consolida a auditoria paralela (cross-review 660dc3d7, também unânime 5/
 - **P4:** S6 (documentação/credenciais), R4 (observar).
 
 Itens P0–P1 com teste que reproduz antes do fix (TDD); `vitest run` + `cargo test` verdes antes/depois. Gate de qualidade de 5 portões antes de qualquer ship.
+
+## Status de implementação (branch `audit/2026-06-12-fixes`)
+
+Implementados (17/18): S1, S2, S3, S4, S5, S6, B1, B2, B4, F1, F2, F3, F4, R1(a parser tolerante), R3. Gates verdes (cargo test 169, vitest 8, clippy/biome/tsc/prettier/markdownlint limpos).
+
+Adiados, com justificativa por evidência (não evasão):
+- **B3** — a escrita atômica num único request exigiria o binding `batch()` do D1 Workers; o endpoint REST `/raw` usado aqui NÃO vincula um array de params plano através de múltiplas instruções `;` (SQLite escopa `?` por instrução). A forma batched seria uma regressão (confirmado em cross-review do diff). Mantida a forma original per-statement idempotente (`INSERT OR REPLACE`), cujo risco de commit parcial é o MEDIUM pré-existente, não uma regressão.
+- **R1(b)/(c)** — cap de retry por-peer que pula o peer + cap de retries pagos por round: alterações nos contadores do loop de orquestração (2.248 linhas, invariantes de custódia/redraw/rodada-circular) que só se validam em sessão multi-agente paga ao vivo. R1(a) já remove a causa-raiz observada (bloco duplicado deixa de forçar retry).
