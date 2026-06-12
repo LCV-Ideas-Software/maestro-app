@@ -22,6 +22,7 @@ describe("hasUnsafeUrlScheme", () => {
     expect(hasUnsafeUrlScheme("http://example.com")).toBe(false);
     expect(hasUnsafeUrlScheme("mailto:a@b.com")).toBe(false);
     expect(hasUnsafeUrlScheme("tel:+551199999")).toBe(false);
+    expect(hasUnsafeUrlScheme("ftp://files.example.com/x")).toBe(false);
     expect(hasUnsafeUrlScheme("/relative/path")).toBe(false);
     expect(hasUnsafeUrlScheme("#anchor")).toBe(false);
     expect(hasUnsafeUrlScheme("//cdn.example.com/x.js")).toBe(false);

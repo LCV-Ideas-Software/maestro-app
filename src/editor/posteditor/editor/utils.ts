@@ -24,7 +24,10 @@ export const hasUnsafeUrlScheme = (url: string): boolean => {
   const schemeMatch = normalized.match(/^([a-z][a-z0-9+.-]*):/);
   if (!schemeMatch) return false;
   const scheme = schemeMatch[1] ?? "";
-  return !["http", "https", "mailto", "tel"].includes(scheme);
+  // Mirror the safe subset of TipTap's own protocol allowlist so legitimate
+  // editorial links (incl. ftp) are not dropped; only script-capable schemes
+  // (javascript/data/vbscript/file/blob/…) fall outside this set.
+  return !["http", "https", "ftp", "ftps", "mailto", "tel"].includes(scheme);
 };
 
 export function migrateLegacyCaptions(html: string): string {
