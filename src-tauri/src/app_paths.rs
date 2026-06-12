@@ -206,7 +206,14 @@ fn resolved_stays_within(canonical_root: &Path, candidate: &Path) -> Result<bool
     let mut tail: Vec<std::ffi::OsString> = Vec::new();
     let mut existing = candidate;
     loop {
-        if existing.exists() {
+        // Use symlink_metadata (does NOT follow the link) rather than exists()
+        // (which follows it). exists() returns false for a *broken* symlink, so
+        // exists() would treat a reparse point as an absent tail component and
+        // walk past it. symlink_metadata stops at the deepest real dir entry —
+        // including a symlink/junction — so the canonicalize() below then either
+        // follows a valid link (and the starts_with check catches an escape) or
+        // fails on a broken link (rejecting the write). Audit S2 / review follow-up.
+        if existing.symlink_metadata().is_ok() {
             break;
         }
         match (existing.file_name(), existing.parent()) {

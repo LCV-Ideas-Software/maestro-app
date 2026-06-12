@@ -2166,6 +2166,37 @@ mod tests {
     }
 
     #[test]
+    fn rejects_writes_through_broken_symlink_escaping_data_dir() {
+        // A symlink/junction inside data/ pointing at a (here non-existent)
+        // location outside data/ must not let a write escape. exists() returns
+        // false for a broken link, so the pre-fix walk would treat it as an
+        // absent tail component and allow the write; symlink_metadata stops at
+        // the link and canonicalize() then fails it. Skipped when the OS denies
+        // symlink creation (e.g. Windows without Developer Mode). Audit S2.
+        let base = sessions_dir().join("symlink-escape-test");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).expect("create test dir");
+        let link = base.join("escape-link");
+        let target = app_root().join("nonexistent-outside-target");
+
+        #[cfg(windows)]
+        let created = std::os::windows::fs::symlink_dir(&target, &link).is_ok();
+        #[cfg(unix)]
+        let created = std::os::unix::fs::symlink(&target, &link).is_ok();
+        #[cfg(not(any(windows, unix)))]
+        let created = false;
+
+        if created {
+            let through = link.join("artifact.md");
+            assert!(
+                checked_data_child_path(&through).is_err(),
+                "write through a broken symlink escaping data/ must be rejected"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn rejects_noncanonical_agent_artifact_names() {
         let agent_dir = sessions_dir()
             .join("run-artifact-name-test")
