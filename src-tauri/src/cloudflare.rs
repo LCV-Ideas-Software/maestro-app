@@ -911,7 +911,11 @@ pub(crate) fn write_ai_provider_metadata_to_cloudflare(
     store: &CloudflareStoreRecord,
     secret_records: &[Value],
 ) -> Result<(), String> {
-    let raw_path = format!("/accounts/{account_id}/d1/database/{database_id}/raw");
+    // Use the /query endpoint (not /raw): the D1 REST docs document /query as
+    // executing a semicolon-joined multi-statement string "as a batch", which is
+    // the atomicity guarantee this write relies on (audit B3). The columnar /raw
+    // result shape is irrelevant for these INSERT writes.
+    let query_path = format!("/accounts/{account_id}/d1/database/{database_id}/query");
     let updated_at = Utc::now().to_rfc3339();
     let metadata = json!({
         "schema_version": 1,
@@ -974,7 +978,7 @@ pub(crate) fn write_ai_provider_metadata_to_cloudflare(
     cloudflare_post_json(
         client,
         token,
-        &raw_path,
+        &query_path,
         json!({ "sql": statements.join(" ") }),
     )?;
 
