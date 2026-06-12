@@ -109,6 +109,25 @@ pub(crate) fn data_dir() -> PathBuf {
     app_root().join("data")
 }
 
+/// Detect whether the portable data directory — which holds the plaintext
+/// `config/ai-providers.json` under `local_json` mode — lives inside a known
+/// cloud-sync folder, so boot can warn the operator that credentials at rest
+/// may be replicated off-device (audit S6). Returns the provider label.
+pub(crate) fn data_dir_cloud_sync_provider() -> Option<&'static str> {
+    let lowered = data_dir().to_string_lossy().to_ascii_lowercase();
+    const MARKERS: &[(&str, &str)] = &[
+        ("onedrive", "OneDrive"),
+        ("dropbox", "Dropbox"),
+        ("google drive", "Google Drive"),
+        ("googledrive", "Google Drive"),
+        ("icloud", "iCloud"),
+    ];
+    MARKERS
+        .iter()
+        .find(|(needle, _)| lowered.contains(needle))
+        .map(|(_, label)| *label)
+}
+
 pub(crate) fn logs_dir() -> PathBuf {
     data_dir().join("logs")
 }

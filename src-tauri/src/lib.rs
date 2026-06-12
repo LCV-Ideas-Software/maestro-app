@@ -756,6 +756,23 @@ pub fn run() {
                     })),
                 },
             );
+            if let Some(sync_provider) = crate::app_paths::data_dir_cloud_sync_provider() {
+                let _ = write_log_record(
+                    &log_session,
+                    LogEventInput {
+                        level: "warn".to_string(),
+                        category: "app.security.data_dir_cloud_synced".to_string(),
+                        message:
+                            "data directory holding local credentials is inside a cloud-synced folder"
+                                .to_string(),
+                        context: Some(json!({
+                            "sync_provider": sync_provider,
+                            "data_dir": crate::app_paths::data_dir().to_string_lossy(),
+                            "advice": "Prefira credential_storage_mode=windows_env ou o Cloudflare Secret Store; sob local_json as chaves ficam em texto plano em config/ai-providers.json e podem ser replicadas para fora do dispositivo."
+                        })),
+                    },
+                );
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
