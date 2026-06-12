@@ -162,7 +162,7 @@ fn windows_registry_env_value(key: &str, name: &str) -> Option<String> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     stdout.lines().find_map(|line| {
-        let parts = line.trim().split_whitespace().collect::<Vec<_>>();
+        let parts = line.split_whitespace().collect::<Vec<_>>();
         let type_index = parts.iter().position(|part| part.starts_with("REG_"))?;
         // reg.exe lookup is case-insensitive but echoes the value name in its
         // stored case, which may differ from the queried name. Match the value
