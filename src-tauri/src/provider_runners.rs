@@ -45,6 +45,12 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::app_paths::checked_data_child_path;
+
+/// Written to the artifact instead of a provider's raw response body when
+/// content extraction fails on an HTTP 200, mirroring the DeepSeek runner so no
+/// unbounded raw provider JSON reaches the session artifact (audit B1).
+const PROVIDER_BODY_OMITTED: &str =
+    "<provedor retornou 200 sem conteudo reconhecido; JSON bruto omitido do artefato>";
 use crate::logging::{write_log_record, LogEventInput, LogSession};
 use crate::provider_retry::{
     build_api_client, build_api_client_async, provider_http_error_status,
@@ -684,7 +690,7 @@ pub(crate) async fn run_openai_api_agent(
     let parsed: Value = serde_json::from_str(&body_text).unwrap_or_else(|_| json!({}));
     let stdout = openai_response_text(&parsed)
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| body_text.trim().to_string());
+        .unwrap_or_else(|| PROVIDER_BODY_OMITTED.to_string());
     let (usage_input_tokens, usage_output_tokens) = usage_tokens(&parsed);
     let cache = Some(provider_cache_telemetry_with_plan(
         &cache_plan,
@@ -911,7 +917,7 @@ pub(crate) async fn run_anthropic_api_agent(
     let parsed: Value = serde_json::from_str(&body_text).unwrap_or_else(|_| json!({}));
     let stdout = anthropic_response_text(&parsed)
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| body_text.trim().to_string());
+        .unwrap_or_else(|| PROVIDER_BODY_OMITTED.to_string());
     let (usage_input_tokens, usage_output_tokens) = usage_tokens(&parsed);
     let cache = Some(provider_cache_telemetry_with_plan(
         &cache_plan,
@@ -1138,7 +1144,7 @@ pub(crate) async fn run_gemini_api_agent(
     let parsed: Value = serde_json::from_str(&body_text).unwrap_or_else(|_| json!({}));
     let stdout = gemini_response_text(&parsed)
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| body_text.trim().to_string());
+        .unwrap_or_else(|| PROVIDER_BODY_OMITTED.to_string());
     let (usage_input_tokens, usage_output_tokens) = gemini_usage_tokens(&parsed);
     let cache = Some(provider_cache_telemetry_with_plan(
         &cache_plan,

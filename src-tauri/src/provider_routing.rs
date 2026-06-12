@@ -162,12 +162,17 @@ fn windows_registry_env_value(key: &str, name: &str) -> Option<String> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     stdout.lines().find_map(|line| {
-        let trimmed = line.trim();
-        if !trimmed.starts_with(name) {
+        let parts = line.trim().split_whitespace().collect::<Vec<_>>();
+        let type_index = parts.iter().position(|part| part.starts_with("REG_"))?;
+        // reg.exe lookup is case-insensitive but echoes the value name in its
+        // stored case, which may differ from the queried name. Match the value
+        // name (everything before the REG_ type column) exactly but case-
+        // insensitively, so a stored `Openai_Api_Key` is still found for an
+        // `OPENAI_API_KEY` query and no prefix collision occurs (audit B2).
+        let value_name = parts[..type_index].join(" ");
+        if !value_name.eq_ignore_ascii_case(name) {
             return None;
         }
-        let parts = trimmed.split_whitespace().collect::<Vec<_>>();
-        let type_index = parts.iter().position(|part| part.starts_with("REG_"))?;
         let value = parts
             .iter()
             .skip(type_index + 1)
