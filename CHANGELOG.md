@@ -6,11 +6,37 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.34] - 2026-06-12
+
+Security and robustness audit fixes across the Rust backend and React frontend.
+
+### Security
+
+- **SSRF hardening in the link audit.** The HTTP client now uses a redirect policy that re-applies the private-network blocklist on every hop, and a custom DNS resolver that resolves each host (initial request and redirects) and refuses to connect when any resolved address is private/reserved, failing closed on resolution errors. This binds the private-network check to the actual connection addresses and closes the DNS-rebinding / open-redirect bypass.
+- **Data-directory path containment.** `checked_data_child_path` now canonicalizes the deepest existing ancestor of a target path (via `symlink_metadata`, so broken symlinks/junctions are detected rather than skipped) and asserts the result stays inside the canonical data directory.
+- **Uniform sanitization of imported HTML.** All four editor ingress paths (Word, Markdown, Gemini import, AI transform/freeform) are routed through a single DOMPurify helper, and a scheme guard strips script-capable link schemes (`javascript:`, `data:`, etc.) independently of the editor's own allowlist.
+- **Diagnostics no longer persist document content.** Long HTML-like strings are redacted in the diagnostics sanitizer.
+- **Plaintext-credential warning.** A boot warning is emitted when the data directory (which can hold the local provider key file) is inside a cloud-synced folder.
+
+### Fixed
+
+- Provider runners no longer write a raw response body into the session artifact when content extraction fails on an HTTP 200.
+- Windows registry value-name lookups are matched case-insensitively, so a stored key whose casing differs from the queried name is no longer silently dropped.
+- Provider metadata and secret references are written to D1 as a single atomic multi-statement batch instead of separate calls, removing the partial-commit window.
+- Free-form log text has control characters collapsed before it reaches the human-log projection, preventing forged log lines.
+- The FloatingMenu blur listener is deregistered on cleanup, the editor save-feedback timer is cleared on unmount, and in-editor search state moved from a module singleton to per-instance plugin state.
+- The editorial output-contract parser tolerates a duplicated/echoed block (resolving to the last complete one) instead of failing the turn, reducing costly non-convergence.
+
+### Validation
+
+- `cargo test`: 171 passed. `cargo clippy --all-targets`: clean.
+- `tsc --noEmit`: passed. `vitest run`: 8 passed. `biome check src`: clean.
+
 ## [v0.5.33] - 2026-06-02
 
 ### Security
 
-- **Fixed XSS in link insertion.** `PostEditor.tsx` link insertion via the prompt modal interpolated user-provided URL and link text directly into a raw HTML template literal string (`\`<a href="${url}">${text}</a>\``) passed to TipTap's `insertContent()`. Replaced with TipTap's structured content API (`{ type: "text", text, marks: [{ type: "link", attrs }] }`), which treats URL and text as data properties instead of HTML. This eliminates the HTML injection vector entirely.
+- **Fixed XSS in link insertion.** `PostEditor.tsx` link insertion via the prompt modal interpolated user-provided URL and link text directly into a raw HTML template literal string (an `<a href="${url}">${text}</a>` literal) passed to TipTap's `insertContent()`. Replaced with TipTap's structured content API (`{ type: "text", text, marks: [{ type: "link", attrs }] }`), which treats URL and text as data properties instead of HTML. This eliminates the HTML injection vector entirely.
 - **Replaced `innerHTML` with safe DOM APIs in SlashCommands.** `SlashCommands.ts` rendered menu items using `item.innerHTML` with template literals. While the interpolated values were compile-time constants, using `innerHTML` is an anti-pattern flagged by security scanners. Replaced with `createElement`/`textContent`/`appendChild`. Also replaced `menu.innerHTML = ""` with `menu.replaceChildren()`.
 - **Replaced `innerHTML` clearing in Mention popup.** `extensions.ts` mention popup used `popupEl.innerHTML = ""` to clear its content. Replaced with `popupEl.replaceChildren()` for defense-in-depth.
 
