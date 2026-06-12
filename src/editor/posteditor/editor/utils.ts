@@ -11,6 +11,22 @@ export const formatImageUrl = (url: string): string => {
 
 export const isYoutubeUrl = (url: string): boolean => /(?:youtube\.com|youtu\.be)\//i.test(url);
 
+// Reject hrefs whose scheme can execute script or smuggle content. TipTap's
+// Link extension already enforces a protocol allowlist, but the app's own link
+// helpers (AutoTargetBlankLink, sanitizeLinksTargetBlank) must not depend on
+// that upstream default — this is the independent backstop. See audit S4.
+// Relative, anchor and scheme-relative ("//host") hrefs have no scheme and are
+// treated as safe; only an explicit dangerous scheme is rejected.
+export const hasUnsafeUrlScheme = (url: string): boolean => {
+  // Drop whitespace browsers ignore inside the scheme ("java\tscript:") before
+  // matching, then require an explicit scheme to be on the safe allowlist.
+  const normalized = url.replace(/\s+/g, "").toLowerCase();
+  const schemeMatch = normalized.match(/^([a-z][a-z0-9+.-]*):/);
+  if (!schemeMatch) return false;
+  const scheme = schemeMatch[1] ?? "";
+  return !["http", "https", "mailto", "tel"].includes(scheme);
+};
+
 export function migrateLegacyCaptions(html: string): string {
   if (!html) return html;
 

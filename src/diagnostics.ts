@@ -58,8 +58,16 @@ function shouldRedactKey(key: string) {
 
 function sanitize(value: unknown, depth = 0): unknown {
   if (depth > 7) return "<max_depth_reached>";
-  if (typeof value === "string")
-    return secretValuePattern.test(value) ? "<redacted>" : value.slice(0, 1600);
+  if (typeof value === "string") {
+    if (secretValuePattern.test(value)) return "<redacted>";
+    // Long HTML-like strings are almost always editor/document content (e.g.
+    // a console.warn carrying ProseMirror output). Don't persist it verbatim
+    // into the diagnostics file — keep only the length marker (S5).
+    if (value.length > 200 && /<[a-z!/][^>]*>/i.test(value)) {
+      return `<html-content-redacted:${value.length}-chars>`;
+    }
+    return value.slice(0, 1600);
+  }
   if (
     typeof value === "number" ||
     typeof value === "boolean" ||

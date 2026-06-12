@@ -98,13 +98,15 @@ export function EditorFloatingMenu({ editor, onInsertTable }: EditorFloatingMenu
     };
     popupWin?.addEventListener("scroll", handleScroll, true);
     popupWin?.addEventListener("scrollend", handleScrollEnd, true);
-    editor.on("selectionUpdate", update);
-    editor.on("blur", () => {
+    const handleBlur = () => {
       setAutoPos(null);
       setDragPos(null);
-    });
+    };
+    editor.on("selectionUpdate", update);
+    editor.on("blur", handleBlur);
     return () => {
       editor.off("selectionUpdate", update);
+      editor.off("blur", handleBlur);
       popupWin?.removeEventListener("scroll", handleScroll, true);
       popupWin?.removeEventListener("scrollend", handleScrollEnd, true);
     };

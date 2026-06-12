@@ -16,11 +16,10 @@ interface SearchState {
 
 export const searchHighlightKey = new PluginKey<DecorationPluginState>("searchHighlight");
 
-let globalSearchState: SearchState = { term: "", currentIndex: 0 };
-
-export function setGlobalSearchState(next: SearchState): void {
-  globalSearchState = next;
-}
+// Search state lives in this plugin's own per-instance state and is driven by
+// transaction metadata (`tr.setMeta(searchHighlightKey, SearchState)`). There is
+// no module-level singleton, so multiple editor instances never share search
+// highlights. See audit finding F3.
 
 export function findAllMatches(doc: ProseMirrorNode, term: string): { from: number; to: number }[] {
   if (!term) return [];
@@ -41,47 +40,37 @@ export function findAllMatches(doc: ProseMirrorNode, term: string): { from: numb
 const SearchHighlightPlugin = new Plugin({
   key: searchHighlightKey,
   state: {
-    init(_config, state) {
-      if (!globalSearchState.term) {
-        return { decorations: DecorationSet.empty, term: "", currentIndex: 0 };
-      }
-      const matches = findAllMatches(state.doc, globalSearchState.term);
-      const decos = matches.map((m, i) =>
-        Decoration.inline(m.from, m.to, {
-          class:
-            i === globalSearchState.currentIndex ? "search-current-highlight" : "search-highlight",
-        }),
-      );
-      return {
-        decorations: DecorationSet.create(state.doc, decos),
-        term: globalSearchState.term,
-        currentIndex: globalSearchState.currentIndex,
-      };
+    init() {
+      return { decorations: DecorationSet.empty, term: "", currentIndex: 0 };
     },
     apply(tr, oldPluginState: DecorationPluginState, _oldState, newState) {
-      if (!globalSearchState.term) {
+      const meta = tr.getMeta(searchHighlightKey) as SearchState | undefined;
+      const term = meta ? meta.term : oldPluginState.term;
+      const currentIndex = meta ? meta.currentIndex : oldPluginState.currentIndex;
+
+      if (!term) {
         return { decorations: DecorationSet.empty, term: "", currentIndex: 0 };
       }
 
       if (
         !tr.docChanged &&
-        oldPluginState.term === globalSearchState.term &&
-        oldPluginState.currentIndex === globalSearchState.currentIndex
+        !meta &&
+        oldPluginState.term === term &&
+        oldPluginState.currentIndex === currentIndex
       ) {
         return oldPluginState;
       }
 
-      const matches = findAllMatches(newState.doc, globalSearchState.term);
+      const matches = findAllMatches(newState.doc, term);
       const decos = matches.map((m, i) =>
         Decoration.inline(m.from, m.to, {
-          class:
-            i === globalSearchState.currentIndex ? "search-current-highlight" : "search-highlight",
+          class: i === currentIndex ? "search-current-highlight" : "search-highlight",
         }),
       );
       return {
         decorations: DecorationSet.create(newState.doc, decos),
-        term: globalSearchState.term,
-        currentIndex: globalSearchState.currentIndex,
+        term,
+        currentIndex,
       };
     },
   },
