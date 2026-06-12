@@ -936,18 +936,21 @@ pub(crate) fn write_ai_provider_metadata_to_cloudflare(
         "updated_at": updated_at
     });
 
-    // Send the settings row and every secret-ref row as ONE batched D1 request
-    // with a flat positional-param list, instead of one HTTP call per row. A
-    // network failure can no longer leave maestro_settings updated while some
-    // maestro_secret_refs rows are missing (audit B3).
-    let mut sql = String::from(
-        "INSERT OR REPLACE INTO maestro_settings (key, value_json, updated_at) VALUES (?, ?, ?);",
-    );
-    let mut params: Vec<Value> = vec![
-        json!("ai.providers"),
-        json!(metadata.to_string()),
-        json!(updated_at),
-    ];
+    // NB (audit B3): true atomicity would require D1's Workers `batch()` binding
+    // (an array of {sql, params} statements). The REST /raw endpoint does NOT
+    // bind a single flat params array across multiple `;`-separated statements
+    // (SQLite scopes positional `?` per statement), so a batched form would be a
+    // regression. Kept as separate idempotent calls: `INSERT OR REPLACE` makes a
+    // retry after a mid-write network failure converge to the correct state.
+    cloudflare_post_json(
+        client,
+        token,
+        &raw_path,
+        json!({
+            "sql": "INSERT OR REPLACE INTO maestro_settings (key, value_json, updated_at) VALUES (?, ?, ?)",
+            "params": ["ai.providers", metadata.to_string(), updated_at]
+        }),
+    )?;
 
     for record in secret_records {
         let Some(name) = record.get("name").and_then(Value::as_str) else {
@@ -961,16 +964,16 @@ pub(crate) fn write_ai_provider_metadata_to_cloudflare(
             .get("secret_id")
             .and_then(Value::as_str)
             .unwrap_or("id-nao-retornado");
-        sql.push_str(
-            " INSERT OR REPLACE INTO maestro_secret_refs (name, store_id, secret_id, updated_at) VALUES (?, ?, ?, ?);",
-        );
-        params.push(json!(name));
-        params.push(json!(store_id));
-        params.push(json!(secret_id));
-        params.push(json!(updated_at));
+        cloudflare_post_json(
+            client,
+            token,
+            &raw_path,
+            json!({
+                "sql": "INSERT OR REPLACE INTO maestro_secret_refs (name, store_id, secret_id, updated_at) VALUES (?, ?, ?, ?)",
+                "params": [name, store_id, secret_id, updated_at]
+            }),
+        )?;
     }
-
-    cloudflare_post_json(client, token, &raw_path, json!({ "sql": sql, "params": params }))?;
 
     Ok(())
 }
