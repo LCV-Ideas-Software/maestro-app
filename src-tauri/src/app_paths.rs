@@ -164,7 +164,47 @@ pub(crate) fn checked_data_child_path(path: &Path) -> Result<PathBuf, String> {
         return Err("internal data path contains unsafe segments".to_string());
     }
 
-    Ok(data_root.join(relative))
+    let resolved = data_root.join(relative);
+
+    // Lexical checks above block `..` and absolute-outside paths, but a symlink
+    // or junction planted inside `data/` could still resolve outside it once
+    // opened. Canonicalize the deepest existing ancestor (the file itself may
+    // not exist yet) and confirm it stays within the canonical data root (S2).
+    let canonical_root = data_root
+        .canonicalize()
+        .map_err(|error| format!("failed to canonicalize Maestro data root: {error}"))?;
+    if !resolved_stays_within(&canonical_root, &resolved)? {
+        return Err("internal data path escaped Maestro data directory".to_string());
+    }
+
+    Ok(resolved)
+}
+
+/// Resolve the deepest existing ancestor of `candidate` via `canonicalize`
+/// (following any symlinks/junctions), re-append the not-yet-created tail, and
+/// report whether the result is still contained in `canonical_root`.
+fn resolved_stays_within(canonical_root: &Path, candidate: &Path) -> Result<bool, String> {
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let mut existing = candidate;
+    loop {
+        if existing.exists() {
+            break;
+        }
+        match (existing.file_name(), existing.parent()) {
+            (Some(name), Some(parent)) => {
+                tail.push(name.to_os_string());
+                existing = parent;
+            }
+            _ => break,
+        }
+    }
+    let mut resolved = existing
+        .canonicalize()
+        .map_err(|error| format!("failed to canonicalize Maestro data path: {error}"))?;
+    for name in tail.iter().rev() {
+        resolved.push(name);
+    }
+    Ok(resolved.starts_with(canonical_root))
 }
 
 /// Predicate: every component of a relative data path must be a Normal
