@@ -756,6 +756,23 @@ pub fn run() {
                     })),
                 },
             );
+            if let Some(sync_provider) = crate::app_paths::data_dir_cloud_sync_provider() {
+                let _ = write_log_record(
+                    &log_session,
+                    LogEventInput {
+                        level: "warn".to_string(),
+                        category: "app.security.data_dir_cloud_synced".to_string(),
+                        message:
+                            "data directory holding local credentials is inside a cloud-synced folder"
+                                .to_string(),
+                        context: Some(json!({
+                            "sync_provider": sync_provider,
+                            "data_dir": crate::app_paths::data_dir().to_string_lossy(),
+                            "advice": "Prefira credential_storage_mode=windows_env ou o Cloudflare Secret Store; sob local_json as chaves ficam em texto plano em config/ai-providers.json e podem ser replicadas para fora do dispositivo."
+                        })),
+                    },
+                );
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2146,6 +2163,37 @@ mod tests {
         assert!(checked_data_child_path(&traversal).is_err());
         let inside = sessions_dir().join("safe").join("artifact.md");
         assert!(checked_data_child_path(&inside).is_ok());
+    }
+
+    #[test]
+    fn rejects_writes_through_broken_symlink_escaping_data_dir() {
+        // A symlink/junction inside data/ pointing at a (here non-existent)
+        // location outside data/ must not let a write escape. exists() returns
+        // false for a broken link, so the pre-fix walk would treat it as an
+        // absent tail component and allow the write; symlink_metadata stops at
+        // the link and canonicalize() then fails it. Skipped when the OS denies
+        // symlink creation (e.g. Windows without Developer Mode). Audit S2.
+        let base = sessions_dir().join("symlink-escape-test");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).expect("create test dir");
+        let link = base.join("escape-link");
+        let target = app_root().join("nonexistent-outside-target");
+
+        #[cfg(windows)]
+        let created = std::os::windows::fs::symlink_dir(&target, &link).is_ok();
+        #[cfg(unix)]
+        let created = std::os::unix::fs::symlink(&target, &link).is_ok();
+        #[cfg(not(any(windows, unix)))]
+        let created = false;
+
+        if created {
+            let through = link.join("artifact.md");
+            assert!(
+                checked_data_child_path(&through).is_err(),
+                "write through a broken symlink escaping data/ must be rejected"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

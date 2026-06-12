@@ -29,10 +29,12 @@
 // range is identical to the v0.3.30 lib.rs source (commit 91aa863).
 
 use std::collections::BTreeSet;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+use std::sync::Arc;
 use std::time::Duration;
 
 use regex::Regex;
+use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use reqwest::{blocking::Client, redirect::Policy, Url};
 
 use crate::{sanitize_short, sanitize_text, LinkAuditResult, LinkAuditRow};
@@ -46,7 +48,8 @@ pub(crate) fn run_link_audit(text: &str) -> LinkAuditResult {
         .collect::<Vec<_>>();
     let client = match Client::builder()
         .timeout(Duration::from_secs(15))
-        .redirect(Policy::limited(5))
+        .redirect(blocked_aware_redirect_policy())
+        .dns_resolver(Arc::new(PublicOnlyResolver))
         .user_agent(format!(
             "Maestro Editorial AI/{}",
             env!("CARGO_PKG_VERSION")
@@ -182,9 +185,74 @@ fn public_http_url_rejection_reason(value: &str) -> Option<String> {
         if is_blocked_link_audit_ip(ip) {
             return Some("IP privado, reservado ou local bloqueado por seguranca".to_string());
         }
+    } else if host_resolves_to_blocked_ip(&host) {
+        return Some("dominio resolve para IP privado/reservado bloqueado por seguranca".to_string());
     }
 
     None
+}
+
+/// Resolve a non-IP-literal host and report whether ANY resolved address falls
+/// in the blocked ranges. Closes the "public hostname with a private A record"
+/// SSRF vector that the IP-literal check alone misses. Resolution failure is
+/// treated as not-blocked (the request would fail to connect anyway); the port
+/// is irrelevant to the IP-range check (S1).
+fn host_resolves_to_blocked_ip(host: &str) -> bool {
+    match (host, 80u16).to_socket_addrs() {
+        Ok(addrs) => addrs.into_iter().any(|addr| is_blocked_link_audit_ip(addr.ip())),
+        Err(_) => false,
+    }
+}
+
+/// Redirect policy that re-runs the private-network guard on every hop's target
+/// URL, so an open redirect pointing at an internal address is refused instead
+/// of followed. Caps the chain at 5 hops, matching the prior `Policy::limited(5)`
+/// behaviour for legitimate public redirects (S1).
+fn blocked_aware_redirect_policy() -> Policy {
+    Policy::custom(|attempt| {
+        if public_http_url_rejection_reason(attempt.url().as_str()).is_some() {
+            return attempt.error("redirect target blocked by link-audit private-network policy");
+        }
+        if attempt.previous().len() >= 5 {
+            return attempt.stop();
+        }
+        attempt.follow()
+    })
+}
+
+/// reqwest DNS resolver that resolves every host (initial request AND each
+/// redirect hop) and returns its addresses ONLY if none are private/reserved,
+/// erroring otherwise. Because reqwest connects to exactly the addresses this
+/// resolver returns, the private-network check is bound to the actual
+/// connection — closing the DNS-rebinding / resolver-mismatch window that a
+/// pre-flight-only check leaves open, and failing closed on resolution error
+/// (audit S1 hardening).
+struct PublicOnlyResolver;
+
+impl Resolve for PublicOnlyResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let host = name.as_str().to_string();
+        Box::pin(async move {
+            let resolved: Vec<SocketAddr> = (host.as_str(), 0u16)
+                .to_socket_addrs()
+                .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?
+                .collect();
+            if resolved.is_empty() {
+                return Err(format!("host '{host}' did not resolve to any address").into());
+            }
+            // Reject if ANY resolved address is private/reserved: a host that
+            // mixes public and private answers is exactly the rebinding case.
+            if resolved
+                .iter()
+                .any(|addr| is_blocked_link_audit_ip(addr.ip()))
+            {
+                return Err(
+                    format!("host '{host}' resolves to a private/reserved address").into(),
+                );
+            }
+            Ok(Box::new(resolved.into_iter()) as Addrs)
+        })
+    }
 }
 
 fn is_blocked_link_audit_ip(ip: IpAddr) -> bool {

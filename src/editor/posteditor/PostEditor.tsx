@@ -62,7 +62,13 @@ import { PromptModal as EditorPromptModal } from "./editor/PromptModal";
 import { PROMPT_MODAL_INITIAL, type PromptModalState } from "./editor/promptModalState";
 import { SearchReplacePanel } from "./editor/SearchReplace";
 import { TIPTAP_SLASH_EVENTS } from "./editor/SlashCommands";
-import { clamp, formatImageUrl, isYoutubeUrl, migrateLegacyCaptions } from "./editor/utils";
+import {
+  clamp,
+  formatImageUrl,
+  hasUnsafeUrlScheme,
+  isYoutubeUrl,
+  migrateLegacyCaptions,
+} from "./editor/utils";
 
 type SaveFeedback = { message: string; type: "success" | "error" | "info" } | null;
 
@@ -79,6 +85,13 @@ const GEMINI_IMPORT_IDLE: GeminiImportProgress = {
   message: "",
   percent: 0,
 };
+
+// Single sanitization posture for every path that injects remote or imported
+// HTML into the editor (Word, Markdown, Gemini import, AI transform/freeform).
+// Routing all of them through this keeps the four ingress points uniform so no
+// path can insert unsanitized markup. See audit finding S3.
+const sanitizeImportedHtml = (html: string): string =>
+  DOMPurify.sanitize(html, { ADD_ATTR: ["style", "data-width"] });
 
 export type PostEditorProps = {
   editingPostId: number | null;
@@ -228,8 +241,9 @@ export default function PostEditor({
       const data = (await res.json()) as { text?: string; error?: string };
       if (!res.ok) throw new Error(data.error || "Erro na geração por IA.");
       if (data.text) {
-        if (empty) editor.commands.setContent(data.text);
-        else editor.chain().focus().deleteSelection().insertContent(data.text).run();
+        const safe = sanitizeImportedHtml(data.text);
+        if (empty) editor.commands.setContent(safe);
+        else editor.chain().focus().deleteSelection().insertContent(safe).run();
       }
       showNotification("Instrução aplicada com sucesso.", "success");
       setAiChatInput("");
@@ -266,7 +280,12 @@ export default function PostEditor({
       if (!res.ok) throw new Error(data.error || "Erro na geração por IA.");
 
       if (data.text) {
-        editor.chain().focus().deleteSelection().insertContent(data.text).run();
+        editor
+          .chain()
+          .focus()
+          .deleteSelection()
+          .insertContent(sanitizeImportedHtml(data.text))
+          .run();
       }
       showNotification("Transformação aplicada com sucesso.", "success");
     } catch (err) {
@@ -389,9 +408,7 @@ export default function PostEditor({
         // .docx (e.g. opened from email/web) could carry payloads such as
         // event handlers or dangerous URLs. Markdown import already uses
         // DOMPurify; mirror that posture here.
-        const sanitized = DOMPurify.sanitize(htmlResult.value, {
-          ADD_ATTR: ["style", "data-width"],
-        });
+        const sanitized = sanitizeImportedHtml(htmlResult.value);
         editor.chain().focus().insertContent(sanitized).run();
         showNotification("Documento do Word importado com sucesso.", "success");
       } catch (err) {
@@ -693,6 +710,14 @@ export default function PostEditor({
     saveFeedbackTimer.current = setTimeout(() => setSaveFeedback(null), 5000);
   }, []);
 
+  // Clear the pending feedback timer on unmount so it cannot fire after the
+  // editor is closed (F2).
+  useEffect(() => {
+    return () => {
+      if (saveFeedbackTimer.current) clearTimeout(saveFeedbackTimer.current);
+    };
+  }, []);
+
   const runTableCommand = useCallback(
     (
       command: (chain: ReturnType<typeof editor.chain>) => { run: () => boolean },
@@ -720,6 +745,13 @@ export default function PostEditor({
     let changed = false;
     anchors.forEach((a) => {
       const href = a.getAttribute("href") || "";
+      // Strip script-capable schemes before the HTML is persisted/published,
+      // independent of TipTap's allowlist (S4).
+      if (hasUnsafeUrlScheme(href)) {
+        a.removeAttribute("href");
+        changed = true;
+        return;
+      }
       if (isYoutubeUrl(href)) return;
       if (a.getAttribute("target") !== "_blank") {
         a.setAttribute("target", "_blank");
@@ -910,7 +942,7 @@ export default function PostEditor({
         });
 
         if (data.html) {
-          editor.chain().focus().insertContent(data.html).run();
+          editor.chain().focus().insertContent(sanitizeImportedHtml(data.html)).run();
           if (data.title && !postTitle.trim()) setPostTitle(data.title);
         }
 

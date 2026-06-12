@@ -914,7 +914,12 @@ pub(crate) fn run_editorial_session_core(
             let _ = write_log_record(
                 log_session,
                 LogEventInput {
-                    level: "error".to_string(),
+                    // Defensive fallback only: select_serial_reviewer_index already
+                    // excludes the current author from both the nominal and pending
+                    // candidate sets, so reaching here means an upstream invariant
+                    // broke. Logged at debug since it is no longer an expected
+                    // operational error (audit R3).
+                    level: "debug".to_string(),
                     category: "session.tribunal.self_review_blocked".to_string(),
                     message:
                         "serial scheduler attempted to assign the current version to its own author after redraw"
@@ -1630,22 +1635,26 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
 fn require_balanced_tag(stdout: &str, tag: &str) -> Result<(), String> {
     let open = stdout.matches(&format!("<{tag}>")).count();
     let close = stdout.matches(&format!("</{tag}>")).count();
-    if open == 1 && close == 1 {
-        Ok(())
-    } else if open == 0 && close == 0 {
+    if open == 0 && close == 0 {
         Err(format!("missing {tag} block"))
+    } else if open == close {
+        // Tolerate a duplicated/echoed block as long as it is balanced;
+        // extract_tagged_block resolves to the last complete one (audit R1).
+        Ok(())
     } else {
-        Err(format!("incomplete or duplicated {tag} block"))
+        Err(format!("incomplete {tag} block"))
     }
 }
 
 fn require_balanced_optional_tag(stdout: &str, tag: &str) -> Result<(), String> {
     let open = stdout.matches(&format!("<{tag}>")).count();
     let close = stdout.matches(&format!("</{tag}>")).count();
-    if open == close && open <= 1 {
+    if open == close {
+        // Optional block: absent (0/0) or balanced (including duplicated) is
+        // fine; extract_tagged_block resolves to the last complete one (R1).
         Ok(())
     } else {
-        Err(format!("incomplete or duplicated {tag} block"))
+        Err(format!("incomplete {tag} block"))
     }
 }
 
@@ -2232,7 +2241,10 @@ Texto incompleto"#;
     }
 
     #[test]
-    fn serial_contract_rejects_duplicate_revision_report() {
+    fn serial_contract_tolerates_balanced_duplicate_blocks() {
+        // A duplicated-but-balanced block is no longer a contract failure; it
+        // resolves to the agent's last complete block instead of burning a
+        // paid retry (audit R1).
         let stdout = r#"MAESTRO_STATUS: READY
 <maestro_revision_report>
 { "reviewer": "codex", "status": "READY", "custody": "unchanged", "changes": [] }
@@ -2241,8 +2253,22 @@ Texto incompleto"#;
 { "reviewer": "codex", "status": "READY", "custody": "unchanged", "changes": [] }
 </maestro_revision_report>"#;
 
-        let error = validate_serial_turn_output(stdout, "READY").unwrap_err();
+        let output =
+            validate_serial_turn_output(stdout, "READY").expect("balanced duplicate is accepted");
+        assert!(output.final_text.is_none());
+    }
 
+    #[test]
+    fn serial_contract_still_rejects_unbalanced_block() {
+        // An unclosed/unbalanced block remains a genuine contract failure.
+        let stdout = r#"MAESTRO_STATUS: READY
+<maestro_revision_report>
+{ "reviewer": "codex", "status": "READY", "custody": "unchanged", "changes": [] }
+</maestro_revision_report>
+<maestro_revision_report>
+{ "reviewer": "codex", "status": "READY", "custody": "unchanged", "changes": [] }"#;
+
+        let error = validate_serial_turn_output(stdout, "READY").unwrap_err();
         assert!(error.contains("maestro_revision_report"));
     }
 }

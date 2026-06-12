@@ -109,6 +109,25 @@ pub(crate) fn data_dir() -> PathBuf {
     app_root().join("data")
 }
 
+/// Detect whether the portable data directory — which holds the plaintext
+/// `config/ai-providers.json` under `local_json` mode — lives inside a known
+/// cloud-sync folder, so boot can warn the operator that credentials at rest
+/// may be replicated off-device (audit S6). Returns the provider label.
+pub(crate) fn data_dir_cloud_sync_provider() -> Option<&'static str> {
+    let lowered = data_dir().to_string_lossy().to_ascii_lowercase();
+    const MARKERS: &[(&str, &str)] = &[
+        ("onedrive", "OneDrive"),
+        ("dropbox", "Dropbox"),
+        ("google drive", "Google Drive"),
+        ("googledrive", "Google Drive"),
+        ("icloud", "iCloud"),
+    ];
+    MARKERS
+        .iter()
+        .find(|(needle, _)| lowered.contains(needle))
+        .map(|(_, label)| *label)
+}
+
 pub(crate) fn logs_dir() -> PathBuf {
     data_dir().join("logs")
 }
@@ -164,7 +183,54 @@ pub(crate) fn checked_data_child_path(path: &Path) -> Result<PathBuf, String> {
         return Err("internal data path contains unsafe segments".to_string());
     }
 
-    Ok(data_root.join(relative))
+    let resolved = data_root.join(relative);
+
+    // Lexical checks above block `..` and absolute-outside paths, but a symlink
+    // or junction planted inside `data/` could still resolve outside it once
+    // opened. Canonicalize the deepest existing ancestor (the file itself may
+    // not exist yet) and confirm it stays within the canonical data root (S2).
+    let canonical_root = data_root
+        .canonicalize()
+        .map_err(|error| format!("failed to canonicalize Maestro data root: {error}"))?;
+    if !resolved_stays_within(&canonical_root, &resolved)? {
+        return Err("internal data path escaped Maestro data directory".to_string());
+    }
+
+    Ok(resolved)
+}
+
+/// Resolve the deepest existing ancestor of `candidate` via `canonicalize`
+/// (following any symlinks/junctions), re-append the not-yet-created tail, and
+/// report whether the result is still contained in `canonical_root`.
+fn resolved_stays_within(canonical_root: &Path, candidate: &Path) -> Result<bool, String> {
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let mut existing = candidate;
+    loop {
+        // Use symlink_metadata (does NOT follow the link) rather than exists()
+        // (which follows it). exists() returns false for a *broken* symlink, so
+        // exists() would treat a reparse point as an absent tail component and
+        // walk past it. symlink_metadata stops at the deepest real dir entry —
+        // including a symlink/junction — so the canonicalize() below then either
+        // follows a valid link (and the starts_with check catches an escape) or
+        // fails on a broken link (rejecting the write). Audit S2 / review follow-up.
+        if existing.symlink_metadata().is_ok() {
+            break;
+        }
+        match (existing.file_name(), existing.parent()) {
+            (Some(name), Some(parent)) => {
+                tail.push(name.to_os_string());
+                existing = parent;
+            }
+            _ => break,
+        }
+    }
+    let mut resolved = existing
+        .canonicalize()
+        .map_err(|error| format!("failed to canonicalize Maestro data path: {error}"))?;
+    for name in tail.iter().rev() {
+        resolved.push(name);
+    }
+    Ok(resolved.starts_with(canonical_root))
 }
 
 /// Predicate: every component of a relative data path must be a Normal

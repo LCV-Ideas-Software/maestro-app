@@ -911,7 +911,11 @@ pub(crate) fn write_ai_provider_metadata_to_cloudflare(
     store: &CloudflareStoreRecord,
     secret_records: &[Value],
 ) -> Result<(), String> {
-    let raw_path = format!("/accounts/{account_id}/d1/database/{database_id}/raw");
+    // Use the /query endpoint (not /raw): the D1 REST docs document /query as
+    // executing a semicolon-joined multi-statement string "as a batch", which is
+    // the atomicity guarantee this write relies on (audit B3). The columnar /raw
+    // result shape is irrelevant for these INSERT writes.
+    let query_path = format!("/accounts/{account_id}/d1/database/{database_id}/query");
     let updated_at = Utc::now().to_rfc3339();
     let metadata = json!({
         "schema_version": 1,
@@ -936,15 +940,19 @@ pub(crate) fn write_ai_provider_metadata_to_cloudflare(
         "updated_at": updated_at
     });
 
-    cloudflare_post_json(
-        client,
-        token,
-        &raw_path,
-        json!({
-            "sql": "INSERT OR REPLACE INTO maestro_settings (key, value_json, updated_at) VALUES (?, ?, ?)",
-            "params": ["ai.providers", metadata.to_string(), updated_at]
-        }),
-    )?;
+    // Atomic write (audit B3): D1's query endpoint executes a multi-statement
+    // SQL string "as a batch" (Cloudflare D1 REST docs), i.e. all-or-nothing, in
+    // ONE request — so a mid-write network failure can no longer leave the
+    // settings row updated while some secret-ref rows are missing. A flat
+    // `params` array is NOT reliably bound across multiple statements (SQLite
+    // scopes `?` per statement), so the internal/controlled values are inlined as
+    // escaped SQLite string literals via `sql_string_literal`.
+    let mut statements = vec![format!(
+        "INSERT OR REPLACE INTO maestro_settings (key, value_json, updated_at) VALUES ({}, {}, {});",
+        sql_string_literal("ai.providers"),
+        sql_string_literal(&metadata.to_string()),
+        sql_string_literal(&updated_at),
+    )];
 
     for record in secret_records {
         let Some(name) = record.get("name").and_then(Value::as_str) else {
@@ -958,18 +966,31 @@ pub(crate) fn write_ai_provider_metadata_to_cloudflare(
             .get("secret_id")
             .and_then(Value::as_str)
             .unwrap_or("id-nao-retornado");
-        cloudflare_post_json(
-            client,
-            token,
-            &raw_path,
-            json!({
-                "sql": "INSERT OR REPLACE INTO maestro_secret_refs (name, store_id, secret_id, updated_at) VALUES (?, ?, ?, ?)",
-                "params": [name, store_id, secret_id, updated_at]
-            }),
-        )?;
+        statements.push(format!(
+            "INSERT OR REPLACE INTO maestro_secret_refs (name, store_id, secret_id, updated_at) VALUES ({}, {}, {}, {});",
+            sql_string_literal(name),
+            sql_string_literal(store_id),
+            sql_string_literal(secret_id),
+            sql_string_literal(&updated_at),
+        ));
     }
 
+    cloudflare_post_json(
+        client,
+        token,
+        &query_path,
+        json!({ "sql": statements.join(" ") }),
+    )?;
+
     Ok(())
+}
+
+/// Escape a value as a SQLite string literal: wrap in single quotes and double
+/// any embedded single quote. SQLite string literals use no backslash escaping,
+/// so doubling `'` is the complete and correct escaping. Used to inline the
+/// internal D1 batch values that cannot use positional params (audit B3).
+fn sql_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn link_secret_store_reference(
@@ -1059,5 +1080,23 @@ fn probe_row(
         label: sanitize_text(&label.into(), 80),
         value: sanitize_text(&value.into(), 240),
         tone: sanitize_short(&tone.into(), 16),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sql_string_literal;
+
+    #[test]
+    fn sql_string_literal_quotes_and_escapes() {
+        assert_eq!(sql_string_literal("ai.providers"), "'ai.providers'");
+        // Embedded single quotes are doubled (the only SQLite literal escape).
+        assert_eq!(sql_string_literal("O'Brien"), "'O''Brien'");
+        // JSON values (double quotes) need no escaping inside a single-quoted
+        // SQLite literal; a single quote inside the JSON is still doubled.
+        assert_eq!(
+            sql_string_literal(r#"{"k":"a'b"}"#),
+            r#"'{"k":"a''b"}'"#
+        );
     }
 }

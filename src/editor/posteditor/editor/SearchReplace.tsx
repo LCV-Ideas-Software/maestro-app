@@ -9,7 +9,7 @@ import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { TextSelection } from "prosemirror-state";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { findAllMatches, searchHighlightKey, setGlobalSearchState } from "./searchReplaceCore";
+import { findAllMatches, searchHighlightKey } from "./searchReplaceCore";
 
 // -------------- React panel component ----------------
 
@@ -42,8 +42,9 @@ export function SearchReplacePanel({ editor }: SearchReplacePanelProps) {
         if (next) setTimeout(() => searchInputRef.current?.focus(), 50);
         else {
           // Clear search decorations when closing
-          setGlobalSearchState({ term: "", currentIndex: 0 });
-          editor?.view.dispatch(editor.state.tr);
+          editor?.view.dispatch(
+            editor.state.tr.setMeta(searchHighlightKey, { term: "", currentIndex: 0 }),
+          );
         }
         return next;
       });
@@ -62,8 +63,9 @@ export function SearchReplacePanel({ editor }: SearchReplacePanelProps) {
   useEffect(() => {
     if (!editor) return;
     const safeIndex = matches.length > 0 ? Math.min(currentIndex, matches.length - 1) : 0;
-    setGlobalSearchState({ term: searchTerm, currentIndex: safeIndex });
-    editor.view.dispatch(editor.state.tr.setMeta(searchHighlightKey, {}));
+    editor.view.dispatch(
+      editor.state.tr.setMeta(searchHighlightKey, { term: searchTerm, currentIndex: safeIndex }),
+    );
   }, [searchTerm, currentIndex, matches.length, editor]);
 
   // Scroll current match into view
@@ -128,8 +130,9 @@ export function SearchReplacePanel({ editor }: SearchReplacePanelProps) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       setVisible(false);
-      setGlobalSearchState({ term: "", currentIndex: 0 });
-      editor?.view.dispatch(editor.state.tr);
+      editor?.view.dispatch(
+        editor.state.tr.setMeta(searchHighlightKey, { term: "", currentIndex: 0 }),
+      );
       editor?.commands.focus();
     } else if (e.key === "Enter") {
       e.preventDefault();
@@ -155,8 +158,9 @@ export function SearchReplacePanel({ editor }: SearchReplacePanelProps) {
           className="search-replace-close"
           onClick={() => {
             setVisible(false);
-            setGlobalSearchState({ term: "", currentIndex: 0 });
-            editor?.view.dispatch(editor?.state.tr);
+            editor?.view.dispatch(
+              editor?.state.tr.setMeta(searchHighlightKey, { term: "", currentIndex: 0 }),
+            );
           }}
           title="Fechar (Esc)"
           aria-label="Fechar"

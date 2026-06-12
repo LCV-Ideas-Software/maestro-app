@@ -38,7 +38,7 @@ import { Markdown } from "tiptap-markdown";
 import { FigureNodeView, ResizableImageNodeView, ResizableYoutubeNodeView } from "./NodeViews";
 import { SlashCommands } from "./SlashCommands";
 import { SearchReplaceExtension } from "./searchReplaceCore";
-import { isYoutubeUrl } from "./utils";
+import { hasUnsafeUrlScheme, isYoutubeUrl } from "./utils";
 
 export const lowlight = createLowlight(common);
 
@@ -316,6 +316,14 @@ export const AutoTargetBlankLink = LinkExtension.extend({
             node.marks.forEach((mark) => {
               if (mark.type !== linkType) return;
               const href = mark.attrs.href || "";
+              // Backstop independent of TipTap's own protocol allowlist: drop
+              // any link carrying a script-capable scheme (javascript:, data:,
+              // etc.) outright rather than just normalizing target/rel (S4).
+              if (hasUnsafeUrlScheme(href)) {
+                tr.removeMark(pos, pos + node.nodeSize, mark);
+                modified = true;
+                return;
+              }
               if (isYoutubeUrl(href)) return;
               if (mark.attrs.target === "_blank") return;
               const newMark = linkType.create({

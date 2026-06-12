@@ -48,7 +48,15 @@ pub(crate) fn sanitize_short(value: &str, max_len: usize) -> String {
 
 pub(crate) fn sanitize_text(value: &str, max_len: usize) -> String {
     let redacted = redact_secrets(value);
-    redacted.chars().take(max_len).collect()
+    // Collapse control characters (including newlines) to spaces. The NDJSON
+    // record escapes them, but the human-log projection writes this text raw
+    // into a line-delimited `.log`, so an embedded `\n` would forge log lines
+    // (audit B4). truncate_text_head_tail handles multi-line stderr separately.
+    redacted
+        .chars()
+        .map(|character| if character.is_control() { ' ' } else { character })
+        .take(max_len)
+        .collect()
 }
 
 /// Truncates large stderr/stdout text preserving head and tail with a marker in the middle.
@@ -196,5 +204,16 @@ mod tests {
         let sanitized = sanitize_text("Authorization: Bearer pplx-test-secret-value", 200);
 
         assert_eq!(sanitized, "Authorization: Bearer <redacted>");
+    }
+
+    #[test]
+    fn sanitize_text_collapses_control_chars_to_spaces() {
+        // Newlines/tabs in free-form text must not survive into the raw
+        // human-log projection where they could forge new lines (B4).
+        let sanitized = sanitize_text("real line\nINJECTED forged\tline\r", 200);
+
+        assert_eq!(sanitized, "real line INJECTED forged line ");
+        assert!(!sanitized.contains('\n'));
+        assert!(!sanitized.contains('\r'));
     }
 }
