@@ -6,6 +6,12 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.35] - 2026-06-16
+
+### Security
+
+- **markdown-it pinned to 14.2.0.** Adds an npm `overrides` entry forcing the transitive `markdown-it` dependency (pulled via `tiptap-markdown` and `prosemirror-markdown`) to 14.2.0, clearing the moderate-severity quadratic-complexity ReDoS advisory (GHSA-6v5v-wf23-fmfq) that affected `<= 14.1.1`. Restores the green CI repository-hygiene `npm audit --audit-level=moderate` gate.
+
 ## [v0.5.34] - 2026-06-12
 
 Security and robustness audit fixes across the Rust backend and React frontend.
