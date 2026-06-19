@@ -6,6 +6,12 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.36] - 2026-06-19
+
+### Security
+
+- **undici pinned to 7.28.0.** Adds an npm `overrides` entry forcing the transitive `undici` dependency (pulled via the `jsdom` test dependency) to 7.28.0, clearing the high-severity TLS certificate validation bypass (GHSA-vmh5-mc38-953g) and the cross-user cache information-disclosure advisory (GHSA-pr7r-676h-xcf6) that affected the installed line. Restores the green CI repository-hygiene `npm audit --audit-level=moderate` gate, which had begun failing on these freshly-published advisories and was blocking unrelated Dependabot pull requests from automerging.
+
 ## [v0.5.35] - 2026-06-16
 
 ### Security
