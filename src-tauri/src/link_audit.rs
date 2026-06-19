@@ -39,6 +39,9 @@ use reqwest::{blocking::Client, redirect::Policy, Url};
 
 use crate::{sanitize_short, sanitize_text, LinkAuditResult, LinkAuditRow};
 
+pub(crate) const LINK_AUDIT_MAX_UNIQUE_URLS: usize = 30;
+const LINK_AUDIT_MAX_MATCHES: usize = 80;
+
 pub(crate) fn run_link_audit(text: &str) -> LinkAuditResult {
     let candidates = extract_url_candidates(text);
     let public_urls = candidates
@@ -109,7 +112,7 @@ pub(crate) fn extract_public_urls(text: &str) -> Vec<String> {
     };
 
     let mut urls = BTreeSet::new();
-    for matched in regex.find_iter(text).take(80) {
+    for matched in regex.find_iter(text).take(LINK_AUDIT_MAX_MATCHES) {
         let cleaned = matched
             .as_str()
             .trim_end_matches(['.', ',', ';', ':'])
@@ -117,11 +120,30 @@ pub(crate) fn extract_public_urls(text: &str) -> Vec<String> {
         if is_public_http_url(&cleaned) {
             urls.insert(cleaned);
         }
-        if urls.len() >= 30 {
+        if urls.len() >= LINK_AUDIT_MAX_UNIQUE_URLS {
             break;
         }
     }
     urls.into_iter().collect()
+}
+
+pub(crate) fn count_unique_url_candidates(text: &str) -> usize {
+    let Some(regex) = Regex::new(r#"https?://[^\s<>"')\]]+"#).ok() else {
+        return 0;
+    };
+
+    let mut seen = BTreeSet::new();
+    for matched in regex.find_iter(text).take(LINK_AUDIT_MAX_MATCHES) {
+        let cleaned = matched
+            .as_str()
+            .trim_end_matches(['.', ',', ';', ':'])
+            .to_string();
+        seen.insert(cleaned);
+        if seen.len() > LINK_AUDIT_MAX_UNIQUE_URLS {
+            break;
+        }
+    }
+    seen.len()
 }
 
 struct LinkCandidate {
@@ -137,7 +159,7 @@ fn extract_url_candidates(text: &str) -> Vec<LinkCandidate> {
 
     let mut seen = BTreeSet::new();
     let mut candidates = Vec::new();
-    for matched in regex.find_iter(text).take(80) {
+    for matched in regex.find_iter(text).take(LINK_AUDIT_MAX_MATCHES) {
         let cleaned = matched
             .as_str()
             .trim_end_matches(['.', ',', ';', ':'])
@@ -151,7 +173,7 @@ fn extract_url_candidates(text: &str) -> Vec<LinkCandidate> {
             public: rejection.is_none(),
             rejection,
         });
-        if candidates.len() >= 30 {
+        if candidates.len() >= LINK_AUDIT_MAX_UNIQUE_URLS {
             break;
         }
     }
@@ -186,7 +208,9 @@ fn public_http_url_rejection_reason(value: &str) -> Option<String> {
             return Some("IP privado, reservado ou local bloqueado por seguranca".to_string());
         }
     } else if host_resolves_to_blocked_ip(&host) {
-        return Some("dominio resolve para IP privado/reservado bloqueado por seguranca".to_string());
+        return Some(
+            "dominio resolve para IP privado/reservado bloqueado por seguranca".to_string(),
+        );
     }
 
     None
@@ -199,7 +223,9 @@ fn public_http_url_rejection_reason(value: &str) -> Option<String> {
 /// is irrelevant to the IP-range check (S1).
 fn host_resolves_to_blocked_ip(host: &str) -> bool {
     match (host, 80u16).to_socket_addrs() {
-        Ok(addrs) => addrs.into_iter().any(|addr| is_blocked_link_audit_ip(addr.ip())),
+        Ok(addrs) => addrs
+            .into_iter()
+            .any(|addr| is_blocked_link_audit_ip(addr.ip())),
         Err(_) => false,
     }
 }
@@ -246,9 +272,7 @@ impl Resolve for PublicOnlyResolver {
                 .iter()
                 .any(|addr| is_blocked_link_audit_ip(addr.ip()))
             {
-                return Err(
-                    format!("host '{host}' resolves to a private/reserved address").into(),
-                );
+                return Err(format!("host '{host}' resolves to a private/reserved address").into());
             }
             Ok(Box::new(resolved.into_iter()) as Addrs)
         })

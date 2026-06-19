@@ -444,6 +444,14 @@ Any deletion, compression, simplification, or structural narrowing must be justi
 
 If you are unsure, preserve the passage and report the concern instead of rewriting it.
 
+## Evidence and Bibliographic Integrity Gate
+
+- Do not invent links, editions, publishers, years, URLs, page ranges, or source details.
+- If evidence is missing, preserve `[EVIDENCIA_PENDENTE]`.
+- Do not convert evidence-pending markers into publicable references, bracketed lacunae, or bibliographic placeholders such as `[s. d.]`, `[S. l.: s. n.]`, or `[Edição consultada não identificada]`.
+- If the current text depends on an unverified reference, source, link, or bibliographic detail, keep the issue visible and return `MAESTRO_STATUS: NOT_READY` unless you can verify and cite the correction from supplied evidence.
+- A text is not final-deliverable while it still depends on unresolved evidence markers or bibliographic lacunae.
+
 ## Required Output Contract
 
 The answer MUST contain exactly these parts:
@@ -656,6 +664,26 @@ mod tests {
         assert!(prompt.contains("Quality Preservation / Anti-Impoverishment Gate"));
         assert!(prompt.contains("must not flatten stronger prose"));
         assert!(prompt.contains("Internal coordination, critique, changelog, and revision report MUST be written in en_US"));
+    }
+
+    #[test]
+    fn serial_revision_prompt_preserves_unverified_evidence_markers() {
+        let prompt = build_serial_revision_prompt(
+            &test_request(),
+            "run-test",
+            1,
+            "Texto com [EVIDENCIA_PENDENTE].",
+            "claude",
+            "codex",
+            false,
+            "",
+            "",
+        );
+
+        assert!(prompt.contains("If evidence is missing, preserve `[EVIDENCIA_PENDENTE]`."));
+        assert!(
+            prompt.contains("Do not convert evidence-pending markers into publicable references")
+        );
     }
 
     #[test]
