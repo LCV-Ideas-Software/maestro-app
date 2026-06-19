@@ -6,6 +6,17 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.37] - 2026-06-19
+
+### Fixed
+
+- **Final reference audit gate.** Serial reviewer-revisers are now explicitly forbidden from converting `[EVIDENCIA_PENDENTE]` into publicable-looking bibliographic lacunae such as `[s. d.]`, `[S. l.: s. n.]`, or `[Edição consultada não identificada]`. The backend also rejects `READY` serial outputs whose `<maestro_final_text>` still contains unresolved evidence markers or bibliographic lacunae, including spacing/punctuation variants such as `[s.l.:s.n.]`, compound forms such as `[S.l.: s.n., s.d.]`, uncertain dates such as `[200-?]`, `[19--]`, `[entre 2010 e 2020]`, and textual lacunae such as `[sine loco]`, `[sine nomine]`, and `[sine data]`.
+- **Final link audit before delivery.** Before writing `texto-final.md`, Maestro now audits public links in the final candidate and pauses with `PAUSED_FINAL_REFERENCE_AUDIT` if any link is invalid or blocked, instead of treating unanimous agent approval as sufficient by itself. Final delivery also fails closed when the text contains more public URL candidates than the link audit can cover.
+
+### Validation
+
+- Added regression tests for serial prompt evidence preservation, bibliographic-lacuna rejection, lacuna variant normalization, unresolved evidence markers, final blocked-link audit, final URL-capacity failure, and relative internal Markdown links.
+
 ## [v0.5.36] - 2026-06-19
 
 ### Security

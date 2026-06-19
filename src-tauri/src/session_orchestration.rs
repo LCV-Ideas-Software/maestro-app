@@ -50,6 +50,7 @@ use crate::editorial_prompts::is_operational_agent_result;
 use crate::editorial_prompts::{
     build_draft_prompt, build_revision_history_block, build_serial_revision_prompt,
 };
+use crate::link_audit::{count_unique_url_candidates, run_link_audit, LINK_AUDIT_MAX_UNIQUE_URLS};
 use crate::logging::{write_log_record, LogEventInput, LogSession};
 use crate::provider_config::{
     api_provider_for_agent, provider_cost_rates_from_config, should_run_agent_via_api,
@@ -667,6 +668,52 @@ pub(crate) fn run_editorial_session_core(
     }
 
     let final_path: PathBuf;
+    macro_rules! pause_final_reference_audit {
+        ($reason:expr, $audit_context:expr) => {{
+            let _ = write_log_record(
+                log_session,
+                LogEventInput {
+                    level: "warn".to_string(),
+                    category: "session.final_reference_audit.blocked".to_string(),
+                    message: $reason,
+                    context: Some(json!({
+                        "run_id": &run_id,
+                        "round": round,
+                        "turn": round_turn_index + 1,
+                        "audit": $audit_context
+                    })),
+                },
+            );
+            let minutes_path = session_dir.join("ata-da-sessao.md");
+            write_text_file(
+                &minutes_path,
+                &build_session_minutes(request, &run_id, &agents, false, None),
+            )?;
+            let context = SessionResultContext {
+                run_id: &run_id,
+                session_dir: &session_dir,
+                prompt_path: &prompt_path,
+                protocol_path: &protocol_path,
+                active_agents: &active_agent_keys,
+                max_session_cost_usd,
+                max_session_minutes,
+                observed_cost_usd: cost_ledger.total_observed_cost_usd,
+                links_path: evidence.links_path.as_ref(),
+                attachments_manifest_path: evidence.attachments_manifest_path.as_ref(),
+                human_log_path: &human_log_path,
+            };
+            return Ok(editorial_session_result(
+                &context,
+                None,
+                &minutes_path,
+                current_draft_path,
+                agents,
+                false,
+                "PAUSED_FINAL_REFERENCE_AUDIT",
+            ));
+        }};
+    }
+
     loop {
         // Operator-driven stop check at the top of every turn. Granularity
         // is "between turns" for the orchestration; in-flight CLI peer is
@@ -749,8 +796,12 @@ pub(crate) fn run_editorial_session_core(
             current_draft_author_key.as_deref(),
             &stable_serial_approval_agents,
         ) {
+            let final_text = strip_leading_maestro_status(&current_draft);
+            if let Some((reason, audit_context)) = final_release_audit_failure(&final_text) {
+                pause_final_reference_audit!(reason, audit_context);
+            }
             let path = session_dir.join("texto-final.md");
-            write_text_file(&path, &strip_leading_maestro_status(&current_draft))?;
+            write_text_file(&path, &final_text)?;
             final_path = path;
             break;
         }
@@ -815,8 +866,12 @@ pub(crate) fn run_editorial_session_core(
             &stable_serial_approval_agents,
             selection_seed,
         ) else {
+            let final_text = strip_leading_maestro_status(&current_draft);
+            if let Some((reason, audit_context)) = final_release_audit_failure(&final_text) {
+                pause_final_reference_audit!(reason, audit_context);
+            }
             let path = session_dir.join("texto-final.md");
-            write_text_file(&path, &strip_leading_maestro_status(&current_draft))?;
+            write_text_file(&path, &final_text)?;
             final_path = path;
             break;
         };
@@ -1338,8 +1393,13 @@ pub(crate) fn run_editorial_session_core(
                     current_draft_author_key.as_deref(),
                     &stable_serial_approval_agents,
                 ) {
+                    let final_text = strip_leading_maestro_status(&current_draft);
+                    if let Some((reason, audit_context)) = final_release_audit_failure(&final_text)
+                    {
+                        pause_final_reference_audit!(reason, audit_context);
+                    }
                     let path = session_dir.join("texto-final.md");
-                    write_text_file(&path, &strip_leading_maestro_status(&current_draft))?;
+                    write_text_file(&path, &final_text)?;
                     final_path = path;
                     break;
                 }
@@ -1439,8 +1499,12 @@ pub(crate) fn run_editorial_session_core(
                 current_draft_author_key.as_deref(),
                 &stable_serial_approval_agents,
             ) {
+                let final_text = strip_leading_maestro_status(&current_draft);
+                if let Some((reason, audit_context)) = final_release_audit_failure(&final_text) {
+                    pause_final_reference_audit!(reason, audit_context);
+                }
                 let path = session_dir.join("texto-final.md");
-                write_text_file(&path, &strip_leading_maestro_status(&current_draft))?;
+                write_text_file(&path, &final_text)?;
                 final_path = path;
                 break;
             }
@@ -1619,6 +1683,7 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
         if !has_revised_custody {
             return Err("maestro_final_text requires custody revised in the report".to_string());
         }
+        validate_final_release_candidate(text)?;
     }
     if status == "READY" && final_text.is_none() && !has_unchanged_custody {
         return Err(
@@ -1630,6 +1695,163 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
         return Err("revised custody requires a complete maestro_final_text block".to_string());
     }
     Ok(SerialTurnOutput { final_text })
+}
+
+fn validate_final_release_candidate(text: &str) -> Result<(), String> {
+    if contains_final_release_blocker(text) {
+        return Err("final candidate failed bibliographic integrity gate: unresolved evidence marker or bibliographic lacuna found".to_string());
+    }
+
+    Ok(())
+}
+
+fn contains_final_release_blocker(text: &str) -> bool {
+    let compact = compact_ascii_signature(text);
+    if compact.contains("evidenciapendente") || compact.contains("edicaoconsultadanaoidentificada")
+    {
+        return true;
+    }
+
+    let mut remaining = text;
+    while let Some(open) = remaining.find('[') {
+        let after_open = &remaining[open + 1..];
+        let Some(close) = after_open.find(']') else {
+            break;
+        };
+        let bracketed = &after_open[..close];
+        let marker = compact_ascii_signature(bracketed);
+        if is_bibliographic_lacuna_marker(bracketed, &marker)
+            || marker.contains("evidenciapendente")
+            || marker.contains("edicaoconsultadanaoidentificada")
+        {
+            return true;
+        }
+        remaining = &after_open[close + 1..];
+    }
+
+    false
+}
+
+fn compact_ascii_signature(value: &str) -> String {
+    value
+        .to_lowercase()
+        .chars()
+        .filter_map(ascii_folded_alnum)
+        .collect()
+}
+
+fn is_bibliographic_lacuna_marker(raw: &str, compact: &str) -> bool {
+    if matches!(
+        compact,
+        "sd" | "nd" | "sl" | "sn" | "slsn" | "sineloco" | "sinenomine" | "sinedata"
+    ) || compact.contains("sinedata")
+        || compact.contains("sineloco")
+        || compact.contains("sinenomine")
+    {
+        return true;
+    }
+
+    let tokens = ascii_folded_tokens(raw);
+    if tokens.windows(2).any(|pair| {
+        matches!(
+            (pair[0].as_str(), pair[1].as_str()),
+            ("s", "d") | ("n", "d") | ("s", "l") | ("s", "n")
+        )
+    }) {
+        return true;
+    }
+
+    contains_uncertain_date_marker(raw, &tokens)
+}
+
+fn contains_uncertain_date_marker(raw: &str, tokens: &[String]) -> bool {
+    let has_digit = raw.chars().any(|character| character.is_ascii_digit());
+    if !has_digit {
+        return false;
+    }
+
+    if raw.contains('?') || raw.contains("--") {
+        return true;
+    }
+
+    tokens.windows(4).any(|window| {
+        window[0] == "entre"
+            && window[1].chars().all(|character| character.is_ascii_digit())
+            && window[2] == "e"
+            && window[3].chars().all(|character| character.is_ascii_digit())
+    })
+}
+
+fn ascii_folded_tokens(value: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    for character in value.to_lowercase().chars() {
+        if let Some(folded) = ascii_folded_alnum(character) {
+            current.push(folded);
+        } else if !current.is_empty() {
+            tokens.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+fn ascii_folded_alnum(character: char) -> Option<char> {
+    match character {
+        'a'..='z' | '0'..='9' => Some(character),
+        'á' | 'à' | 'ã' | 'â' | 'ä' => Some('a'),
+        'é' | 'è' | 'ê' | 'ë' => Some('e'),
+        'í' | 'ì' | 'î' | 'ï' => Some('i'),
+        'ó' | 'ò' | 'õ' | 'ô' | 'ö' => Some('o'),
+        'ú' | 'ù' | 'û' | 'ü' => Some('u'),
+        'ç' => Some('c'),
+        _ => None,
+    }
+}
+
+fn final_release_audit_failure(text: &str) -> Option<(String, serde_json::Value)> {
+    if let Err(reason) = validate_final_release_candidate(text) {
+        return Some((
+            reason,
+            json!({
+                "gate": "bibliographic_integrity",
+                "policy": "final_text_must_not_hide_unverified_references"
+            }),
+        ));
+    }
+
+    let url_count = count_unique_url_candidates(text);
+    if url_count > LINK_AUDIT_MAX_UNIQUE_URLS {
+        return Some((
+            "final candidate exceeds link audit capacity".to_string(),
+            json!({
+                "gate": "link_audit_capacity",
+                "urls_found": url_count,
+                "max_urls": LINK_AUDIT_MAX_UNIQUE_URLS,
+                "policy": "final_text_must_not_contain_unaudited_public_links"
+            }),
+        ));
+    }
+
+    let link_audit = run_link_audit(text);
+    if link_audit.failed > 0 {
+        return Some((
+            "final candidate failed link audit".to_string(),
+            json!({
+                "gate": "link_audit",
+                "urls_found": link_audit.urls_found,
+                "checked": link_audit.checked,
+                "ok": link_audit.ok,
+                "failed": link_audit.failed,
+                "rows": link_audit.rows,
+                "policy": "all_final_public_links_must_be_valid_before_release"
+            }),
+        ));
+    }
+
+    None
 }
 
 fn require_balanced_tag(stdout: &str, tag: &str) -> Result<(), String> {
@@ -1873,9 +2095,10 @@ mod tests {
 
     use super::{
         agent_attempt_output_path, circular_round_turn_specs, current_draft_author_from_path,
-        current_version_has_all_independent_approvals, is_operational_only_review_round,
-        is_substantive_editorial_change, quality_guard_blocks_revision,
-        restore_circular_resume_progress, select_serial_reviewer_index,
+        current_version_has_all_independent_approvals, final_release_audit_failure,
+        is_operational_only_review_round, is_substantive_editorial_change,
+        quality_guard_blocks_revision, restore_circular_resume_progress,
+        select_serial_reviewer_index, validate_final_release_candidate,
         validate_serial_turn_output,
     };
     use crate::EditorialAgentResult;
@@ -2225,6 +2448,101 @@ Texto incompleto"#;
         let error = validate_serial_turn_output(stdout, "READY").unwrap_err();
 
         assert!(error.contains("maestro_final_text"));
+    }
+
+    #[test]
+    fn serial_contract_rejects_ready_final_text_with_bibliographic_lacunae() {
+        let stdout = r#"MAESTRO_STATUS: READY
+<maestro_revision_report>
+{ "reviewer": "codex", "status": "READY", "custody": "revised", "changes": [] }
+</maestro_revision_report>
+<maestro_final_text>
+---
+title: Teste
+---
+
+# Teste
+
+Texto com referencia incompleta (AUTOR, [s. d.]).
+
+## Referencias bibliograficas
+
+AUTOR. Obra. [Edicao consultada nao identificada]. [S. l.: s. n.], [s. d.].
+</maestro_final_text>"#;
+
+        let error = validate_serial_turn_output(stdout, "READY").unwrap_err();
+
+        assert!(error.contains("bibliographic"));
+    }
+
+    #[test]
+    fn final_release_candidate_rejects_unresolved_evidence_markers() {
+        let error = validate_final_release_candidate(
+            "Texto publicavel com [EVIDENCIA_PENDENTE] ainda visivel.",
+        )
+        .unwrap_err();
+
+        assert!(error.contains("bibliographic integrity"));
+    }
+
+    #[test]
+    fn final_release_candidate_rejects_lacuna_variants() {
+        for marker in [
+            "[s. l. : s. n.]",
+            "[s.l.:s.n.]",
+            "[s.l.]",
+            "[s.n.]",
+            "[n.d.]",
+            "[S.l.: s.n., s.d.]",
+            "[200-?]",
+            "[19--]",
+            "[entre 2010 e 2020]",
+            "[sine loco]",
+            "[sine nomine]",
+            "[sine data]",
+        ] {
+            let error =
+                validate_final_release_candidate(&format!("Referencia incompleta {marker}"))
+                    .unwrap_err();
+
+            assert!(
+                error.contains("bibliographic integrity"),
+                "marker should be rejected: {marker}"
+            );
+        }
+
+        assert!(validate_final_release_candidate(
+            "Texto regular sobre as dificuldades de verificacao, sem marcador bibliografico."
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn final_release_audit_rejects_blocked_links_without_network() {
+        let failure = final_release_audit_failure("Referencia: http://localhost:8787/test")
+            .expect("local link should be blocked before any network probe");
+
+        assert!(failure.0.contains("link audit"));
+        assert_eq!(failure.1["gate"], "link_audit");
+    }
+
+    #[test]
+    fn final_release_audit_rejects_excess_url_candidates_before_network() {
+        let text = (0..31)
+            .map(|index| format!("https://example.com/reference-{index}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let failure = final_release_audit_failure(&text)
+            .expect("final link audit must fail closed when URL capacity is exceeded");
+
+        assert!(failure.0.contains("capacity"));
+        assert_eq!(failure.1["gate"], "link_audit_capacity");
+    }
+
+    #[test]
+    fn final_release_audit_ignores_relative_internal_markdown_links() {
+        assert!(final_release_audit_failure("Leia [a secao interna](#secao-interna).").is_none());
     }
 
     #[test]

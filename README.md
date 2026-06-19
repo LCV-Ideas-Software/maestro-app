@@ -17,7 +17,7 @@ Portable Windows editorial workbench for protocol-driven AI drafting, source ver
 [![stack: Tauri 2 + React 19](https://img.shields.io/badge/stack-Tauri%202%20%2B%20React%2019-blueviolet.svg)](#architecture)
 [![license: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 
-**Status.** Stable. Current release: **v0.5.32** (release tag `v00.05.32`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release: **v0.5.37** (release tag `v00.05.37`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 Operational stable baseline started at `v0.5.25`, with live bootstrap, diagnostics, navigation, Cloudflare credential provisioning, AI API credential checks, PostEditor parity, link auditing, and a real background Claude/Codex/Gemini/DeepSeek/Grok editorial session path. From `v0.5.27`, Maestro also supports Perplexity as an API-only Sonar peer. Runtime evidence from session `run-2026-05-11T01-09-30-556Z` confirms the first documented end-to-end unanimous editorial delivery: Maestro `0.5.25` resumed a real API-mode session, reached `READY_UNANIMOUS`, and wrote a clean `texto-final.md`.
 
@@ -25,6 +25,11 @@ The version history at a glance:
 
 | Release | Scope |
 | --- | --- |
+| **`v0.5.37`** | Final reference audit gate: preserves unresolved evidence markers, rejects bibliographic lacunae in final text, audits public links before `texto-final.md`, and fails closed if final URLs exceed audit capacity. |
+| **`v0.5.36`** | Security pin for transitive `undici` advisories and restored repository-hygiene audit gate. |
+| **`v0.5.35`** | Security pin for transitive `markdown-it` ReDoS advisory and restored repository-hygiene audit gate. |
+| **`v0.5.34`** | Security and robustness audit fixes across the Rust backend and React frontend. |
+| **`v0.5.33`** | Frontend XSS hardening in the editor and slash-command UI. |
 | **`v0.5.32`** | CI hardening for the Antigravity CLI (`agy`) PTY runner: keeps the PTY writer alive through timeout/cancel handling, stabilizes the timeout test, and clears Rust/BIOME CI gates. |
 | **`v0.5.31`** | Gemini local CLI transport migrated from deprecated Gemini CLI to Google Antigravity CLI (`agy`). |
 | **`v0.5.30`** | Patch — 4-gate quality directive compliance (eslint + biome + prettier + cross-review). |
