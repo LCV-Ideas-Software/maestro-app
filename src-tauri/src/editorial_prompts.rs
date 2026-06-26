@@ -415,7 +415,7 @@ Session: {}
 - Closing redactor turn: `{}`.
 - You are not allowed to revise a version you just produced.
 - If you are the current version author and this is not the closing redactor turn, return `MAESTRO_STATUS: NOT_READY` and state `SELF_REVIEW_BLOCKED`.
-- If you are the current version author during the closing redactor turn, audit only the completed peer circuit and leave custody `"unchanged"` unless another agent has produced the current version.
+- If you are the current version author during the closing redactor turn, you are reviewing the completed peer circuit, not your original draft. You may revise only issues raised by prior reviewers or concrete final-delivery blockers, and you must preserve all approved content.
 - You must act as reviewer and reviser in one turn: inspect the current text, apply only authorized corrections, and return the complete current article.
 - A Maestro round is a full circular pass through all active AI agents. This call is one turn inside that round; do not call it a new round in your own report.
 
