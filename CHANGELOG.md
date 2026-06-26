@@ -6,6 +6,22 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.38] - 2026-06-25
+
+### Fixed
+
+- **Circular review closing turn.** The serial scheduler now returns the completed peer circuit to the original redactor after every non-lead agent has completed a valid turn, instead of incorrectly requiring stable `READY` unanimity before the closing redactor turn.
+- **Intermediate custody handling.** `NOT_READY` reviewer-reviser outputs with revised custody may preserve `[EVIDENCIA_PENDENTE]` markers as intermediate work for the next reviewer, while `READY` final candidates remain blocked by the final bibliographic integrity gate.
+- **Invalid unchanged approvals.** `READY` + unchanged-custody turns are now audited against the current draft before they count in the circular turn ledger; if the current draft still fails the final release audit, the turn is reclassified to `NOT_READY` and does not satisfy the closing circuit.
+- **Closing redactor prompt.** The closing-turn contract now states that the original author is reviewing the completed peer circuit, not their original draft, and may revise only prior-reviewer issues or concrete final-delivery blockers.
+
+### Validation
+
+- `cargo test --locked --lib ready_unchanged_current_draft_with_release_blocker_does_not_count`: 1 passed.
+- `cargo test --locked --lib serial_`: 14 passed.
+- `cargo test --locked --lib`: 181 passed.
+- `cross-review-v2` session `f3ce78d0-0f0b-49b9-b0b6-897cfa4ae1a0`: converged READY after the READY-unchanged accounting fix.
+
 ## [v0.5.37] - 2026-06-19
 
 ### Fixed
