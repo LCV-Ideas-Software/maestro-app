@@ -863,7 +863,6 @@ pub(crate) fn run_editorial_session_core(
             nominal_turn_index,
             draft_author_key,
             draft_lead_key,
-            &valid_round_agents,
             &stable_serial_approval_agents,
             selection_seed,
         ) else {
@@ -916,7 +915,8 @@ pub(crate) fn run_editorial_session_core(
             && !closing_turn_has_required_prior_reviews(
                 &round_turn_specs,
                 draft_lead_key,
-                &valid_round_agents,
+                draft_author_key,
+                &stable_serial_approval_agents,
             )
         {
             let _ = write_log_record(
@@ -965,7 +965,7 @@ pub(crate) fn run_editorial_session_core(
             ));
         }
 
-        if spec.key == draft_author_key && !closing_turn {
+        if spec.key == draft_author_key {
             let _ = write_log_record(
                 log_session,
                 LogEventInput {
@@ -1360,44 +1360,8 @@ pub(crate) fn run_editorial_session_core(
                 continue;
             }
         };
-        let ready_unchanged_audit_failure =
-            ready_unchanged_release_audit_failure(&result.status, &serial_output, &current_draft);
-        let counts_as_valid_round_agent = serial_turn_counts_as_valid_round_agent(
-            &result.status,
-            &serial_output,
-            &current_draft,
-        );
+        valid_round_agents.insert(spec.key.to_string());
         let Some(revised_text) = serial_output.final_text else {
-            if let Some((reason, audit_context)) = ready_unchanged_audit_failure {
-                result.status = "NOT_READY".to_string();
-                result.tone = "warn".to_string();
-                if let Some(last) = agents.last_mut() {
-                    last.status = result.status.clone();
-                    last.tone = result.tone.clone();
-                }
-                let note = format!("READY unchanged rejected by final release audit: {reason}");
-                reclassify_agent_artifact_status(&output_path, "NOT_READY", &note);
-                let _ = write_log_record(
-                    log_session,
-                    LogEventInput {
-                        level: "warn".to_string(),
-                        category: "session.serial.ready_unchanged_rejected".to_string(),
-                        message: "serial reviewer-reviser approved an unchanged current text that still fails the final release gate".to_string(),
-                        context: Some(json!({
-                            "run_id": &run_id,
-                            "round": round,
-                            "turn": round_turn_index + 1,
-                            "agent": spec.key,
-                            "reason": reason,
-                            "audit_context": audit_context,
-                            "policy": "unchanged_ready_cannot_count_when_current_text_has_final_release_blockers"
-                        })),
-                    },
-                );
-            }
-            if counts_as_valid_round_agent {
-                valid_round_agents.insert(spec.key.to_string());
-            }
             let _ = write_log_record(
                 log_session,
                 LogEventInput {
@@ -1445,9 +1409,6 @@ pub(crate) fn run_editorial_session_core(
             }
             continue;
         };
-        if counts_as_valid_round_agent {
-            valid_round_agents.insert(spec.key.to_string());
-        }
 
         let substantive_change = is_substantive_editorial_change(&current_draft, &revised_text);
         if quality_guard_blocks_revision(
@@ -1722,9 +1683,7 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
         if !has_revised_custody {
             return Err("maestro_final_text requires custody revised in the report".to_string());
         }
-        if status == "READY" {
-            validate_final_release_candidate(text)?;
-        }
+        validate_final_release_candidate(text)?;
     }
     if status == "READY" && final_text.is_none() && !has_unchanged_custody {
         return Err(
@@ -1744,25 +1703,6 @@ fn validate_final_release_candidate(text: &str) -> Result<(), String> {
     }
 
     Ok(())
-}
-
-fn ready_unchanged_release_audit_failure(
-    status: &str,
-    serial_output: &SerialTurnOutput,
-    current_draft: &str,
-) -> Option<(String, serde_json::Value)> {
-    if status == "READY" && serial_output.final_text.is_none() {
-        return final_release_audit_failure(current_draft);
-    }
-    None
-}
-
-fn serial_turn_counts_as_valid_round_agent(
-    status: &str,
-    serial_output: &SerialTurnOutput,
-    current_draft: &str,
-) -> bool {
-    ready_unchanged_release_audit_failure(status, serial_output, current_draft).is_none()
 }
 
 fn contains_final_release_blocker(text: &str) -> bool {
@@ -1836,13 +1776,9 @@ fn contains_uncertain_date_marker(raw: &str, tokens: &[String]) -> bool {
 
     tokens.windows(4).any(|window| {
         window[0] == "entre"
-            && window[1]
-                .chars()
-                .all(|character| character.is_ascii_digit())
+            && window[1].chars().all(|character| character.is_ascii_digit())
             && window[2] == "e"
-            && window[3]
-                .chars()
-                .all(|character| character.is_ascii_digit())
+            && window[3].chars().all(|character| character.is_ascii_digit())
     })
 }
 
@@ -2081,7 +2017,6 @@ fn select_serial_reviewer_index(
     nominal_turn_index: usize,
     current_author_key: &str,
     draft_lead_key: &str,
-    valid_round_agents: &BTreeSet<String>,
     stable_serial_approval_agents: &BTreeSet<String>,
     selection_seed: u64,
 ) -> Option<usize> {
@@ -2093,10 +2028,10 @@ fn select_serial_reviewer_index(
     let closure_ready = closing_turn_has_required_prior_reviews(
         round_turn_specs,
         draft_lead_key,
-        valid_round_agents,
+        current_author_key,
+        stable_serial_approval_agents,
     );
-    let nominal_is_closing_redactor = nominal.key == draft_lead_key && closure_ready;
-    let nominal_is_pending = (nominal.key != current_author_key || nominal_is_closing_redactor)
+    let nominal_is_pending = nominal.key != current_author_key
         && !stable_serial_approval_agents.contains(nominal.key)
         && (nominal.key != draft_lead_key || closure_ready);
     if nominal_is_pending {
@@ -2107,8 +2042,7 @@ fn select_serial_reviewer_index(
         .iter()
         .enumerate()
         .filter(|(_, spec)| {
-            let spec_is_closing_redactor = spec.key == draft_lead_key && closure_ready;
-            (spec.key != current_author_key || spec_is_closing_redactor)
+            spec.key != current_author_key
                 && !stable_serial_approval_agents.contains(spec.key)
                 && (spec.key != draft_lead_key || closure_ready)
         })
@@ -2124,17 +2058,13 @@ fn select_serial_reviewer_index(
 fn closing_turn_has_required_prior_reviews(
     round_turn_specs: &[crate::EditorialAgentSpec],
     draft_lead_key: &str,
-    valid_round_agents: &BTreeSet<String>,
+    current_author_key: &str,
+    stable_serial_approval_agents: &BTreeSet<String>,
 ) -> bool {
-    let required = round_turn_specs
+    round_turn_specs
         .iter()
-        .filter(|spec| spec.key != draft_lead_key)
-        .map(|spec| spec.key)
-        .collect::<Vec<_>>();
-    !required.is_empty()
-        && required
-            .iter()
-            .all(|agent| valid_round_agents.contains(*agent))
+        .filter(|spec| spec.key != draft_lead_key && spec.key != current_author_key)
+        .all(|spec| stable_serial_approval_agents.contains(spec.key))
 }
 
 fn agent_attempt_output_path(agent_dir: &Path, round: usize, agent: &str, role: &str) -> PathBuf {
@@ -2167,8 +2097,7 @@ mod tests {
         agent_attempt_output_path, circular_round_turn_specs, current_draft_author_from_path,
         current_version_has_all_independent_approvals, final_release_audit_failure,
         is_operational_only_review_round, is_substantive_editorial_change,
-        quality_guard_blocks_revision, ready_unchanged_release_audit_failure,
-        restore_circular_resume_progress, serial_turn_counts_as_valid_round_agent,
+        quality_guard_blocks_revision, restore_circular_resume_progress,
         select_serial_reviewer_index, validate_final_release_candidate,
         validate_serial_turn_output,
     };
@@ -2352,7 +2281,6 @@ mod tests {
             "perplexity".to_string(),
         ];
         let specs = circular_round_turn_specs("claude", &active);
-        let valid_turns = BTreeSet::<String>::new();
         let approvals = BTreeSet::<String>::new();
         let deepseek_index = specs
             .iter()
@@ -2364,7 +2292,6 @@ mod tests {
             deepseek_index,
             "deepseek",
             "claude",
-            &valid_turns,
             &approvals,
             0,
         )
@@ -2384,30 +2311,21 @@ mod tests {
             "perplexity".to_string(),
         ];
         let specs = circular_round_turn_specs("claude", &active);
-        let valid_turns = BTreeSet::<String>::new();
         let mut approvals = BTreeSet::<String>::new();
         approvals.insert("codex".to_string());
         approvals.insert("gemini".to_string());
         approvals.insert("grok".to_string());
         let codex_index = specs.iter().position(|spec| spec.key == "codex").unwrap();
 
-        let selected = select_serial_reviewer_index(
-            &specs,
-            codex_index,
-            "deepseek",
-            "claude",
-            &valid_turns,
-            &approvals,
-            0,
-        )
-        .unwrap();
+        let selected =
+            select_serial_reviewer_index(&specs, codex_index, "deepseek", "claude", &approvals, 0)
+                .unwrap();
 
         assert_eq!(specs[selected].key, "perplexity");
     }
 
     #[test]
-    fn serial_reviewer_returns_to_initial_redactor_after_full_peer_circuit_without_ready_unanimity()
-    {
+    fn serial_reviewer_does_not_return_to_initial_redactor_before_independent_approvals() {
         let active = vec![
             "claude".to_string(),
             "codex".to_string(),
@@ -2417,56 +2335,17 @@ mod tests {
             "perplexity".to_string(),
         ];
         let specs = circular_round_turn_specs("claude", &active);
-        let mut valid_turns = BTreeSet::<String>::new();
-        for agent in ["codex", "gemini", "deepseek", "grok", "perplexity"] {
-            valid_turns.insert(agent.to_string());
-        }
-        let approvals = BTreeSet::<String>::new();
+        let mut approvals = BTreeSet::<String>::new();
+        approvals.insert("codex".to_string());
+        approvals.insert("gemini".to_string());
         let claude_index = specs.iter().position(|spec| spec.key == "claude").unwrap();
 
-        let selected = select_serial_reviewer_index(
-            &specs,
-            claude_index,
-            "claude",
-            "claude",
-            &valid_turns,
-            &approvals,
-            0,
-        )
-        .unwrap();
-
-        assert_eq!(specs[selected].key, "claude");
-    }
-
-    #[test]
-    fn serial_reviewer_does_not_return_to_initial_redactor_before_full_peer_circuit() {
-        let active = vec![
-            "claude".to_string(),
-            "codex".to_string(),
-            "gemini".to_string(),
-            "deepseek".to_string(),
-            "grok".to_string(),
-            "perplexity".to_string(),
-        ];
-        let specs = circular_round_turn_specs("claude", &active);
-        let mut valid_turns = BTreeSet::<String>::new();
-        valid_turns.insert("codex".to_string());
-        valid_turns.insert("gemini".to_string());
-        let approvals = BTreeSet::<String>::new();
-        let claude_index = specs.iter().position(|spec| spec.key == "claude").unwrap();
-
-        let selected = select_serial_reviewer_index(
-            &specs,
-            claude_index,
-            "deepseek",
-            "claude",
-            &valid_turns,
-            &approvals,
-            0,
-        )
-        .unwrap();
+        let selected =
+            select_serial_reviewer_index(&specs, claude_index, "deepseek", "claude", &approvals, 0)
+                .unwrap();
 
         assert_ne!(specs[selected].key, "claude");
+        assert_eq!(specs[selected].key, "grok");
     }
 
     #[test]
@@ -2558,46 +2437,6 @@ Texto revisado.
     }
 
     #[test]
-    fn ready_unchanged_current_draft_with_release_blocker_does_not_count() {
-        let stdout = r#"MAESTRO_STATUS: READY
-<maestro_revision_report>
-{ "reviewer": "grok", "status": "READY", "custody": "unchanged", "changes": [] }
-</maestro_revision_report>"#;
-        let output = validate_serial_turn_output(stdout, "READY").unwrap();
-
-        let failure = ready_unchanged_release_audit_failure(
-            "READY",
-            &output,
-            "Texto ainda contem [EVIDENCIA_PENDENTE].",
-        )
-        .expect("unchanged READY must fail when current draft is not release-safe");
-
-        assert!(failure.0.contains("bibliographic integrity"));
-        assert!(ready_unchanged_release_audit_failure("READY", &output, "Texto limpo.").is_none());
-        assert!(ready_unchanged_release_audit_failure(
-            "NOT_READY",
-            &output,
-            "Texto ainda contem [EVIDENCIA_PENDENTE]."
-        )
-        .is_none());
-        assert!(!serial_turn_counts_as_valid_round_agent(
-            "READY",
-            &output,
-            "Texto ainda contem [EVIDENCIA_PENDENTE]."
-        ));
-        assert!(serial_turn_counts_as_valid_round_agent(
-            "READY",
-            &output,
-            "Texto limpo."
-        ));
-        assert!(serial_turn_counts_as_valid_round_agent(
-            "NOT_READY",
-            &output,
-            "Texto ainda contem [EVIDENCIA_PENDENTE]."
-        ));
-    }
-
-    #[test]
     fn serial_contract_rejects_truncated_ready_final_text() {
         let stdout = r#"MAESTRO_STATUS: READY
 <maestro_revision_report>
@@ -2634,23 +2473,6 @@ AUTOR. Obra. [Edicao consultada nao identificada]. [S. l.: s. n.], [s. d.].
         let error = validate_serial_turn_output(stdout, "READY").unwrap_err();
 
         assert!(error.contains("bibliographic"));
-    }
-
-    #[test]
-    fn serial_contract_accepts_not_ready_revision_with_unresolved_evidence_marker() {
-        let stdout = r#"MAESTRO_STATUS: NOT_READY
-<maestro_revision_report>
-{ "reviewer": "codex", "status": "NOT_READY", "custody": "revised", "changes": [{ "line_range": "12-14", "issue": "evidence still pending", "action": "preserved marker for next reviewer" }] }
-</maestro_revision_report>
-<maestro_final_text>
-# Texto em revisao
-
-Este texto ainda contem [EVIDENCIA_PENDENTE] para que o proximo revisor resolva a lacuna antes do release.
-</maestro_final_text>"#;
-
-        let output = validate_serial_turn_output(stdout, "NOT_READY").unwrap();
-
-        assert!(output.final_text.is_some());
     }
 
     #[test]
