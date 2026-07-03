@@ -271,6 +271,7 @@ export function humanizeAgentStatus(status: string) {
   if (normalized === "PAUSED_DRAFT_AUTHOR_UNKNOWN") return "Autor do rascunho nao identificado";
   if (normalized === "PAUSED_REVIEWERS_UNAVAILABLE") return "Sem revisor independente";
   if (normalized === "PAUSED_REVIEWER_OPERATIONAL_OUTAGE") return "Revisores indisponiveis";
+  if (normalized === "PAUSED_FINAL_REFERENCE_AUDIT") return "Evidencia externa pendente";
   if (normalized === "ALL_PEERS_FAILING") return "Todos os peers em erro";
   if (normalized === "PAUSED_WITH_REAL_AGENT_OUTPUTS") return "Aguardando ajustes";
   return status

@@ -17,7 +17,7 @@ Portable Windows editorial workbench for protocol-driven AI drafting, source ver
 [![stack: Tauri 2 + React 19](https://img.shields.io/badge/stack-Tauri%202%20%2B%20React%2019-blueviolet.svg)](#architecture)
 [![license: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 
-**Status.** Stable. Current release: **v0.5.40** (release tag `v00.05.40`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release: **v0.5.41** (release tag `v00.05.41`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 Operational stable baseline started at `v0.5.25`, with live bootstrap, diagnostics, navigation, Cloudflare credential provisioning, AI API credential checks, PostEditor parity, link auditing, and a real background Claude/Codex/Gemini/DeepSeek/Grok editorial session path. From `v0.5.27`, Maestro also supports Perplexity as an API-only Sonar peer. Runtime evidence from session `run-2026-05-11T01-09-30-556Z` confirms the first documented end-to-end unanimous editorial delivery: Maestro `0.5.25` resumed a real API-mode session, reached `READY_UNANIMOUS`, and wrote a clean `texto-final.md`.
 
@@ -25,6 +25,7 @@ The version history at a glance:
 
 | Release | Scope |
 | --- | --- |
+| **`v0.5.41`** | Serial reviewer-reviser fix: correctable blockers must be corrected in the same turn, while evidence-required blockers pause for operator evidence instead of circulating indefinitely. |
 | **`v0.5.40`** | Security release for Scorecard alert 37: ships the upstream `plist` git pin that resolves `quick-xml` to 0.41.0 and closes RUSTSEC-2026-0194/RUSTSEC-2026-0195 in the distributed bundle. |
 | **`v0.5.39`** | Security release for the transitive `anyhow` advisory, closing RUSTSEC-2026-0190 while upstream `plist` work was still pending. |
 | **`v0.5.38`** | Circular review closing-turn and final-release audit accounting fixes. |

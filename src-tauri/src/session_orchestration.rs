@@ -1362,6 +1362,11 @@ pub(crate) fn run_editorial_session_core(
         };
         let ready_unchanged_audit_failure =
             ready_unchanged_release_audit_failure(&result.status, &serial_output, &current_draft);
+        let not_ready_unchanged_audit_failure = not_ready_unchanged_release_audit_failure(
+            &result.status,
+            &serial_output,
+            &current_draft,
+        );
         let counts_as_valid_round_agent = serial_turn_counts_as_valid_round_agent(
             &result.status,
             &serial_output,
@@ -1394,6 +1399,22 @@ pub(crate) fn run_editorial_session_core(
                         })),
                     },
                 );
+            }
+            if let Some((reason, audit_context)) = not_ready_unchanged_audit_failure {
+                result.status = "NOT_READY".to_string();
+                result.tone = "warn".to_string();
+                if let Some(last) = agents.last_mut() {
+                    last.status = result.status.clone();
+                    last.tone = result.tone.clone();
+                }
+                let note = format!(
+                    "NOT_READY unchanged paused by final release audit instead of passing the blocker forward: {reason}"
+                );
+                reclassify_agent_artifact_status(&output_path, "NOT_READY", &note);
+                let reason = format!(
+                    "Reviewer returned NOT_READY without custody transfer while the current text still fails the final release gate: {reason}"
+                );
+                pause_final_reference_audit!(reason, audit_context);
             }
             if counts_as_valid_round_agent {
                 valid_round_agents.insert(spec.key.to_string());
@@ -1735,6 +1756,12 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
     if final_text.is_none() && has_revised_custody {
         return Err("revised custody requires a complete maestro_final_text block".to_string());
     }
+    if final_text.is_none() && has_unchanged_custody && report_declares_nonempty_changes(&report) {
+        return Err(
+            "correctable changes require custody revised and a complete maestro_final_text block"
+                .to_string(),
+        );
+    }
     Ok(SerialTurnOutput { final_text })
 }
 
@@ -1757,12 +1784,24 @@ fn ready_unchanged_release_audit_failure(
     None
 }
 
+fn not_ready_unchanged_release_audit_failure(
+    status: &str,
+    serial_output: &SerialTurnOutput,
+    current_draft: &str,
+) -> Option<(String, serde_json::Value)> {
+    if status == "NOT_READY" && serial_output.final_text.is_none() {
+        return final_release_audit_failure(current_draft);
+    }
+    None
+}
+
 fn serial_turn_counts_as_valid_round_agent(
     status: &str,
     serial_output: &SerialTurnOutput,
     current_draft: &str,
 ) -> bool {
     ready_unchanged_release_audit_failure(status, serial_output, current_draft).is_none()
+        && not_ready_unchanged_release_audit_failure(status, serial_output, current_draft).is_none()
 }
 
 fn contains_final_release_blocker(text: &str) -> bool {
@@ -1961,6 +2000,25 @@ fn report_declares_custody_value(report: &str, value: &str) -> bool {
     ]
     .iter()
     .any(|pattern| normalized.contains(pattern))
+}
+
+fn report_declares_nonempty_changes(report: &str) -> bool {
+    let normalized = report.to_ascii_lowercase();
+    let mut remaining = normalized.as_str();
+    while let Some(field_index) = remaining.find("changes") {
+        let after_field = &remaining[field_index + "changes".len()..];
+        let Some(open_index) = after_field.find('[') else {
+            return false;
+        };
+        let after_open = &after_field[open_index + 1..];
+        let first_content = after_open.trim_start();
+        if first_content.starts_with(']') {
+            remaining = after_open;
+            continue;
+        }
+        return true;
+    }
+    false
 }
 
 fn contains_prompt_or_protocol_echo(stdout: &str) -> bool {
@@ -2167,7 +2225,8 @@ mod tests {
         agent_attempt_output_path, circular_round_turn_specs, current_draft_author_from_path,
         current_version_has_all_independent_approvals, final_release_audit_failure,
         is_operational_only_review_round, is_substantive_editorial_change,
-        quality_guard_blocks_revision, ready_unchanged_release_audit_failure,
+        not_ready_unchanged_release_audit_failure, quality_guard_blocks_revision,
+        ready_unchanged_release_audit_failure, report_declares_nonempty_changes,
         restore_circular_resume_progress, serial_turn_counts_as_valid_round_agent,
         select_serial_reviewer_index, validate_final_release_candidate,
         validate_serial_turn_output,
@@ -2590,10 +2649,73 @@ Texto revisado.
             &output,
             "Texto limpo."
         ));
-        assert!(serial_turn_counts_as_valid_round_agent(
+        assert!(!serial_turn_counts_as_valid_round_agent(
             "NOT_READY",
             &output,
             "Texto ainda contem [EVIDENCIA_PENDENTE]."
+        ));
+    }
+
+    #[test]
+    fn serial_contract_rejects_not_ready_unchanged_with_actionable_changes() {
+        let stdout = r#"MAESTRO_STATUS: NOT_READY
+<maestro_revision_report>
+{
+  "reviewer": "codex",
+  "status": "NOT_READY",
+  "custody": "unchanged",
+  "changes": [
+    {
+      "line_range": "12-14",
+      "issue": "unsupported claim can be removed with supplied text",
+      "action": "remove the unsupported clause",
+      "required": true
+    }
+  ]
+}
+</maestro_revision_report>"#;
+
+        let error = validate_serial_turn_output(stdout, "NOT_READY").unwrap_err();
+
+        assert!(error.contains("correctable"));
+    }
+
+    #[test]
+    fn not_ready_unchanged_with_release_blocker_pauses_instead_of_counting() {
+        let stdout = r#"MAESTRO_STATUS: NOT_READY
+<maestro_revision_report>
+{ "reviewer": "claude", "status": "NOT_READY", "custody": "unchanged", "changes": [], "operator_evidence_required": [{ "issue": "missing source" }] }
+</maestro_revision_report>"#;
+        let output = validate_serial_turn_output(stdout, "NOT_READY").unwrap();
+
+        let blocked = not_ready_unchanged_release_audit_failure(
+            "NOT_READY",
+            &output,
+            "Texto ainda contem [EVIDENCIA_PENDENTE].",
+        )
+        .expect("NOT_READY unchanged with a release blocker must pause for operator evidence");
+
+        assert!(blocked.0.contains("bibliographic integrity"));
+        assert!(not_ready_unchanged_release_audit_failure(
+            "NOT_READY",
+            &output,
+            "Texto limpo."
+        )
+        .is_none());
+        assert!(!serial_turn_counts_as_valid_round_agent(
+            "NOT_READY",
+            &output,
+            "Texto ainda contem [EVIDENCIA_PENDENTE]."
+        ));
+    }
+
+    #[test]
+    fn report_declares_nonempty_changes_ignores_empty_changes_and_prose_mentions() {
+        assert!(!report_declares_nonempty_changes(
+            r#"{ "summary": "the word changes appears in prose only", "changes": [] }"#
+        ));
+        assert!(report_declares_nonempty_changes(
+            r#"{ "changes": [{ "issue": "correctable" }] }"#
         ));
     }
 
