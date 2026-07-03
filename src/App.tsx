@@ -1910,9 +1910,9 @@ export function App() {
                           ? "Os revisores independentes disponiveis falharam operacionalmente em rodadas consecutivas. A sessao foi pausada sem alterar o texto; ajuste CLI/API, inclua outro revisor independente ou troque o modo e retome."
                           : result.status === "PAUSED_FINAL_REFERENCE_AUDIT"
                             ? "A sessao foi pausada porque o texto ainda depende de evidencia externa ou decisao do operador. Anexe/verifique a evidencia indicada na ata antes de retomar."
-                          : result.status === "ALL_PEERS_FAILING"
-                            ? "Todos os peers ativos retornaram erro em 3 rodadas consecutivas. Sessao pausada para nao queimar quota e tempo. Verifique conectividade, chaves de API e quotas; depois retome."
-                            : "A sessao nao entregou texto final nesta chamada. Divergencias exigem novas rodadas ate unanimidade.",
+                            : result.status === "ALL_PEERS_FAILING"
+                              ? "Todos os peers ativos retornaram erro em 3 rodadas consecutivas. Sessao pausada para nao queimar quota e tempo. Verifique conectividade, chaves de API e quotas; depois retome."
+                              : "A sessao nao entregou texto final nesta chamada. Divergencias exigem novas rodadas ate unanimidade.",
           eta: `Ata: ${result.session_minutes_path}`,
           status: "paused",
         });
