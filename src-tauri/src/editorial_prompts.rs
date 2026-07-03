@@ -183,7 +183,7 @@ In this cycle you act as petitioner/drafter: you submit a complete text to the e
 Read the full editorial protocol before writing.
 Produce a complete Markdown draft for the operator request.
 Do not create local files. Write the entire answer only to stdout.
-Do not invent links. If evidence is missing, mark it explicitly as `[EVIDENCIA_PENDENTE]`.
+Do not invent links. If evidence is missing, mark the draft explicitly as `[EVIDENCIA_PENDENTE]`; later reviewer-reviser turns must remove, narrow, or quarantine unsupported claims before any final candidate.
 
 ## Operator Request
 
@@ -403,7 +403,7 @@ Session: {}
 
 ## Language Contract
 
-- Internal coordination, critique, changelog, and revision report MUST be written in en_US.
+- Internal coordination, critique, changelog, retry diagnostics, JSON/report fields, and every non-user-facing agent message MUST be written in en_US.
 - The operator-facing article inside `<maestro_final_text>` MUST be written in Brazilian Portuguese (pt_BR).
 - Keep protocol markers exactly as specified.
 - The editorial protocol is authoritative input, not output. Read and obey it, but do not quote, summarize, restate, or reproduce protocol text in the artifact. Cite compact section IDs only, such as `§V.14` or `§11.7`.
@@ -447,9 +447,10 @@ If you are unsure, preserve the passage and report the concern instead of rewrit
 ## Evidence and Bibliographic Integrity Gate
 
 - Do not invent links, editions, publishers, years, URLs, page ranges, or source details.
-- If evidence is missing, preserve `[EVIDENCIA_PENDENTE]`.
+- If evidence is missing, do not pass `[EVIDENCIA_PENDENTE]`, bracketed lacunae, or unsupported reference placeholders forward inside `<maestro_final_text>`.
+- Unverified claims or references are correctable defects when they can be removed, narrowed, generalized, or quarantined without damaging the article.
 - Do not convert evidence-pending markers into publicable references, bracketed lacunae, or bibliographic placeholders such as `[s. d.]`, `[S. l.: s. n.]`, or `[Edição consultada não identificada]`.
-- If the current text depends on an unverified reference, source, link, or bibliographic detail, keep the issue visible and return `MAESTRO_STATUS: NOT_READY` unless you can verify and cite the correction from supplied evidence.
+- If the current text depends on an unverified reference, source, link, or bibliographic detail, revise the article in this same turn by deleting, narrowing, generalizing, or quarantining that dependency unless the missing evidence or operator decision is truly indispensable.
 - A text is not final-deliverable while it still depends on unresolved evidence markers or bibliographic lacunae.
 - A blocker that can be corrected with the current text, prior reports, supplied evidence, or the editorial protocol MUST be corrected in this same turn. Do not merely point it out or pass it to the next reviewer.
 - If a blocker cannot be corrected from supplied materials because it requires missing external evidence or an operator decision, keep `changes` empty, put it under `operator_evidence_required`, set `custody` to `"unchanged"`, and return `MAESTRO_STATUS: NOT_READY`.
@@ -544,7 +545,7 @@ Your task is to return a complete revised Markdown text, but edits are strictly 
 - If a reviewer gave a broad instruction such as "read everything again" or "rewrite the text", reduce it to the specific concrete blockers actually stated.
 - If an objection is vague, optional, stylistic, or outside the blocking scope, do not rewrite the text for it.
 - If no concrete blocking objection below authorizes a change, return the current draft unchanged.
-- Do not invent links. If evidence is missing, preserve `[EVIDENCIA_PENDENTE]`.
+- Do not invent links. If evidence is missing, remove, narrow, generalize, or quarantine the unsupported claim/reference instead of preserving `[EVIDENCIA_PENDENTE]` in the revised draft.
 
 Write the entire revised text only to stdout. Do not create local files.
 
@@ -666,13 +667,14 @@ mod tests {
         assert!(prompt.contains("<maestro_final_text>"));
         assert!(prompt.contains("Quality Preservation / Anti-Impoverishment Gate"));
         assert!(prompt.contains("must not flatten stronger prose"));
-        assert!(prompt.contains("Internal coordination, critique, changelog, and revision report MUST be written in en_US"));
+        assert!(prompt.contains("every non-user-facing agent message MUST be written in en_US"));
         assert!(prompt.contains("MUST be corrected in this same turn"));
+        assert!(prompt.contains("do not pass `[EVIDENCIA_PENDENTE]"));
         assert!(prompt.contains("operator_evidence_required"));
     }
 
     #[test]
-    fn serial_revision_prompt_preserves_unverified_evidence_markers() {
+    fn serial_revision_prompt_forbids_passing_unverified_evidence_markers_forward() {
         let prompt = build_serial_revision_prompt(
             &test_request(),
             "run-test",
@@ -685,7 +687,8 @@ mod tests {
             "",
         );
 
-        assert!(prompt.contains("If evidence is missing, preserve `[EVIDENCIA_PENDENTE]`."));
+        assert!(prompt.contains("do not pass `[EVIDENCIA_PENDENTE]"));
+        assert!(prompt.contains("deleting, narrowing, generalizing, or quarantining"));
         assert!(
             prompt.contains("Do not convert evidence-pending markers into publicable references")
         );
