@@ -1041,7 +1041,7 @@ pub(crate) fn run_editorial_session_core(
             );
         }
         let previous_revision_history = build_revision_history_block(&agents);
-        let retry_key = serial_turn_retry_key(round, round_turn_index, spec.key);
+        let retry_key = serial_turn_retry_key(round, round_turn_index, spec.key, &current_draft);
         let corrective_retry_count = corrective_contract_retry_counts
             .get(&retry_key)
             .copied()
@@ -1437,6 +1437,32 @@ pub(crate) fn run_editorial_session_core(
                 );
             }
             if let Some((reason, audit_context)) = not_ready_unchanged_audit_failure {
+                if let Some((pause_reason, pause_audit_context)) =
+                    not_ready_unchanged_operator_evidence_audit_failure(
+                        &result.status,
+                        &serial_output,
+                        &current_draft,
+                    )
+                {
+                    let _ = write_log_record(
+                        log_session,
+                        LogEventInput {
+                            level: "warn".to_string(),
+                            category: "session.serial.operator_evidence_required".to_string(),
+                            message: "serial reviewer-reviser requested operator evidence for a final-release blocker that cannot be corrected from supplied materials".to_string(),
+                            context: Some(json!({
+                                "run_id": &run_id,
+                                "round": round,
+                                "turn": round_turn_index + 1,
+                                "agent": spec.key,
+                                "reason": pause_reason,
+                                "audit_context": pause_audit_context,
+                                "policy": "true_external_evidence_requests_pause_for_operator_instead_of_contract_retry"
+                            })),
+                        },
+                    );
+                    pause_final_reference_audit!(pause_reason, pause_audit_context);
+                }
                 result.status = "CONTRACT_VIOLATION".to_string();
                 result.tone = "error".to_string();
                 if let Some(last) = agents.last_mut() {
@@ -1819,6 +1845,7 @@ fn restore_circular_resume_progress(
 #[derive(Debug)]
 struct SerialTurnOutput {
     final_text: Option<String>,
+    operator_evidence_required: bool,
 }
 
 fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnOutput, String> {
@@ -1840,6 +1867,7 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
     let final_text = extract_tagged_block(stdout, "maestro_final_text");
     let has_revised_custody = report_declares_custody_value(&report, "revised");
     let has_unchanged_custody = report_declares_custody_value(&report, "unchanged");
+    let operator_evidence_required = report_declares_nonempty_operator_evidence_required(&report);
     if has_revised_custody && has_unchanged_custody {
         return Err("ambiguous custody declaration in maestro_revision_report".to_string());
     }
@@ -1867,7 +1895,10 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
                 .to_string(),
         );
     }
-    Ok(SerialTurnOutput { final_text })
+    Ok(SerialTurnOutput {
+        final_text,
+        operator_evidence_required,
+    })
 }
 
 fn validate_final_release_candidate(text: &str) -> Result<(), String> {
@@ -1900,6 +1931,20 @@ fn not_ready_unchanged_release_audit_failure(
     None
 }
 
+fn not_ready_unchanged_operator_evidence_audit_failure(
+    status: &str,
+    serial_output: &SerialTurnOutput,
+    current_draft: &str,
+) -> Option<(String, serde_json::Value)> {
+    if status == "NOT_READY"
+        && serial_output.final_text.is_none()
+        && serial_output.operator_evidence_required
+    {
+        return final_release_audit_failure(current_draft);
+    }
+    None
+}
+
 fn serial_turn_counts_as_valid_round_agent(
     status: &str,
     serial_output: &SerialTurnOutput,
@@ -1909,8 +1954,13 @@ fn serial_turn_counts_as_valid_round_agent(
         && not_ready_unchanged_release_audit_failure(status, serial_output, current_draft).is_none()
 }
 
-fn serial_turn_retry_key(round: usize, round_turn_index: usize, agent: &str) -> String {
-    format!("{round}:{round_turn_index}:{agent}")
+fn serial_turn_retry_key(
+    round: usize,
+    round_turn_index: usize,
+    agent: &str,
+    current_draft: &str,
+) -> String {
+    format!("{round}:{round_turn_index}:{agent}:{current_draft}")
 }
 
 fn contains_final_release_blocker(text: &str) -> bool {
@@ -2112,10 +2162,18 @@ fn report_declares_custody_value(report: &str, value: &str) -> bool {
 }
 
 fn report_declares_nonempty_changes(report: &str) -> bool {
+    report_declares_nonempty_array_field(report, "changes")
+}
+
+fn report_declares_nonempty_operator_evidence_required(report: &str) -> bool {
+    report_declares_nonempty_array_field(report, "operator_evidence_required")
+}
+
+fn report_declares_nonempty_array_field(report: &str, field: &str) -> bool {
     let normalized = report.to_ascii_lowercase();
     let mut remaining = normalized.as_str();
-    while let Some(field_index) = remaining.find("changes") {
-        let after_field = &remaining[field_index + "changes".len()..];
+    while let Some(field_index) = remaining.find(field) {
+        let after_field = &remaining[field_index + field.len()..];
         let Some(open_index) = after_field.find('[') else {
             return false;
         };
@@ -2334,11 +2392,12 @@ mod tests {
         agent_attempt_output_path, circular_round_turn_specs, current_draft_author_from_path,
         current_version_has_all_independent_approvals, final_release_audit_failure,
         is_operational_only_review_round, is_substantive_editorial_change,
+        not_ready_unchanged_operator_evidence_audit_failure,
         not_ready_unchanged_release_audit_failure, quality_guard_blocks_revision,
         ready_unchanged_release_audit_failure, report_declares_nonempty_changes,
-        restore_circular_resume_progress, select_serial_reviewer_index,
-        serial_turn_counts_as_valid_round_agent, validate_final_release_candidate,
-        validate_serial_turn_output,
+        report_declares_nonempty_operator_evidence_required, restore_circular_resume_progress,
+        select_serial_reviewer_index, serial_turn_counts_as_valid_round_agent,
+        serial_turn_retry_key, validate_final_release_candidate, validate_serial_turn_output,
     };
     use crate::EditorialAgentResult;
 
@@ -2793,7 +2852,7 @@ Texto revisado.
     fn not_ready_unchanged_with_release_blocker_requires_corrective_retry() {
         let stdout = r#"MAESTRO_STATUS: NOT_READY
 <maestro_revision_report>
-{ "reviewer": "claude", "status": "NOT_READY", "custody": "unchanged", "changes": [], "operator_evidence_required": [{ "issue": "missing source" }] }
+{ "reviewer": "claude", "status": "NOT_READY", "custody": "unchanged", "changes": [], "operator_evidence_required": [] }
 </maestro_revision_report>"#;
         let output = validate_serial_turn_output(stdout, "NOT_READY").unwrap();
 
@@ -2805,6 +2864,12 @@ Texto revisado.
         .expect("NOT_READY unchanged with a release blocker must require same-reviewer correction");
 
         assert!(blocked.0.contains("bibliographic integrity"));
+        assert!(not_ready_unchanged_operator_evidence_audit_failure(
+            "NOT_READY",
+            &output,
+            "Texto ainda contem [EVIDENCIA_PENDENTE]."
+        )
+        .is_none());
         assert!(
             not_ready_unchanged_release_audit_failure("NOT_READY", &output, "Texto limpo.")
                 .is_none()
@@ -2817,6 +2882,38 @@ Texto revisado.
     }
 
     #[test]
+    fn not_ready_unchanged_with_operator_evidence_required_preserves_operator_pause() {
+        let stdout = r#"MAESTRO_STATUS: NOT_READY
+<maestro_revision_report>
+{ "reviewer": "claude", "status": "NOT_READY", "custody": "unchanged", "changes": [], "operator_evidence_required": [{ "issue": "missing source", "required": true }] }
+</maestro_revision_report>"#;
+        let output = validate_serial_turn_output(stdout, "NOT_READY").unwrap();
+
+        assert!(output.operator_evidence_required);
+        assert!(not_ready_unchanged_release_audit_failure(
+            "NOT_READY",
+            &output,
+            "Texto ainda contem [EVIDENCIA_PENDENTE]."
+        )
+        .is_some());
+
+        let pause = not_ready_unchanged_operator_evidence_audit_failure(
+            "NOT_READY",
+            &output,
+            "Texto ainda contem [EVIDENCIA_PENDENTE].",
+        )
+        .expect("true external evidence requests must preserve an operator-actionable pause");
+
+        assert!(pause.0.contains("bibliographic integrity"));
+        assert!(not_ready_unchanged_operator_evidence_audit_failure(
+            "NOT_READY",
+            &output,
+            "Texto limpo."
+        )
+        .is_none());
+    }
+
+    #[test]
     fn report_declares_nonempty_changes_ignores_empty_changes_and_prose_mentions() {
         assert!(!report_declares_nonempty_changes(
             r#"{ "summary": "the word changes appears in prose only", "changes": [] }"#
@@ -2824,6 +2921,28 @@ Texto revisado.
         assert!(report_declares_nonempty_changes(
             r#"{ "changes": [{ "issue": "correctable" }] }"#
         ));
+    }
+
+    #[test]
+    fn report_declares_nonempty_operator_evidence_required_ignores_empty_and_prose_mentions() {
+        assert!(!report_declares_nonempty_operator_evidence_required(
+            r#"{ "summary": "operator_evidence_required appears in prose only", "operator_evidence_required": [] }"#
+        ));
+        assert!(report_declares_nonempty_operator_evidence_required(
+            r#"{ "operator_evidence_required": [{ "issue": "missing source" }] }"#
+        ));
+    }
+
+    #[test]
+    fn serial_turn_retry_key_changes_when_current_draft_changes() {
+        let first = serial_turn_retry_key(2, 3, "grok", "Draft with [EVIDENCIA_PENDENTE].");
+        let second = serial_turn_retry_key(2, 3, "grok", "Draft with quarantined claim.");
+
+        assert_ne!(first, second);
+        assert_eq!(
+            first,
+            serial_turn_retry_key(2, 3, "grok", "Draft with [EVIDENCIA_PENDENTE].")
+        );
     }
 
     #[test]
