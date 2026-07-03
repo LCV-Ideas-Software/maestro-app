@@ -6,6 +6,18 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.39] - 2026-07-03
+
+### Security
+
+- **`anyhow` advisory remediation.** Bumped the transitive `anyhow` crate from 1.0.102 to 1.0.103, closing RUSTSEC-2026-0190 (unsoundness in `Error::downcast_mut()`), one of the three advisories reported by the OpenSSF Scorecard Vulnerabilities check on `Cargo.lock`.
+- **Residual advisories (upstream-blocked).** RUSTSEC-2026-0194 and RUSTSEC-2026-0195 (`quick-xml` < 0.41.0 denial-of-service) remain open: `quick-xml` is reachable only through `plist`, and no published `plist` release accepts `quick-xml` 0.41 (`plist` 1.9.0 requires `^0.39.2`; upstream master still pins 0.39.2). Tracked upstream at rust-plist issues #190/#191; once a `plist` release adopts `quick-xml` >= 0.41, a `cargo update -p plist` closes both.
+
+### Validation
+
+- `cargo test --locked --lib` with the updated lockfile: 181 passed, 0 failed.
+- `cross-review` session `648cdb4c-712b-4244-81e7-91c3b67e4d86`: ALL READY gate satisfied before push.
+
 ## [v0.5.38] - 2026-06-25
 
 ### Fixed
