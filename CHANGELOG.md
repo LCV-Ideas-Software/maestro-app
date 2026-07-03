@@ -6,6 +6,20 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.41] - 2026-07-03
+
+### Fixed
+
+- **Serial reviewer-reviser custody loop.** Enforces that a reviewer who identifies a correctable blocker must apply the correction in the same turn and return revised custody with a complete `<maestro_final_text>`.
+- **Evidence-required pause behavior.** `NOT_READY` + unchanged custody on a draft that still fails the final release evidence/bibliography audit now pauses with `PAUSED_FINAL_REFERENCE_AUDIT` instead of passing the same blocker to the next reviewer indefinitely.
+- **Operator-facing pause messaging.** The UI now labels final-reference pauses as external evidence pending and tells the operator to attach or verify the evidence indicated in the session minutes before resuming.
+
+### Validation
+
+- `cargo test --locked --lib`: 184 passed, 0 failed.
+- `npm run build`: passed; existing large chunk warning only.
+- `cross-review-v2` session `20abb5f2-584c-411c-b7c1-1555c6f03cc2`: converged READY with Claude, Gemini, DeepSeek, Grok, and Perplexity.
+
 ## [v0.5.40] - 2026-07-03
 
 ### Security

@@ -451,6 +451,8 @@ If you are unsure, preserve the passage and report the concern instead of rewrit
 - Do not convert evidence-pending markers into publicable references, bracketed lacunae, or bibliographic placeholders such as `[s. d.]`, `[S. l.: s. n.]`, or `[Edição consultada não identificada]`.
 - If the current text depends on an unverified reference, source, link, or bibliographic detail, keep the issue visible and return `MAESTRO_STATUS: NOT_READY` unless you can verify and cite the correction from supplied evidence.
 - A text is not final-deliverable while it still depends on unresolved evidence markers or bibliographic lacunae.
+- A blocker that can be corrected with the current text, prior reports, supplied evidence, or the editorial protocol MUST be corrected in this same turn. Do not merely point it out or pass it to the next reviewer.
+- If a blocker cannot be corrected from supplied materials because it requires missing external evidence or an operator decision, keep `changes` empty, put it under `operator_evidence_required`, set `custody` to `"unchanged"`, and return `MAESTRO_STATUS: NOT_READY`.
 
 ## Required Output Contract
 
@@ -462,11 +464,12 @@ The answer MUST contain exactly these parts:
    - `current_author`
    - `status`
    - `changes`: list of changed passages, received line/passage reference, reason, protocol citation, and whether the change was required.
+   - `operator_evidence_required`: list of blockers that cannot be corrected from supplied materials and require external evidence or operator decision.
    - `out_of_scope`: concerns intentionally not changed.
    - `quality_preservation`: explicit statement that approved strong formulations were preserved; if not, justify each reduction.
    - `custody`: exactly `"revised"` when you changed the article, or exactly `"unchanged"` when you approve/criticize without changing custody.
 3. Include `<maestro_final_text>` containing only the complete operator-facing article in pt_BR only when `custody` is `"revised"`.
-4. If `custody` is `"unchanged"`, omit `<maestro_final_text>` entirely. Do not repeat the current article.
+4. If `custody` is `"unchanged"`, `changes` MUST be empty, `<maestro_final_text>` MUST be omitted, and every blocking reason must be in `operator_evidence_required` or `out_of_scope`.
 
 Anything outside those tags may be discarded by the app.
 An incomplete tag, missing closing tag, reproduced protocol text, or truncated JSON/report is a contract violation and will not count as READY.
@@ -664,6 +667,8 @@ mod tests {
         assert!(prompt.contains("Quality Preservation / Anti-Impoverishment Gate"));
         assert!(prompt.contains("must not flatten stronger prose"));
         assert!(prompt.contains("Internal coordination, critique, changelog, and revision report MUST be written in en_US"));
+        assert!(prompt.contains("MUST be corrected in this same turn"));
+        assert!(prompt.contains("operator_evidence_required"));
     }
 
     #[test]
