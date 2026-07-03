@@ -6,6 +6,21 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.43] - 2026-07-03
+
+### Fixed
+
+- **Operator evidence pause preservation.** `NOT_READY` + unchanged custody with non-empty `operator_evidence_required` now preserves the operator-actionable `PAUSED_FINAL_REFERENCE_AUDIT` path instead of being retried as a contract violation.
+- **Draft-scoped corrective retries.** Serial corrective retry counters now include the exact current draft identity under review, so retry exhaustion on an obsolete draft cannot carry into a later draft version handled by the same reviewer/turn slot.
+
+### Validation
+
+- `cargo test --locked --lib not_ready_unchanged_with_release_blocker_requires_corrective_retry`: passed.
+- `cargo test --locked --lib not_ready_unchanged_with_operator_evidence_required_preserves_operator_pause`: passed.
+- `cargo test --locked --lib serial_turn_retry_key_changes_when_current_draft_changes`: passed.
+- `cargo test --locked --lib report_declares_nonempty_operator_evidence_required_ignores_empty_and_prose_mentions`: passed.
+- `cargo test --locked --lib`: 187 passed, 0 failed.
+
 ## [v0.5.42] - 2026-07-03
 
 ### Fixed
