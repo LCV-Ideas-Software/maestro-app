@@ -6,6 +6,23 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.44] - 2026-07-03
+
+### Fixed
+
+- **Operator-evidence pause contract hardening.** Malformed `NOT_READY` reports can no longer trigger an operator-evidence pause unless they explicitly declare `custody: "unchanged"`.
+- **Anchored evidence-field parsing.** The `operator_evidence_required` and `changes` array detectors now anchor on actual report keys with a key separator, so prose mentions such as `operator_evidence_required [not needed]` cannot be misread as a non-empty evidence request.
+
+### Validation
+
+- `cargo test --locked --lib not_ready_without_unchanged_custody_cannot_pause_for_operator_evidence`: passed.
+- `cargo test --locked --lib report_declares_nonempty_operator_evidence_required_ignores_empty_and_prose_mentions`: passed.
+- `cargo test --locked --lib not_ready_unchanged_with_operator_evidence_required_preserves_operator_pause`: passed.
+- `cargo test --locked --lib serial_contract_rejects_not_ready_unchanged_with_actionable_changes`: passed.
+- `cargo test --locked --lib`: passed, 188 tests.
+- `git diff --check`: passed.
+- Cross-review-v2 session `66927a27-4ac2-4936-b9a5-41e6bf8575a4`: converged READY in round 2 with Claude, Gemini, DeepSeek, Grok, and Perplexity.
+
 ## [v0.5.43] - 2026-07-03
 
 ### Fixed
