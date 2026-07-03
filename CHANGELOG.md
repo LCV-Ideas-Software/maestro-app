@@ -6,6 +6,22 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.40] - 2026-07-03
+
+### Security
+
+- **`quick-xml` advisory remediation.** Ships the Scorecard alert 37 fix from PR #158 by keeping `plist` pinned to upstream `rust-plist` commit `0a2f9e79fe4b85abcfb8013a9f3c97e490750b50`, the official upstream commit that bumps `quick-xml` to 0.41.0. This removes the resolved `quick-xml` 0.38.4 graph entry and closes RUSTSEC-2026-0194 and RUSTSEC-2026-0195 in the released Windows bundle.
+
+### Follow-up
+
+- Replace the temporary git-pinned `plist` patch with a normal crates.io dependency once `plist` publishes a release that accepts `quick-xml` >= 0.41.0. Until then, the `[patch.crates-io]` block is intentional and must not be removed by a plain `cargo update`.
+
+### Validation
+
+- `cargo audit --file src-tauri\Cargo.lock`: no vulnerabilities; existing allowed informational warnings only.
+- `cargo tree --manifest-path src-tauri\Cargo.toml -i quick-xml`: resolves `quick-xml v0.41.0` through the pinned upstream `plist` commit.
+- PR #158 checks passed before merge, including Rust gates, CodeQL, Dependency Review, Socket Security, repository hygiene, frontend build, and frontend tests.
+
 ## [v0.5.39] - 2026-07-03
 
 ### Security
