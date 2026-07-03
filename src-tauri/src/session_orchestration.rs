@@ -1845,6 +1845,7 @@ fn restore_circular_resume_progress(
 #[derive(Debug)]
 struct SerialTurnOutput {
     final_text: Option<String>,
+    unchanged_custody: bool,
     operator_evidence_required: bool,
 }
 
@@ -1880,14 +1881,14 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
         }
         validate_final_release_candidate(text)?;
     }
-    if status == "READY" && final_text.is_none() && !has_unchanged_custody {
-        return Err(
-            "READY without maestro_final_text must explicitly declare custody unchanged"
-                .to_string(),
-        );
-    }
     if final_text.is_none() && has_revised_custody {
         return Err("revised custody requires a complete maestro_final_text block".to_string());
+    }
+    if final_text.is_none() && !has_unchanged_custody {
+        return Err(format!(
+            "{status} without maestro_final_text must explicitly declare custody unchanged"
+        )
+        .to_string());
     }
     if final_text.is_none() && has_unchanged_custody && report_declares_nonempty_changes(&report) {
         return Err(
@@ -1897,6 +1898,7 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
     }
     Ok(SerialTurnOutput {
         final_text,
+        unchanged_custody: has_unchanged_custody,
         operator_evidence_required,
     })
 }
@@ -1938,6 +1940,7 @@ fn not_ready_unchanged_operator_evidence_audit_failure(
 ) -> Option<(String, serde_json::Value)> {
     if status == "NOT_READY"
         && serial_output.final_text.is_none()
+        && serial_output.unchanged_custody
         && serial_output.operator_evidence_required
     {
         return final_release_audit_failure(current_draft);
@@ -2170,22 +2173,98 @@ fn report_declares_nonempty_operator_evidence_required(report: &str) -> bool {
 }
 
 fn report_declares_nonempty_array_field(report: &str, field: &str) -> bool {
-    let normalized = report.to_ascii_lowercase();
-    let mut remaining = normalized.as_str();
-    while let Some(field_index) = remaining.find(field) {
-        let after_field = &remaining[field_index + field.len()..];
-        let Some(open_index) = after_field.find('[') else {
-            return false;
+    if let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(report) {
+        return matches!(map.get(field), Some(serde_json::Value::Array(items)) if !items.is_empty());
+    }
+
+    let normalized_field = field.to_ascii_lowercase();
+    let mut offset = 0;
+    while offset < report.len() {
+        let Some((character, next_offset)) = char_at(report, offset) else {
+            break;
         };
-        let after_open = &after_field[open_index + 1..];
-        let first_content = after_open.trim_start();
-        if first_content.starts_with(']') {
-            remaining = after_open;
+        if character == '"' || character == '\'' || character == '`' {
+            let Some((quoted, after_quote)) = parse_quoted_token(report, offset, character) else {
+                break;
+            };
+            if quoted.eq_ignore_ascii_case(&normalized_field)
+                && array_field_has_content(&report[after_quote..])
+            {
+                return true;
+            }
+            offset = after_quote;
             continue;
         }
-        return true;
+        if report[offset..]
+            .to_ascii_lowercase()
+            .starts_with(&normalized_field)
+            && is_bare_field_boundary(report, offset, field.len())
+            && array_field_has_content(&report[offset + field.len()..])
+        {
+            return true;
+        }
+        offset = next_offset;
     }
     false
+}
+
+fn char_at(value: &str, offset: usize) -> Option<(char, usize)> {
+    value[offset..]
+        .chars()
+        .next()
+        .map(|character| (character, offset + character.len_utf8()))
+}
+
+fn parse_quoted_token(value: &str, start: usize, quote: char) -> Option<(String, usize)> {
+    let mut token = String::new();
+    let mut offset = start + quote.len_utf8();
+    let mut escaped = false;
+    while offset < value.len() {
+        let (character, next_offset) = char_at(value, offset)?;
+        if escaped {
+            token.push(character);
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character == quote {
+            return Some((token, next_offset));
+        } else {
+            token.push(character);
+        }
+        offset = next_offset;
+    }
+    None
+}
+
+fn is_bare_field_boundary(value: &str, offset: usize, field_len: usize) -> bool {
+    let before_ok = offset == 0
+        || value[..offset]
+            .chars()
+            .next_back()
+            .is_none_or(|character| !is_field_name_character(character));
+    let after_offset = offset + field_len;
+    let after_ok = after_offset >= value.len()
+        || value[after_offset..]
+            .chars()
+            .next()
+            .is_none_or(|character| !is_field_name_character(character));
+    before_ok && after_ok
+}
+
+fn is_field_name_character(character: char) -> bool {
+    character.is_ascii_alphanumeric() || character == '_'
+}
+
+fn array_field_has_content(after_field: &str) -> bool {
+    let after_separator = after_field.trim_start();
+    let Some(after_colon) = after_separator.strip_prefix(':') else {
+        return false;
+    };
+    let after_colon = after_colon.trim_start();
+    let Some(after_open) = after_colon.strip_prefix('[') else {
+        return false;
+    };
+    !after_open.trim_start().starts_with(']')
 }
 
 fn contains_prompt_or_protocol_echo(stdout: &str) -> bool {
@@ -2914,9 +2993,29 @@ Texto revisado.
     }
 
     #[test]
+    fn not_ready_without_unchanged_custody_cannot_pause_for_operator_evidence() {
+        let stdout = r#"MAESTRO_STATUS: NOT_READY
+<maestro_revision_report>
+{ "reviewer": "claude", "status": "NOT_READY", "changes": [], "operator_evidence_required": [{ "issue": "missing source", "required": true }] }
+</maestro_revision_report>"#;
+
+        let error = validate_serial_turn_output(stdout, "NOT_READY").unwrap_err();
+
+        assert!(error.contains("custody unchanged"));
+    }
+
+    #[test]
     fn report_declares_nonempty_changes_ignores_empty_changes_and_prose_mentions() {
         assert!(!report_declares_nonempty_changes(
             r#"{ "summary": "the word changes appears in prose only", "changes": [] }"#
+        ));
+        assert!(!report_declares_nonempty_changes(
+            r#"summary: changes [already described]
+changes: []"#
+        ));
+        assert!(report_declares_nonempty_changes(
+            r#"summary: legacy format
+changes: [{ "issue": "correctable" }]"#
         ));
         assert!(report_declares_nonempty_changes(
             r#"{ "changes": [{ "issue": "correctable" }] }"#
@@ -2927,6 +3026,17 @@ Texto revisado.
     fn report_declares_nonempty_operator_evidence_required_ignores_empty_and_prose_mentions() {
         assert!(!report_declares_nonempty_operator_evidence_required(
             r#"{ "summary": "operator_evidence_required appears in prose only", "operator_evidence_required": [] }"#
+        ));
+        assert!(!report_declares_nonempty_operator_evidence_required(
+            r#"{ "summary": "operator_evidence_required [not needed]", "operator_evidence_required": [] }"#
+        ));
+        assert!(!report_declares_nonempty_operator_evidence_required(
+            r#"summary: operator_evidence_required [not needed]
+operator_evidence_required: []"#
+        ));
+        assert!(report_declares_nonempty_operator_evidence_required(
+            r#"summary: legacy format
+operator_evidence_required: [{ "issue": "missing source" }]"#
         ));
         assert!(report_declares_nonempty_operator_evidence_required(
             r#"{ "operator_evidence_required": [{ "issue": "missing source" }] }"#
