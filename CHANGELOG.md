@@ -6,6 +6,21 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.42] - 2026-07-03
+
+### Fixed
+
+- **Serial corrective retry enforcement.** Reviewers that detect a correctable blocker can no longer pass it forward unchanged. `NOT_READY` + unchanged custody on a draft that still fails the final evidence/bibliography audit is reclassified as `CONTRACT_VIOLATION` and retried on the same reviewer turn up to three corrective retries.
+- **Final-text evidence integrity.** Every `<maestro_final_text>` is now checked by the final release integrity gate, including `NOT_READY` revised outputs, so `[EVIDENCIA_PENDENTE]`, bibliographic lacunae, and unsupported placeholders cannot survive as intermediate revised text.
+- **Agent language contract.** Serial reviewer-reviser prompts now make the split explicit: internal coordination, critique, changelog, retry diagnostics, and JSON/report fields are in `en_US`; only the operator-facing article inside `<maestro_final_text>` is in `pt_BR`.
+
+### Validation
+
+- `cargo test --locked --lib serial_contract_rejects_not_ready_revision_with_unresolved_evidence_marker`: passed.
+- `cargo test --locked --lib serial_revision_prompt`: 2 passed, 0 failed.
+- `cargo test --locked --lib`: 184 passed, 0 failed.
+- `cross-review-v2` session `b6217c3d-6119-4f64-ac37-22f17c548e9d`: converged READY with Claude, Gemini, DeepSeek, Grok, and Perplexity.
+
 ## [v0.5.41] - 2026-07-03
 
 ### Fixed
