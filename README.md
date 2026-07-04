@@ -17,7 +17,7 @@ Portable Windows editorial workbench for protocol-driven AI drafting, source ver
 [![stack: Tauri 2 + React 19](https://img.shields.io/badge/stack-Tauri%202%20%2B%20React%2019-blueviolet.svg)](#architecture)
 [![license: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 
-**Status.** Stable. Current release: **v0.5.46** (release tag `v00.05.46`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release: **v0.5.47** (release tag `v00.05.47`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 Operational stable baseline started at `v0.5.25`, with live bootstrap, diagnostics, navigation, Cloudflare credential provisioning, AI API credential checks, PostEditor parity, link auditing, and a real background Claude/Codex/Gemini/DeepSeek/Grok editorial session path. From `v0.5.27`, Maestro also supports Perplexity as an API-only Sonar peer. Runtime evidence from session `run-2026-05-11T01-09-30-556Z` confirms the first documented end-to-end unanimous editorial delivery: Maestro `0.5.25` resumed a real API-mode session, reached `READY_UNANIMOUS`, and wrote a clean `texto-final.md`.
 
@@ -25,6 +25,7 @@ The version history at a glance:
 
 | Release | Scope |
 | --- | --- |
+| **`v0.5.47`** | Serial convergence hardening: contradictory `NOT_READY` + unchanged-custody turns are rejected and retried, so reviewers must either approve the current version as READY or return corrected complete text. |
 | **`v0.5.46`** | Serial retry restoration: `operator_evidence_required` no longer pauses bibliographic-lacuna turns; reviewers that find unresolved evidence markers must revise, remove, narrow, or quarantine the unsupported material in the same turn. |
 | **`v0.5.45`** | Post-merge serial custody hardening: `custody` must be read from an anchored report key, not prose or summary text, before operator-evidence pauses are trusted. |
 | **`v0.5.44`** | Post-merge serial evidence hardening: malformed reports cannot trigger operator-evidence pauses, and evidence array detection is anchored to actual report keys. |
