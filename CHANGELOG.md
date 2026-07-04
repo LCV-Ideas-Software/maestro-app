@@ -6,6 +6,29 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.46] - 2026-07-03
+
+### Fixed
+
+- **Serial retry restoration for evidence blockers.** `NOT_READY` reports with `custody: "unchanged"` and non-empty `operator_evidence_required` no longer pause the session when the current draft still fails the final bibliographic audit. They are reclassified as `CONTRACT_VIOLATION` and sent through the existing same-reviewer corrective retry path.
+- **Reviewer correction rule enforced.** Unresolved `[EVIDENCIA_PENDENTE]` markers and bibliographic lacunae remain correctable defects: the reviewer that detects them must revise, remove, narrow, or quarantine the unsupported material instead of passing the problem to the operator.
+
+### Validation
+
+- `cargo test --locked --lib not_ready_unchanged_with_operator_evidence_required_for_bibliographic_lacuna_requires_retry`: passed.
+- `cargo test --locked --lib unrevised_not_ready_bibliographic_lacuna_decision_is_bounded_corrective_retry`: passed.
+- `cargo test --locked --lib unrevised_not_ready_runtime_action_retries_then_exhausts_without_pause`: passed.
+- `cargo test --locked --lib serial_revision_prompt_forbids_passing_unverified_evidence_markers_forward`: passed.
+- `cargo test --locked --lib selected_review_agent_specs_excludes_current_draft_author`: passed.
+- `cargo test --locked --lib can_agent_review_current_draft_fails_closed_for_same_normalized_agent`: passed.
+- `cargo test --locked --lib serial_reviewer_redraws_when_nominal_reviewer_is_current_author`: passed.
+- `cargo test --locked --lib serial_reviewer_redraws_to_unapproved_independent_peer`: passed.
+- `cargo test --locked --lib serial_reviewer_returns_to_initial_redactor_after_full_peer_circuit_without_ready_unanimity`: passed.
+- `cargo test --locked --lib session_orchestration::tests::`: passed, 41 tests.
+- `cargo test --locked --lib`: passed, 195 tests.
+- `git diff --check`: passed.
+- Cross-review-v2 session `1b66fa7d-1d15-439b-a054-217c05a31903`: converged READY in round 2 with Claude, Gemini, DeepSeek, Grok, and Perplexity after raw test and anti-self-review evidence was attached.
+
 ## [v0.5.45] - 2026-07-03
 
 ### Fixed

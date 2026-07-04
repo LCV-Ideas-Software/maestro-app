@@ -74,6 +74,8 @@ use crate::{
     EditorialSessionResult, ResumeSessionState, SessionContract,
 };
 
+const MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN: u32 = 3;
+
 pub(crate) fn run_editorial_session_inner(
     request: &EditorialSessionRequest,
     log_session: &LogSession,
@@ -365,7 +367,6 @@ pub(crate) fn run_editorial_session_core(
     let mut valid_round_agents = BTreeSet::<String>::new();
     let mut corrective_contract_retry_counts = BTreeMap::<String, u32>::new();
     const ALL_ERROR_ESCALATION_THRESHOLD: u32 = 3;
-    const MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN: u32 = 3;
 
     if let Some(invalid_initial_agent) = invalid_initial_agent {
         let _ = write_log_record(
@@ -1399,155 +1400,142 @@ pub(crate) fn run_editorial_session_core(
                 continue;
             }
         };
-        let ready_unchanged_audit_failure =
-            ready_unchanged_release_audit_failure(&result.status, &serial_output, &current_draft);
-        let not_ready_unchanged_audit_failure = not_ready_unchanged_release_audit_failure(
+        let prior_retry_count = corrective_contract_retry_counts
+            .get(&retry_key)
+            .copied()
+            .unwrap_or(0);
+        let unrevised_runtime_action = unrevised_serial_turn_runtime_action(
             &result.status,
             &serial_output,
             &current_draft,
+            prior_retry_count,
         );
         let counts_as_valid_round_agent =
             serial_turn_counts_as_valid_round_agent(&result.status, &serial_output, &current_draft);
         let Some(revised_text) = serial_output.final_text else {
-            if let Some((reason, audit_context)) = ready_unchanged_audit_failure {
-                result.status = "NOT_READY".to_string();
-                result.tone = "warn".to_string();
-                if let Some(last) = agents.last_mut() {
-                    last.status = result.status.clone();
-                    last.tone = result.tone.clone();
+            if let Some((action, reason, audit_context)) = unrevised_runtime_action {
+                match action {
+                    UnrevisedSerialTurnRuntimeAction::ReadyRejected => {
+                        result.status = "NOT_READY".to_string();
+                        result.tone = "warn".to_string();
+                        if let Some(last) = agents.last_mut() {
+                            last.status = result.status.clone();
+                            last.tone = result.tone.clone();
+                        }
+                        let note =
+                            format!("READY unchanged rejected by final release audit: {reason}");
+                        reclassify_agent_artifact_status(&output_path, "NOT_READY", &note);
+                        let _ = write_log_record(
+                            log_session,
+                            LogEventInput {
+                                level: "warn".to_string(),
+                                category: "session.serial.ready_unchanged_rejected".to_string(),
+                                message: "serial reviewer-reviser approved an unchanged current text that still fails the final release gate".to_string(),
+                                context: Some(json!({
+                                    "run_id": &run_id,
+                                    "round": round,
+                                    "turn": round_turn_index + 1,
+                                    "agent": spec.key,
+                                    "reason": reason,
+                                    "audit_context": audit_context,
+                                    "policy": "unchanged_ready_cannot_count_when_current_text_has_final_release_blockers"
+                                })),
+                            },
+                        );
+                    }
+                    action @ (UnrevisedSerialTurnRuntimeAction::RetrySameReviewer {
+                        retry_count,
+                    }
+                    | UnrevisedSerialTurnRuntimeAction::RetryExhausted { retry_count }) => {
+                        result.status = "CONTRACT_VIOLATION".to_string();
+                        result.tone = "error".to_string();
+                        if let Some(last) = agents.last_mut() {
+                            last.status = result.status.clone();
+                            last.tone = result.tone.clone();
+                        }
+                        let note = format!(
+                            "NOT_READY unchanged rejected: the reviewer identified a release blocker but did not correct it with a revised complete text: {reason}"
+                        );
+                        reclassify_agent_artifact_status(&output_path, "CONTRACT_VIOLATION", &note);
+                        stable_serial_approval_agents.clear();
+                        corrective_contract_retry_counts.insert(retry_key.clone(), retry_count);
+                        let _ = write_log_record(
+                            log_session,
+                            LogEventInput {
+                                level: "warn".to_string(),
+                                category: "session.serial.corrective_retry_required".to_string(),
+                                message: "serial reviewer-reviser identified a final-release blocker without correcting it; retrying the same reviewer turn".to_string(),
+                                context: Some(json!({
+                                    "run_id": &run_id,
+                                    "round": round,
+                                    "turn": round_turn_index + 1,
+                                    "agent": spec.key,
+                                    "reason": reason,
+                                    "audit_context": audit_context,
+                                    "retry_count": retry_count,
+                                    "max_retries": MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
+                                    "policy": "detector_must_correct_correctable_blocker_before_passing_custody"
+                                })),
+                            },
+                        );
+                        if matches!(
+                            action,
+                            UnrevisedSerialTurnRuntimeAction::RetrySameReviewer { .. }
+                        ) {
+                            continue;
+                        }
+                        consecutive_reviewer_outage_rounds += 1;
+                        let _ = write_log_record(
+                            log_session,
+                            LogEventInput {
+                                level: "error".to_string(),
+                                category: "session.serial.corrective_retry_exhausted".to_string(),
+                                message: "serial reviewer-reviser repeatedly failed to correct a blocker it identified".to_string(),
+                                context: Some(json!({
+                                    "run_id": &run_id,
+                                    "round": round,
+                                    "turn": round_turn_index + 1,
+                                    "agent": spec.key,
+                                    "retry_count": retry_count,
+                                    "policy": "noncompliant_reviewer_turn_becomes_operational_failure_after_bounded_retries"
+                                })),
+                            },
+                        );
+                        round_turn_index += 1;
+                        if round_turn_index >= round_turn_count {
+                            let minutes_path = session_dir.join("ata-da-sessao.md");
+                            write_text_file(
+                                &minutes_path,
+                                &build_session_minutes(request, &run_id, &agents, false, None),
+                            )?;
+                            let context = SessionResultContext {
+                                run_id: &run_id,
+                                session_dir: &session_dir,
+                                prompt_path: &prompt_path,
+                                protocol_path: &protocol_path,
+                                active_agents: &active_agent_keys,
+                                max_session_cost_usd,
+                                max_session_minutes,
+                                observed_cost_usd: cost_ledger.total_observed_cost_usd,
+                                links_path: evidence.links_path.as_ref(),
+                                attachments_manifest_path: evidence
+                                    .attachments_manifest_path
+                                    .as_ref(),
+                                human_log_path: &human_log_path,
+                            };
+                            return Ok(editorial_session_result(
+                                &context,
+                                None,
+                                &minutes_path,
+                                current_draft_path,
+                                agents,
+                                false,
+                                "PAUSED_ROUND_INCOMPLETE",
+                            ));
+                        }
+                        continue;
+                    }
                 }
-                let note = format!("READY unchanged rejected by final release audit: {reason}");
-                reclassify_agent_artifact_status(&output_path, "NOT_READY", &note);
-                let _ = write_log_record(
-                    log_session,
-                    LogEventInput {
-                        level: "warn".to_string(),
-                        category: "session.serial.ready_unchanged_rejected".to_string(),
-                        message: "serial reviewer-reviser approved an unchanged current text that still fails the final release gate".to_string(),
-                        context: Some(json!({
-                            "run_id": &run_id,
-                            "round": round,
-                            "turn": round_turn_index + 1,
-                            "agent": spec.key,
-                            "reason": reason,
-                            "audit_context": audit_context,
-                            "policy": "unchanged_ready_cannot_count_when_current_text_has_final_release_blockers"
-                        })),
-                    },
-                );
-            }
-            if let Some((reason, audit_context)) = not_ready_unchanged_audit_failure {
-                if let Some((pause_reason, pause_audit_context)) =
-                    not_ready_unchanged_operator_evidence_audit_failure(
-                        &result.status,
-                        &serial_output,
-                        &current_draft,
-                    )
-                {
-                    let _ = write_log_record(
-                        log_session,
-                        LogEventInput {
-                            level: "warn".to_string(),
-                            category: "session.serial.operator_evidence_required".to_string(),
-                            message: "serial reviewer-reviser requested operator evidence for a final-release blocker that cannot be corrected from supplied materials".to_string(),
-                            context: Some(json!({
-                                "run_id": &run_id,
-                                "round": round,
-                                "turn": round_turn_index + 1,
-                                "agent": spec.key,
-                                "reason": pause_reason,
-                                "audit_context": pause_audit_context,
-                                "policy": "true_external_evidence_requests_pause_for_operator_instead_of_contract_retry"
-                            })),
-                        },
-                    );
-                    pause_final_reference_audit!(pause_reason, pause_audit_context);
-                }
-                result.status = "CONTRACT_VIOLATION".to_string();
-                result.tone = "error".to_string();
-                if let Some(last) = agents.last_mut() {
-                    last.status = result.status.clone();
-                    last.tone = result.tone.clone();
-                }
-                let note = format!(
-                    "NOT_READY unchanged rejected: the reviewer identified a release blocker but did not correct it with a revised complete text: {reason}"
-                );
-                reclassify_agent_artifact_status(&output_path, "CONTRACT_VIOLATION", &note);
-                stable_serial_approval_agents.clear();
-                let retry_count = corrective_contract_retry_counts
-                    .entry(retry_key.clone())
-                    .or_insert(0);
-                *retry_count += 1;
-                let _ = write_log_record(
-                    log_session,
-                    LogEventInput {
-                        level: "warn".to_string(),
-                        category: "session.serial.corrective_retry_required".to_string(),
-                        message: "serial reviewer-reviser identified a final-release blocker without correcting it; retrying the same reviewer turn".to_string(),
-                        context: Some(json!({
-                            "run_id": &run_id,
-                            "round": round,
-                            "turn": round_turn_index + 1,
-                            "agent": spec.key,
-                            "reason": reason,
-                            "audit_context": audit_context,
-                            "retry_count": *retry_count,
-                            "max_retries": MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
-                            "policy": "detector_must_correct_correctable_blocker_before_passing_custody"
-                        })),
-                    },
-                );
-                if *retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
-                    continue;
-                }
-                consecutive_reviewer_outage_rounds += 1;
-                let _ = write_log_record(
-                    log_session,
-                    LogEventInput {
-                        level: "error".to_string(),
-                        category: "session.serial.corrective_retry_exhausted".to_string(),
-                        message: "serial reviewer-reviser repeatedly failed to correct a blocker it identified".to_string(),
-                        context: Some(json!({
-                            "run_id": &run_id,
-                            "round": round,
-                            "turn": round_turn_index + 1,
-                            "agent": spec.key,
-                            "retry_count": *retry_count,
-                            "policy": "noncompliant_reviewer_turn_becomes_operational_failure_after_bounded_retries"
-                        })),
-                    },
-                );
-                round_turn_index += 1;
-                if round_turn_index >= round_turn_count {
-                    let minutes_path = session_dir.join("ata-da-sessao.md");
-                    write_text_file(
-                        &minutes_path,
-                        &build_session_minutes(request, &run_id, &agents, false, None),
-                    )?;
-                    let context = SessionResultContext {
-                        run_id: &run_id,
-                        session_dir: &session_dir,
-                        prompt_path: &prompt_path,
-                        protocol_path: &protocol_path,
-                        active_agents: &active_agent_keys,
-                        max_session_cost_usd,
-                        max_session_minutes,
-                        observed_cost_usd: cost_ledger.total_observed_cost_usd,
-                        links_path: evidence.links_path.as_ref(),
-                        attachments_manifest_path: evidence.attachments_manifest_path.as_ref(),
-                        human_log_path: &human_log_path,
-                    };
-                    return Ok(editorial_session_result(
-                        &context,
-                        None,
-                        &minutes_path,
-                        current_draft_path,
-                        agents,
-                        false,
-                        "PAUSED_ROUND_INCOMPLETE",
-                    ));
-                }
-                continue;
             }
             if counts_as_valid_round_agent {
                 valid_round_agents.insert(spec.key.to_string());
@@ -1845,7 +1833,6 @@ fn restore_circular_resume_progress(
 #[derive(Debug)]
 struct SerialTurnOutput {
     final_text: Option<String>,
-    unchanged_custody: bool,
     operator_evidence_required: bool,
 }
 
@@ -1898,7 +1885,6 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
     }
     Ok(SerialTurnOutput {
         final_text,
-        unchanged_custody: has_unchanged_custody,
         operator_evidence_required,
     })
 }
@@ -1933,19 +1919,67 @@ fn not_ready_unchanged_release_audit_failure(
     None
 }
 
-fn not_ready_unchanged_operator_evidence_audit_failure(
+#[derive(Debug, PartialEq, Eq)]
+enum UnrevisedSerialTurnAuditDecision {
+    ReadyRejected,
+    CorrectiveRetryRequired,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum UnrevisedSerialTurnRuntimeAction {
+    ReadyRejected,
+    RetrySameReviewer { retry_count: u32 },
+    RetryExhausted { retry_count: u32 },
+}
+
+fn unrevised_serial_turn_audit_decision(
     status: &str,
     serial_output: &SerialTurnOutput,
     current_draft: &str,
-) -> Option<(String, serde_json::Value)> {
-    if status == "NOT_READY"
-        && serial_output.final_text.is_none()
-        && serial_output.unchanged_custody
-        && serial_output.operator_evidence_required
+) -> Option<(UnrevisedSerialTurnAuditDecision, String, serde_json::Value)> {
+    if let Some((reason, audit_context)) =
+        ready_unchanged_release_audit_failure(status, serial_output, current_draft)
     {
-        return final_release_audit_failure(current_draft);
+        return Some((
+            UnrevisedSerialTurnAuditDecision::ReadyRejected,
+            reason,
+            audit_context,
+        ));
+    }
+    if let Some((reason, audit_context)) =
+        not_ready_unchanged_release_audit_failure(status, serial_output, current_draft)
+    {
+        return Some((
+            UnrevisedSerialTurnAuditDecision::CorrectiveRetryRequired,
+            reason,
+            audit_context,
+        ));
     }
     None
+}
+
+fn unrevised_serial_turn_runtime_action(
+    status: &str,
+    serial_output: &SerialTurnOutput,
+    current_draft: &str,
+    prior_retry_count: u32,
+) -> Option<(UnrevisedSerialTurnRuntimeAction, String, serde_json::Value)> {
+    let (decision, reason, audit_context) =
+        unrevised_serial_turn_audit_decision(status, serial_output, current_draft)?;
+    let action = match decision {
+        UnrevisedSerialTurnAuditDecision::ReadyRejected => {
+            UnrevisedSerialTurnRuntimeAction::ReadyRejected
+        }
+        UnrevisedSerialTurnAuditDecision::CorrectiveRetryRequired => {
+            let retry_count = prior_retry_count.saturating_add(1);
+            if retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
+                UnrevisedSerialTurnRuntimeAction::RetrySameReviewer { retry_count }
+            } else {
+                UnrevisedSerialTurnRuntimeAction::RetryExhausted { retry_count }
+            }
+        }
+    };
+    Some((action, reason, audit_context))
 }
 
 fn serial_turn_counts_as_valid_round_agent(
@@ -2559,13 +2593,15 @@ mod tests {
         agent_attempt_output_path, circular_round_turn_specs, current_draft_author_from_path,
         current_version_has_all_independent_approvals, final_release_audit_failure,
         is_operational_only_review_round, is_substantive_editorial_change,
-        not_ready_unchanged_operator_evidence_audit_failure,
         not_ready_unchanged_release_audit_failure, quality_guard_blocks_revision,
         ready_unchanged_release_audit_failure, report_declares_custody_value,
         report_declares_nonempty_changes, report_declares_nonempty_operator_evidence_required,
         restore_circular_resume_progress, select_serial_reviewer_index,
         serial_turn_counts_as_valid_round_agent, serial_turn_retry_key,
+        unrevised_serial_turn_audit_decision, unrevised_serial_turn_runtime_action,
         validate_final_release_candidate, validate_serial_turn_output,
+        UnrevisedSerialTurnAuditDecision, UnrevisedSerialTurnRuntimeAction,
+        MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
     };
     use crate::EditorialAgentResult;
 
@@ -3032,12 +3068,6 @@ Texto revisado.
         .expect("NOT_READY unchanged with a release blocker must require same-reviewer correction");
 
         assert!(blocked.0.contains("bibliographic integrity"));
-        assert!(not_ready_unchanged_operator_evidence_audit_failure(
-            "NOT_READY",
-            &output,
-            "Texto ainda contem [EVIDENCIA_PENDENTE]."
-        )
-        .is_none());
         assert!(
             not_ready_unchanged_release_audit_failure("NOT_READY", &output, "Texto limpo.")
                 .is_none()
@@ -3050,7 +3080,8 @@ Texto revisado.
     }
 
     #[test]
-    fn not_ready_unchanged_with_operator_evidence_required_preserves_operator_pause() {
+    fn not_ready_unchanged_with_operator_evidence_required_for_bibliographic_lacuna_requires_retry()
+    {
         let stdout = r#"MAESTRO_STATUS: NOT_READY
 <maestro_revision_report>
 { "reviewer": "claude", "status": "NOT_READY", "custody": "unchanged", "changes": [], "operator_evidence_required": [{ "issue": "missing source", "required": true }] }
@@ -3065,20 +3096,76 @@ Texto revisado.
         )
         .is_some());
 
-        let pause = not_ready_unchanged_operator_evidence_audit_failure(
+        assert!(!serial_turn_counts_as_valid_round_agent(
+            "NOT_READY",
+            &output,
+            "Texto ainda contem [EVIDENCIA_PENDENTE]."
+        ));
+    }
+
+    #[test]
+    fn unrevised_not_ready_bibliographic_lacuna_decision_is_bounded_corrective_retry() {
+        let stdout = r#"MAESTRO_STATUS: NOT_READY
+<maestro_revision_report>
+{ "reviewer": "grok", "status": "NOT_READY", "custody": "unchanged", "changes": [], "operator_evidence_required": [{ "issue": "missing source", "required": true }] }
+</maestro_revision_report>"#;
+        let output = validate_serial_turn_output(stdout, "NOT_READY").unwrap();
+
+        let decision = unrevised_serial_turn_audit_decision(
             "NOT_READY",
             &output,
             "Texto ainda contem [EVIDENCIA_PENDENTE].",
         )
-        .expect("true external evidence requests must preserve an operator-actionable pause");
+        .expect("bibliographic lacuna in an unchanged NOT_READY turn must not be pass-through");
 
-        assert!(pause.0.contains("bibliographic integrity"));
-        assert!(not_ready_unchanged_operator_evidence_audit_failure(
+        assert_eq!(
+            decision.0,
+            UnrevisedSerialTurnAuditDecision::CorrectiveRetryRequired
+        );
+        assert!(decision.1.contains("bibliographic integrity"));
+        assert_eq!(MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN, 3);
+    }
+
+    #[test]
+    fn unrevised_not_ready_runtime_action_retries_then_exhausts_without_pause() {
+        let stdout = r#"MAESTRO_STATUS: NOT_READY
+<maestro_revision_report>
+{ "reviewer": "grok", "status": "NOT_READY", "custody": "unchanged", "changes": [], "operator_evidence_required": [{ "issue": "missing source", "required": true }] }
+</maestro_revision_report>"#;
+        let output = validate_serial_turn_output(stdout, "NOT_READY").unwrap();
+        let current_draft = "Texto ainda contem [EVIDENCIA_PENDENTE].";
+
+        for prior_retry_count in 0..MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
+            let action = unrevised_serial_turn_runtime_action(
+                "NOT_READY",
+                &output,
+                current_draft,
+                prior_retry_count,
+            )
+            .expect("unrevised NOT_READY blocker must produce a runtime action");
+
+            assert_eq!(
+                action.0,
+                UnrevisedSerialTurnRuntimeAction::RetrySameReviewer {
+                    retry_count: prior_retry_count + 1
+                }
+            );
+        }
+
+        let exhausted = unrevised_serial_turn_runtime_action(
             "NOT_READY",
             &output,
-            "Texto limpo."
+            current_draft,
+            MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
         )
-        .is_none());
+        .expect("the fourth identical failure must exhaust corrective retries");
+
+        assert_eq!(
+            exhausted.0,
+            UnrevisedSerialTurnRuntimeAction::RetryExhausted {
+                retry_count: MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN + 1
+            }
+        );
     }
 
     #[test]

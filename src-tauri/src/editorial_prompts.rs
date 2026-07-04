@@ -451,6 +451,7 @@ If you are unsure, preserve the passage and report the concern instead of rewrit
 - Unverified claims or references are correctable defects when they can be removed, narrowed, generalized, or quarantined without damaging the article.
 - Do not convert evidence-pending markers into publicable references, bracketed lacunae, or bibliographic placeholders such as `[s. d.]`, `[S. l.: s. n.]`, or `[Edição consultada não identificada]`.
 - If the current text depends on an unverified reference, source, link, or bibliographic detail, revise the article in this same turn by deleting, narrowing, generalizing, or quarantining that dependency unless the missing evidence or operator decision is truly indispensable.
+- Missing evidence by itself is not a sufficient reason to pass the blocker forward. First remove, narrow, generalize, or quarantine the unsupported claim/reference; request operator evidence only for a blocker that cannot be resolved by any of those editorial actions.
 - A text is not final-deliverable while it still depends on unresolved evidence markers or bibliographic lacunae.
 - A blocker that can be corrected with the current text, prior reports, supplied evidence, or the editorial protocol MUST be corrected in this same turn. Do not merely point it out or pass it to the next reviewer.
 - If a blocker cannot be corrected from supplied materials because it requires missing external evidence or an operator decision, keep `changes` empty, put it under `operator_evidence_required`, set `custody` to `"unchanged"`, and return `MAESTRO_STATUS: NOT_READY`.
@@ -689,6 +690,7 @@ mod tests {
 
         assert!(prompt.contains("do not pass `[EVIDENCIA_PENDENTE]"));
         assert!(prompt.contains("deleting, narrowing, generalizing, or quarantining"));
+        assert!(prompt.contains("Missing evidence by itself is not a sufficient reason"));
         assert!(
             prompt.contains("Do not convert evidence-pending markers into publicable references")
         );
