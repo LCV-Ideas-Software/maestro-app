@@ -6,6 +6,27 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.45] - 2026-07-03
+
+### Fixed
+
+- **Anchored custody parsing.** `custody` is now read from a top-level JSON key or an anchored legacy field, so prose such as `"summary": "custody: unchanged"` can no longer authorize an operator-evidence pause.
+- **Fallback field scanner hardening.** Legacy fallback parsing now requires field-key position before trusting scalar or array fields, preventing prose mentions, including comma-preceded and inline-brace prose fragments, from being interpreted as report fields.
+- **Unclosed quote recovery.** Legacy report scanning now skips the malformed quote line and continues scanning later lines, so stray prose quotes cannot suppress real report fields that follow.
+
+### Validation
+
+- `cargo test --locked --lib not_ready_summary_custody_prose_cannot_pause_for_operator_evidence`: passed.
+- `cargo test --locked --lib report_declares_custody_value_ignores_summary_prose_mentions`: passed.
+- `cargo test --locked --lib report_declares_custody_value_rejects_comma_preceded_prose_with_braces`: passed.
+- `cargo test --locked --lib report_declares_custody_value_rejects_inline_brace_prose_field`: passed.
+- `cargo test --locked --lib report_field_scanner_survives_unclosed_quote_prose_before_fields`: passed.
+- `cargo test --locked --lib report_declares_nonempty_changes_ignores_empty_changes_and_prose_mentions`: passed.
+- `cargo test --locked --lib report_declares_nonempty_operator_evidence_required_ignores_empty_and_prose_mentions`: passed.
+- `cargo test --locked --lib`: passed, 193 tests.
+- `git diff --check`: passed.
+- Cross-review-v2 session `0184f0de-eaa6-4832-a340-2e84d30aad0e`: converged READY in round 1 with Claude, Gemini, Grok, and Perplexity voting READY; DeepSeek acted as non-voting relator.
+
 ## [v0.5.44] - 2026-07-03
 
 ### Fixed
