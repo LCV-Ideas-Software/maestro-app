@@ -808,7 +808,7 @@ pub(crate) fn run_editorial_session_core(
             final_path = path;
             break;
         }
-        let draft_author_key = current_draft_author_key.as_deref().unwrap_or("unknown");
+        let current_author_key = current_draft_author_key.as_deref().unwrap_or("unknown");
         let max_serial_turns = std::cmp::max(round_turn_count * 4, round_turn_count);
         serial_turns += 1;
         if serial_turns > max_serial_turns {
@@ -864,7 +864,7 @@ pub(crate) fn run_editorial_session_core(
         let Some(selected_turn_index) = select_serial_reviewer_index(
             &round_turn_specs,
             nominal_turn_index,
-            draft_author_key,
+            current_author_key,
             draft_lead_key,
             &valid_round_agents,
             &stable_serial_approval_agents,
@@ -882,7 +882,7 @@ pub(crate) fn run_editorial_session_core(
         if selected_turn_index != nominal_turn_index {
             let nominal_reviewer = round_turn_specs[nominal_turn_index].key;
             let selected_reviewer = round_turn_specs[selected_turn_index].key;
-            let redraw_reason = if nominal_reviewer == draft_author_key {
+            let redraw_reason = if nominal_reviewer == current_author_key {
                 "nominal_reviewer_is_current_author"
             } else {
                 "nominal_reviewer_already_approved_current_version"
@@ -899,7 +899,7 @@ pub(crate) fn run_editorial_session_core(
                         "run_id": &run_id,
                         "round": round,
                         "turn": nominal_turn_index + 1,
-                        "current_author": draft_author_key,
+                        "current_author": current_author_key,
                         "nominal_reviewer": nominal_reviewer,
                         "selected_reviewer": selected_reviewer,
                         "reason": redraw_reason,
@@ -968,16 +968,15 @@ pub(crate) fn run_editorial_session_core(
             ));
         }
 
-        if spec.key == draft_author_key && !closing_turn {
+        if spec.key == current_author_key {
             let _ = write_log_record(
                 log_session,
                 LogEventInput {
-                    // Defensive fallback only: select_serial_reviewer_index already
-                    // excludes the current author from both the nominal and pending
-                    // candidate sets, so reaching here means an upstream invariant
-                    // broke. Logged at debug since it is no longer an expected
-                    // operational error (audit R3).
-                    level: "debug".to_string(),
+                    // Defensive fallback only: select_serial_reviewer_index should
+                    // exclude the current author from both nominal and pending
+                    // candidate sets, including the closing redactor turn. Reaching
+                    // here means the no-self-review invariant broke upstream.
+                    level: "error".to_string(),
                     category: "session.tribunal.self_review_blocked".to_string(),
                     message:
                         "serial scheduler attempted to assign the current version to its own author after redraw"
@@ -987,7 +986,7 @@ pub(crate) fn run_editorial_session_core(
                         "round": round,
                         "turn": round_turn_index + 1,
                         "reviewer": spec.key,
-                        "current_author": draft_author_key,
+                        "current_author": current_author_key,
                         "closing_turn": closing_turn,
                         "policy": "agent_never_reviews_own_current_version"
                     })),
@@ -1052,7 +1051,7 @@ pub(crate) fn run_editorial_session_core(
             &run_id,
             round_turn_index + 1,
             &current_draft,
-            draft_author_key,
+            current_author_key,
             spec.key,
             closing_turn,
             &previous_revision_history,
@@ -1076,7 +1075,7 @@ pub(crate) fn run_editorial_session_core(
                     "round": round,
                     "turn": round_turn_index + 1,
                     "reviewer": spec.key,
-                    "current_author": draft_author_key,
+                    "current_author": current_author_key,
                     "stable_serial_approvals": stable_serial_approval_agents.len(),
                     "round_turn_count": round_turn_count,
                     "closing_turn": closing_turn,
@@ -2532,8 +2531,7 @@ fn select_serial_reviewer_index(
         draft_lead_key,
         valid_round_agents,
     );
-    let nominal_is_closing_redactor = nominal.key == draft_lead_key && closure_ready;
-    let nominal_is_pending = (nominal.key != current_author_key || nominal_is_closing_redactor)
+    let nominal_is_pending = nominal.key != current_author_key
         && !stable_serial_approval_agents.contains(nominal.key)
         && (nominal.key != draft_lead_key || closure_ready);
     if nominal_is_pending {
@@ -2544,8 +2542,7 @@ fn select_serial_reviewer_index(
         .iter()
         .enumerate()
         .filter(|(_, spec)| {
-            let spec_is_closing_redactor = spec.key == draft_lead_key && closure_ready;
-            (spec.key != current_author_key || spec_is_closing_redactor)
+            spec.key != current_author_key
                 && !stable_serial_approval_agents.contains(spec.key)
                 && (spec.key != draft_lead_key || closure_ready)
         })
@@ -2869,7 +2866,7 @@ mod tests {
         let selected = select_serial_reviewer_index(
             &specs,
             claude_index,
-            "claude",
+            "perplexity",
             "claude",
             &valid_turns,
             &approvals,
@@ -2878,6 +2875,108 @@ mod tests {
         .unwrap();
 
         assert_eq!(specs[selected].key, "claude");
+    }
+
+    #[test]
+    fn serial_reviewer_selects_initial_redactor_for_closing_turn_when_current_author_is_different()
+    {
+        let active = vec![
+            "claude".to_string(),
+            "codex".to_string(),
+            "gemini".to_string(),
+            "deepseek".to_string(),
+            "grok".to_string(),
+            "perplexity".to_string(),
+        ];
+        let specs = circular_round_turn_specs("claude", &active);
+        let mut valid_turns = BTreeSet::<String>::new();
+        for agent in ["codex", "gemini", "deepseek", "grok", "perplexity"] {
+            valid_turns.insert(agent.to_string());
+        }
+        let approvals = BTreeSet::<String>::new();
+        let claude_index = specs.iter().position(|spec| spec.key == "claude").unwrap();
+
+        let selected = select_serial_reviewer_index(
+            &specs,
+            claude_index,
+            "perplexity",
+            "claude",
+            &valid_turns,
+            &approvals,
+            0,
+        )
+        .unwrap();
+
+        assert_eq!(specs[selected].key, "claude");
+    }
+
+    #[test]
+    fn serial_reviewer_never_returns_to_initial_redactor_when_current_version_is_their_own() {
+        let active = vec![
+            "claude".to_string(),
+            "codex".to_string(),
+            "gemini".to_string(),
+            "deepseek".to_string(),
+            "grok".to_string(),
+            "perplexity".to_string(),
+        ];
+        let specs = circular_round_turn_specs("claude", &active);
+        let mut valid_turns = BTreeSet::<String>::new();
+        for agent in ["codex", "gemini", "deepseek", "grok", "perplexity"] {
+            valid_turns.insert(agent.to_string());
+        }
+        let approvals = BTreeSet::<String>::new();
+        let claude_index = specs.iter().position(|spec| spec.key == "claude").unwrap();
+
+        let selected = select_serial_reviewer_index(
+            &specs,
+            claude_index,
+            "claude",
+            "claude",
+            &valid_turns,
+            &approvals,
+            0,
+        )
+        .unwrap();
+
+        assert_ne!(specs[selected].key, "claude");
+    }
+
+    #[test]
+    fn serial_reviewer_returns_none_when_current_author_has_all_independent_approvals() {
+        let active = vec![
+            "claude".to_string(),
+            "codex".to_string(),
+            "gemini".to_string(),
+            "deepseek".to_string(),
+            "grok".to_string(),
+            "perplexity".to_string(),
+        ];
+        let specs = circular_round_turn_specs("claude", &active);
+        let mut valid_turns = BTreeSet::<String>::new();
+        let mut approvals = BTreeSet::<String>::new();
+        for agent in ["codex", "gemini", "deepseek", "grok", "perplexity"] {
+            valid_turns.insert(agent.to_string());
+            approvals.insert(agent.to_string());
+        }
+        let claude_index = specs.iter().position(|spec| spec.key == "claude").unwrap();
+
+        let selected = select_serial_reviewer_index(
+            &specs,
+            claude_index,
+            "claude",
+            "claude",
+            &valid_turns,
+            &approvals,
+            0,
+        );
+
+        assert!(selected.is_none());
+        assert!(current_version_has_all_independent_approvals(
+            &specs,
+            Some("claude"),
+            &approvals
+        ));
     }
 
     #[test]

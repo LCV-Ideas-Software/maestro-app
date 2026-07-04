@@ -6,6 +6,23 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.48] - 2026-07-04
+
+### Fixed
+
+- **Closing-turn self-review guard.** The original redactor can return in the serial circular flow only when the current version was authored by another peer. The scheduler no longer treats the closing redactor turn as permission for an agent to review its own current version.
+- **Independent approval closure.** When the current author already has every independent reviewer approval, the selector returns no reviewer instead of assigning a self-review turn.
+- **Prompt contract hardening.** Agents are now told that receiving their own current version is a scheduler invariant violation: they must return `SELF_REVIEW_BLOCKED`, keep custody unchanged, and omit final text.
+
+### Validation
+
+- `cargo test --locked --lib serial_reviewer_never_returns_to_initial_redactor_when_current_version_is_their_own`: red/green verified; now passed.
+- `cargo test --locked --lib serial_reviewer_selects_initial_redactor_for_closing_turn_when_current_author_is_different`: passed.
+- `cargo test --locked --lib serial_reviewer_returns_none_when_current_author_has_all_independent_approvals`: passed.
+- `cargo test --locked --lib serial_reviewer`: passed, 7 tests.
+- `cargo test --locked --lib`: passed, 199 tests.
+- Cross-review-v2 session `73f01f8b-c885-445b-b1f0-f00726b0766f`: converged READY with Claude, Gemini, DeepSeek, Grok, and Perplexity.
+
 ## [v0.5.47] - 2026-07-03
 
 ### Fixed
