@@ -1454,7 +1454,7 @@ pub(crate) fn run_editorial_session_core(
                             last.tone = result.tone.clone();
                         }
                         let note = format!(
-                            "NOT_READY unchanged rejected: the reviewer identified a release blocker but did not correct it with a revised complete text: {reason}"
+                            "NOT_READY unchanged rejected: the reviewer must either approve the current version as READY unchanged or return a revised complete text that resolves the blocker: {reason}"
                         );
                         reclassify_agent_artifact_status(&output_path, "CONTRACT_VIOLATION", &note);
                         stable_serial_approval_agents.clear();
@@ -1464,7 +1464,7 @@ pub(crate) fn run_editorial_session_core(
                             LogEventInput {
                                 level: "warn".to_string(),
                                 category: "session.serial.corrective_retry_required".to_string(),
-                                message: "serial reviewer-reviser identified a final-release blocker without correcting it; retrying the same reviewer turn".to_string(),
+                                message: "serial reviewer-reviser returned NOT_READY without transferring corrected text custody; retrying the same reviewer turn".to_string(),
                                 context: Some(json!({
                                     "run_id": &run_id,
                                     "round": round,
@@ -1490,7 +1490,7 @@ pub(crate) fn run_editorial_session_core(
                             LogEventInput {
                                 level: "error".to_string(),
                                 category: "session.serial.corrective_retry_exhausted".to_string(),
-                                message: "serial reviewer-reviser repeatedly failed to correct a blocker it identified".to_string(),
+                                message: "serial reviewer-reviser repeatedly returned NOT_READY without a corrected complete text".to_string(),
                                 context: Some(json!({
                                     "run_id": &run_id,
                                     "round": round,
@@ -1914,7 +1914,18 @@ fn not_ready_unchanged_release_audit_failure(
     current_draft: &str,
 ) -> Option<(String, serde_json::Value)> {
     if status == "NOT_READY" && serial_output.final_text.is_none() {
-        return final_release_audit_failure(current_draft);
+        if let Some((reason, audit_context)) = final_release_audit_failure(current_draft) {
+            return Some((reason, audit_context));
+        }
+        return Some((
+            "NOT_READY unchanged is not a valid serial-review outcome: the reviewer must either return READY unchanged when no blocker remains, or return a revised complete text that resolves the concrete blocker.".to_string(),
+            json!({
+                "kind": "not_ready_unchanged_without_corrective_text",
+                "status": status,
+                "has_operator_evidence_required": serial_output.operator_evidence_required,
+                "policy": "detector_must_correct_or_approve_current_version"
+            }),
+        ));
     }
     None
 }
@@ -3068,14 +3079,18 @@ Texto revisado.
         .expect("NOT_READY unchanged with a release blocker must require same-reviewer correction");
 
         assert!(blocked.0.contains("bibliographic integrity"));
-        assert!(
-            not_ready_unchanged_release_audit_failure("NOT_READY", &output, "Texto limpo.")
-                .is_none()
-        );
+        let clean = not_ready_unchanged_release_audit_failure("NOT_READY", &output, "Texto limpo.")
+            .expect("NOT_READY unchanged must not pass even when the current draft is release-safe");
+        assert!(clean.0.contains("NOT_READY unchanged"));
         assert!(!serial_turn_counts_as_valid_round_agent(
             "NOT_READY",
             &output,
             "Texto ainda contem [EVIDENCIA_PENDENTE]."
+        ));
+        assert!(!serial_turn_counts_as_valid_round_agent(
+            "NOT_READY",
+            &output,
+            "Texto limpo."
         ));
     }
 
@@ -3166,6 +3181,44 @@ Texto revisado.
                 retry_count: MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN + 1
             }
         );
+    }
+
+    #[test]
+    fn unrevised_not_ready_without_actionable_blocker_requires_corrective_retry() {
+        let stdout = r#"MAESTRO_STATUS: NOT_READY
+<maestro_revision_report>
+{
+  "reviewer": "grok",
+  "current_author": "perplexity",
+  "status": "NOT_READY",
+  "changes": [],
+  "operator_evidence_required": [],
+  "out_of_scope": [
+    {
+      "concern": "No protocol-grounded defect exists in the current text.",
+      "reason": "Approved-content lock prohibits alteration.",
+      "required": false
+    }
+  ],
+  "custody": "unchanged"
+}
+</maestro_revision_report>"#;
+        let output = validate_serial_turn_output(stdout, "NOT_READY").unwrap();
+        let current_draft = "Texto limpo, sem marcadores bibliograficos pendentes.";
+
+        let action =
+            unrevised_serial_turn_runtime_action("NOT_READY", &output, current_draft, 0)
+                .expect("unrevised NOT_READY without an actionable blocker must be rejected");
+
+        assert_eq!(
+            action.0,
+            UnrevisedSerialTurnRuntimeAction::RetrySameReviewer { retry_count: 1 }
+        );
+        assert!(!serial_turn_counts_as_valid_round_agent(
+            "NOT_READY",
+            &output,
+            current_draft
+        ));
     }
 
     #[test]

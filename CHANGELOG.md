@@ -6,6 +6,20 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.47] - 2026-07-03
+
+### Fixed
+
+- **Contradictory NOT_READY loop prevention.** Serial reviewer-reviser turns that return `MAESTRO_STATUS: NOT_READY` with `custody: "unchanged"` and no corrected complete text are no longer accepted as valid editorial divergence. They are reclassified as `CONTRACT_VIOLATION` and retried through the bounded same-reviewer corrective path.
+- **Convergence contract hardening.** Agents are now instructed that `NOT_READY` must transfer corrected text custody; if no concrete blocker remains, the only valid unchanged-custody response is `READY`.
+
+### Validation
+
+- `cargo test --locked --lib unrevised_not_ready_without_actionable_blocker_requires_corrective_retry`: red/green verified; now passed.
+- `cargo test --locked --lib not_ready_unchanged_with_release_blocker_requires_corrective_retry`: passed.
+- `cargo test --locked --lib serial_revision_prompt_forbids_passing_unverified_evidence_markers_forward`: passed.
+- `cargo test --locked --lib`: passed, 196 tests.
+
 ## [v0.5.46] - 2026-07-03
 
 ### Fixed

@@ -454,7 +454,10 @@ If you are unsure, preserve the passage and report the concern instead of rewrit
 - Missing evidence by itself is not a sufficient reason to pass the blocker forward. First remove, narrow, generalize, or quarantine the unsupported claim/reference; request operator evidence only for a blocker that cannot be resolved by any of those editorial actions.
 - A text is not final-deliverable while it still depends on unresolved evidence markers or bibliographic lacunae.
 - A blocker that can be corrected with the current text, prior reports, supplied evidence, or the editorial protocol MUST be corrected in this same turn. Do not merely point it out or pass it to the next reviewer.
-- If a blocker cannot be corrected from supplied materials because it requires missing external evidence or an operator decision, keep `changes` empty, put it under `operator_evidence_required`, set `custody` to `"unchanged"`, and return `MAESTRO_STATUS: NOT_READY`.
+- Do not return `MAESTRO_STATUS: NOT_READY` with `custody` set to `"unchanged"`. That is an invalid pass-through objection.
+- If no concrete blocker remains, return `MAESTRO_STATUS: READY`, set `custody` to `"unchanged"`, keep `changes` empty, and omit `<maestro_final_text>`.
+- If any concrete blocker remains, correct it in this same turn, return `MAESTRO_STATUS: READY` or `MAESTRO_STATUS: NOT_READY` according to the revised article's safety, set `custody` to `"revised"`, and include the complete corrected article inside `<maestro_final_text>`.
+- Use `operator_evidence_required` only to document external evidence still desirable after you have already removed, narrowed, generalized, or quarantined the unsupported dependency in the revised article.
 
 ## Required Output Contract
 
@@ -469,9 +472,10 @@ The answer MUST contain exactly these parts:
    - `operator_evidence_required`: list of blockers that cannot be corrected from supplied materials and require external evidence or operator decision.
    - `out_of_scope`: concerns intentionally not changed.
    - `quality_preservation`: explicit statement that approved strong formulations were preserved; if not, justify each reduction.
-   - `custody`: exactly `"revised"` when you changed the article, or exactly `"unchanged"` when you approve/criticize without changing custody.
+   - `custody`: exactly `"revised"` when you changed the article, or exactly `"unchanged"` only when you approve the current article without changing custody.
 3. Include `<maestro_final_text>` containing only the complete operator-facing article in pt_BR only when `custody` is `"revised"`.
-4. If `custody` is `"unchanged"`, `changes` MUST be empty, `<maestro_final_text>` MUST be omitted, and every blocking reason must be in `operator_evidence_required` or `out_of_scope`.
+4. If `custody` is `"unchanged"`, status MUST be `READY`, `changes` MUST be empty, `<maestro_final_text>` MUST be omitted, and all remaining concerns must be non-blocking `out_of_scope` notes.
+5. `MAESTRO_STATUS: NOT_READY` with `custody: "unchanged"` is a contract violation: either fix the blocker and transfer revised custody, or approve the current version as READY unchanged.
 
 Anything outside those tags may be discarded by the app.
 An incomplete tag, missing closing tag, reproduced protocol text, or truncated JSON/report is a contract violation and will not count as READY.
@@ -691,6 +695,9 @@ mod tests {
         assert!(prompt.contains("do not pass `[EVIDENCIA_PENDENTE]"));
         assert!(prompt.contains("deleting, narrowing, generalizing, or quarantining"));
         assert!(prompt.contains("Missing evidence by itself is not a sufficient reason"));
+        assert!(prompt.contains(
+            "MAESTRO_STATUS: NOT_READY` with `custody: \"unchanged\"` is a contract violation"
+        ));
         assert!(
             prompt.contains("Do not convert evidence-pending markers into publicable references")
         );
