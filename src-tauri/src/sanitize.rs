@@ -54,7 +54,13 @@ pub(crate) fn sanitize_text(value: &str, max_len: usize) -> String {
     // (audit B4). truncate_text_head_tail handles multi-line stderr separately.
     redacted
         .chars()
-        .map(|character| if character.is_control() { ' ' } else { character })
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
         .take(max_len)
         .collect()
 }

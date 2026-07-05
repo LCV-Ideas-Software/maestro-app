@@ -32,6 +32,7 @@ mod command_path;
 mod command_spawn;
 mod config_persistence;
 mod editorial_agent_runners;
+mod editorial_content_lock;
 mod editorial_helpers;
 mod editorial_inputs;
 mod editorial_io;
