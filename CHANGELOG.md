@@ -6,6 +6,26 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.49] - 2026-07-05
+
+### Fixed
+
+- **Approved-content block lock.** Serial reviewer-reviser turns now receive a stable block manifest for the current text, and backend validation rejects silent edits, deletions, additions, splits, or reorders of received blocks unless each changed block is declared in `changed_blocks` with concrete `protocol_basis`.
+- **Reorder detection with concurrent edits.** Preserved block order is compared by common hash subsequence, so moving approved blocks is detected even when another received block is edited in the same revision.
+- **Content-lock custody accounting.** A content-lock violation is reclassified as `CONTRACT_VIOLATION`, clears stable approvals, retries the same reviewer through the bounded corrective path, and does not count in `valid_round_agents` until the reviewer returns a compliant correction.
+
+### Validation
+
+- `cargo test --locked --lib reorder_with_concurrent_declared_edit_is_rejected_without_reorder_declaration`: red/green verified; now passed.
+- `cargo test --locked --lib editorial_content_lock`: passed, 11 tests.
+- `cargo test --locked --lib serial_content_lock`: passed, 2 tests.
+- `cargo test --locked --lib serial_revision_prompt`: passed, 3 tests.
+- `cargo check --locked --all-targets`: passed.
+- `cargo test --locked`: passed, 213 tests.
+- `cargo clippy --locked --no-deps --all-targets`: passed.
+- `git diff --check`: passed.
+- Cross-review-v2 session `24381a59-11ad-4a9e-ad3d-d1052046e2f3`: converged in round 3 with Claude, Gemini, DeepSeek, Grok, and Perplexity READY; runtime outcome `converged` with `unanimous_ready_with_unresolved_evidence` because older evidence asks were not resurfaced after the fixes.
+
 ## [v0.5.48] - 2026-07-04
 
 ### Fixed

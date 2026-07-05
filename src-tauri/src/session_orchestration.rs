@@ -34,6 +34,7 @@ use crate::app_paths::{
     checked_data_child_path, human_log_path_for, sanitize_path_segment, sessions_dir,
 };
 use crate::editorial_agent_runners::run_editorial_agent_for_spec;
+use crate::editorial_content_lock::validate_revision_content_lock;
 use crate::editorial_helpers::{
     filter_existing_agents_to_active_set, resolve_effective_active_agents,
     FinalizeRunningArtifactsGuard,
@@ -1411,7 +1412,7 @@ pub(crate) fn run_editorial_session_core(
         );
         let counts_as_valid_round_agent =
             serial_turn_counts_as_valid_round_agent(&result.status, &serial_output, &current_draft);
-        let Some(revised_text) = serial_output.final_text else {
+        let Some(revised_text) = serial_output.final_text.as_ref() else {
             if let Some((action, reason, audit_context)) = unrevised_runtime_action {
                 match action {
                     UnrevisedSerialTurnRuntimeAction::ReadyRejected => {
@@ -1586,10 +1587,92 @@ pub(crate) fn run_editorial_session_core(
             }
             continue;
         };
-        if counts_as_valid_round_agent {
-            valid_round_agents.insert(spec.key.to_string());
+
+        if let Err(reason) = validate_serial_revised_content_lock(&current_draft, &serial_output) {
+            result.status = "CONTRACT_VIOLATION".to_string();
+            result.tone = "error".to_string();
+            if let Some(last) = agents.last_mut() {
+                last.status = result.status.clone();
+                last.tone = result.tone.clone();
+            }
+            reclassify_agent_artifact_status(&output_path, "CONTRACT_VIOLATION", &reason);
+            stable_serial_approval_agents.clear();
+            let retry_count = corrective_contract_retry_counts
+                .entry(retry_key.clone())
+                .or_insert(0);
+            *retry_count += 1;
+            let _ = write_log_record(
+                log_session,
+                LogEventInput {
+                    level: "warn".to_string(),
+                    category: "session.serial.content_lock_violation".to_string(),
+                    message: "serial reviewer-reviser changed locked received content without the required changed_blocks authorization".to_string(),
+                    context: Some(json!({
+                        "run_id": &run_id,
+                        "round": round,
+                        "turn": round_turn_index + 1,
+                        "agent": spec.key,
+                        "reason": reason,
+                        "retry_count": *retry_count,
+                        "max_retries": MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
+                        "policy": "approved_content_lock_is_enforced_before_text_custody_transfer"
+                    })),
+                },
+            );
+            if *retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
+                continue;
+            }
+            consecutive_reviewer_outage_rounds += 1;
+            let _ = write_log_record(
+                log_session,
+                LogEventInput {
+                    level: "error".to_string(),
+                    category: "session.serial.content_lock_retry_exhausted".to_string(),
+                    message: "serial reviewer-reviser repeatedly violated the approved-content lock for the same turn".to_string(),
+                    context: Some(json!({
+                        "run_id": &run_id,
+                        "round": round,
+                        "turn": round_turn_index + 1,
+                        "agent": spec.key,
+                        "retry_count": *retry_count,
+                        "policy": "noncompliant_content_lock_turn_becomes_operational_failure_after_bounded_retries"
+                    })),
+                },
+            );
+            round_turn_index += 1;
+            if round_turn_index >= round_turn_count {
+                let minutes_path = session_dir.join("ata-da-sessao.md");
+                write_text_file(
+                    &minutes_path,
+                    &build_session_minutes(request, &run_id, &agents, false, None),
+                )?;
+                let context = SessionResultContext {
+                    run_id: &run_id,
+                    session_dir: &session_dir,
+                    prompt_path: &prompt_path,
+                    protocol_path: &protocol_path,
+                    active_agents: &active_agent_keys,
+                    max_session_cost_usd,
+                    max_session_minutes,
+                    observed_cost_usd: cost_ledger.total_observed_cost_usd,
+                    links_path: evidence.links_path.as_ref(),
+                    attachments_manifest_path: evidence.attachments_manifest_path.as_ref(),
+                    human_log_path: &human_log_path,
+                };
+                return Ok(editorial_session_result(
+                    &context,
+                    None,
+                    &minutes_path,
+                    current_draft_path,
+                    agents,
+                    false,
+                    "PAUSED_ROUND_INCOMPLETE",
+                ));
+            }
+            continue;
         }
 
+        let revised_text = revised_text.clone();
         let substantive_change = is_substantive_editorial_change(&current_draft, &revised_text);
         if quality_guard_blocks_revision(
             current_draft_author_key.as_deref(),
@@ -1625,6 +1708,10 @@ pub(crate) fn run_editorial_session_core(
                 stable_serial_approval_agents.clear();
             }
             continue;
+        }
+
+        if counts_as_valid_round_agent {
+            valid_round_agents.insert(spec.key.to_string());
         }
 
         if substantive_change {
@@ -1832,6 +1919,7 @@ fn restore_circular_resume_progress(
 #[derive(Debug)]
 struct SerialTurnOutput {
     final_text: Option<String>,
+    report: String,
     operator_evidence_required: bool,
 }
 
@@ -1884,8 +1972,19 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
     }
     Ok(SerialTurnOutput {
         final_text,
+        report,
         operator_evidence_required,
     })
+}
+
+fn validate_serial_revised_content_lock(
+    current_draft: &str,
+    serial_output: &SerialTurnOutput,
+) -> Result<(), String> {
+    if let Some(revised_text) = serial_output.final_text.as_ref() {
+        validate_revision_content_lock(current_draft, revised_text, &serial_output.report)?;
+    }
+    Ok(())
 }
 
 fn validate_final_release_candidate(text: &str) -> Result<(), String> {
@@ -2607,9 +2706,9 @@ mod tests {
         restore_circular_resume_progress, select_serial_reviewer_index,
         serial_turn_counts_as_valid_round_agent, serial_turn_retry_key,
         unrevised_serial_turn_audit_decision, unrevised_serial_turn_runtime_action,
-        validate_final_release_candidate, validate_serial_turn_output,
-        UnrevisedSerialTurnAuditDecision, UnrevisedSerialTurnRuntimeAction,
-        MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
+        validate_final_release_candidate, validate_serial_revised_content_lock,
+        validate_serial_turn_output, UnrevisedSerialTurnAuditDecision,
+        UnrevisedSerialTurnRuntimeAction, MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
     };
     use crate::EditorialAgentResult;
 
@@ -3099,6 +3198,117 @@ Texto revisado.
     }
 
     #[test]
+    fn serial_content_lock_rejects_undeclared_changed_received_block() {
+        let stdout = r#"MAESTRO_STATUS: READY
+<maestro_revision_report>
+{
+  "reviewer": "gemini",
+  "status": "READY",
+  "changed_blocks": [
+    {"block_id": "B0003", "protocol_basis": "bibliographic integrity"}
+  ],
+  "custody": "revised"
+}
+</maestro_revision_report>
+<maestro_final_text>
+# Titulo
+
+Paragrafo aprovado encurtado.
+
+Referencia removida.
+</maestro_final_text>"#;
+        let output = validate_serial_turn_output(stdout, "READY").unwrap();
+
+        let error = validate_serial_revised_content_lock(
+            "# Titulo\n\nParagrafo aprovado e denso.\n\nReferencia pendente [EVIDENCIA_PENDENTE].",
+            &output,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("B0002"), "{error}");
+    }
+
+    #[test]
+    fn serial_content_lock_violation_does_not_count_until_same_reviewer_corrects() {
+        let current_draft =
+            "# Titulo\n\nParagrafo aprovado e denso.\n\nReferencia pendente [EVIDENCIA_PENDENTE].";
+        let invalid_stdout = r#"MAESTRO_STATUS: READY
+<maestro_revision_report>
+{
+  "reviewer": "gemini",
+  "status": "READY",
+  "changed_blocks": [
+    {"block_id": "B0003", "protocol_basis": "bibliographic integrity"}
+  ],
+  "custody": "revised"
+}
+</maestro_revision_report>
+<maestro_final_text>
+# Titulo
+
+Paragrafo aprovado encurtado.
+
+Referencia removida.
+</maestro_final_text>"#;
+        let invalid_output = validate_serial_turn_output(invalid_stdout, "READY").unwrap();
+        let mut stable_serial_approval_agents = BTreeSet::from([
+            "claude".to_string(),
+            "deepseek".to_string(),
+            "grok".to_string(),
+        ]);
+        let mut valid_round_agents = BTreeSet::from(["claude".to_string()]);
+
+        assert!(validate_serial_revised_content_lock(current_draft, &invalid_output).is_err());
+        stable_serial_approval_agents.clear();
+
+        assert!(
+            !valid_round_agents.contains("gemini"),
+            "a content-lock violation must not transfer custody or count as a valid turn"
+        );
+        assert!(
+            stable_serial_approval_agents.is_empty(),
+            "a content-lock violation must invalidate prior stable approvals"
+        );
+
+        let corrected_stdout = r#"MAESTRO_STATUS: READY
+<maestro_revision_report>
+{
+  "reviewer": "gemini",
+  "status": "READY",
+  "changed_blocks": [
+    {"block_id": "B0002", "protocol_basis": "depth preservation", "required": true},
+    {"block_id": "B0003", "protocol_basis": "bibliographic integrity", "required": true}
+  ],
+  "custody": "revised"
+}
+</maestro_revision_report>
+<maestro_final_text>
+# Titulo
+
+Paragrafo aprovado encurtado.
+
+Referencia removida.
+</maestro_final_text>"#;
+        let corrected_output = validate_serial_turn_output(corrected_stdout, "READY").unwrap();
+
+        validate_serial_revised_content_lock(current_draft, &corrected_output).unwrap();
+        if serial_turn_counts_as_valid_round_agent("READY", &corrected_output, current_draft) {
+            valid_round_agents.insert("gemini".to_string());
+            valid_round_agents.insert("gemini".to_string());
+        }
+
+        assert!(valid_round_agents.contains("gemini"));
+        assert_eq!(
+            valid_round_agents
+                .iter()
+                .filter(|agent| agent.as_str() == "gemini")
+                .count(),
+            1,
+            "the same reviewer retry must count at most once after correction"
+        );
+    }
+
+    #[test]
     fn ready_unchanged_current_draft_with_release_blocker_does_not_count() {
         let stdout = r#"MAESTRO_STATUS: READY
 <maestro_revision_report>
@@ -3179,7 +3389,9 @@ Texto revisado.
 
         assert!(blocked.0.contains("bibliographic integrity"));
         let clean = not_ready_unchanged_release_audit_failure("NOT_READY", &output, "Texto limpo.")
-            .expect("NOT_READY unchanged must not pass even when the current draft is release-safe");
+            .expect(
+                "NOT_READY unchanged must not pass even when the current draft is release-safe",
+            );
         assert!(clean.0.contains("NOT_READY unchanged"));
         assert!(!serial_turn_counts_as_valid_round_agent(
             "NOT_READY",
@@ -3305,9 +3517,8 @@ Texto revisado.
         let output = validate_serial_turn_output(stdout, "NOT_READY").unwrap();
         let current_draft = "Texto limpo, sem marcadores bibliograficos pendentes.";
 
-        let action =
-            unrevised_serial_turn_runtime_action("NOT_READY", &output, current_draft, 0)
-                .expect("unrevised NOT_READY without an actionable blocker must be rejected");
+        let action = unrevised_serial_turn_runtime_action("NOT_READY", &output, current_draft, 0)
+            .expect("unrevised NOT_READY without an actionable blocker must be rejected");
 
         assert_eq!(
             action.0,

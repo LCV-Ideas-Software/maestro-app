@@ -35,6 +35,7 @@
 
 use std::path::Path;
 
+use crate::editorial_content_lock::format_block_manifest_for_prompt;
 use crate::{
     extract_stdout_block, extract_tagged_block, read_text_file, sanitize_text,
     EditorialAgentResult, EditorialAgentSpec, EditorialSessionRequest,
@@ -394,6 +395,8 @@ pub(crate) fn build_serial_revision_prompt(
     previous_revision_history: &str,
     evidence_block: &str,
 ) -> String {
+    let block_manifest = format_block_manifest_for_prompt(current_text);
+
     format!(
         r#"# Maestro Editorial AI - Serial Review-Rewrite Turn
 
@@ -468,6 +471,8 @@ The answer MUST contain exactly these parts:
    - `reviewer`
    - `current_author`
    - `status`
+   - `changed_blocks`: list every changed received block using `block_id`, `change_type`, `reason`, `protocol_basis`, and `required: true|false`. Use `change_type: "split"` or `"addition"` whenever the revised article creates extra blocks, and `change_type: "reorder"` whenever approved blocks move.
+   - `unchanged_approved_blocks`: list approved block IDs that you intentionally preserved.
    - `changes`: list of changed passages, received line/passage reference, reason, protocol citation, and whether the change was required.
    - `operator_evidence_required`: list of blockers that cannot be corrected from supplied materials and require external evidence or operator decision.
    - `out_of_scope`: concerns intentionally not changed.
@@ -479,6 +484,12 @@ The answer MUST contain exactly these parts:
 
 Anything outside those tags may be discarded by the app.
 An incomplete tag, missing closing tag, reproduced protocol text, or truncated JSON/report is a contract violation and will not count as READY.
+
+## Current Text Block Manifest
+
+Every received block is locked by default. If `<maestro_final_text>` changes, deletes, compresses, splits, moves, or replaces a received block, the corresponding received `block_id` MUST appear in `changed_blocks` with a concrete `protocol_basis`. Silent changes to approved blocks are contract violations. Extra blocks require `change_type: "split"` or `"addition"`; moved approved blocks require `change_type: "reorder"`.
+
+{}
 
 ## Operator Request
 
@@ -505,6 +516,7 @@ An incomplete tag, missing closing tag, reproduced protocol text, or truncated J
         sanitize_text(current_author_key, 80),
         sanitize_text(reviewer_key, 80),
         closing_turn,
+        block_manifest,
         request.prompt,
         request.protocol_text,
         current_text,
@@ -676,6 +688,28 @@ mod tests {
         assert!(prompt.contains("MUST be corrected in this same turn"));
         assert!(prompt.contains("do not pass `[EVIDENCIA_PENDENTE]"));
         assert!(prompt.contains("operator_evidence_required"));
+    }
+
+    #[test]
+    fn serial_revision_prompt_exposes_block_manifest_and_changed_block_contract() {
+        let prompt = build_serial_revision_prompt(
+            &test_request(),
+            "run-test",
+            3,
+            "# Titulo\n\nParagrafo aprovado.\n\nReferencia pendente [EVIDENCIA_PENDENTE].",
+            "codex",
+            "gemini",
+            false,
+            "No prior reports.",
+            "",
+        );
+
+        assert!(prompt.contains("Current Text Block Manifest"));
+        assert!(prompt.contains("| B0001 | heading |"));
+        assert!(prompt.contains("| B0002 | paragraph |"));
+        assert!(prompt.contains("changed_blocks"));
+        assert!(prompt.contains("block_id"));
+        assert!(prompt.contains("protocol_basis"));
     }
 
     #[test]

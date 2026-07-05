@@ -1094,9 +1094,6 @@ mod tests {
         assert_eq!(sql_string_literal("O'Brien"), "'O''Brien'");
         // JSON values (double quotes) need no escaping inside a single-quoted
         // SQLite literal; a single quote inside the JSON is still doubled.
-        assert_eq!(
-            sql_string_literal(r#"{"k":"a'b"}"#),
-            r#"'{"k":"a''b"}'"#
-        );
+        assert_eq!(sql_string_literal(r#"{"k":"a'b"}"#), r#"'{"k":"a''b"}'"#);
     }
 }
