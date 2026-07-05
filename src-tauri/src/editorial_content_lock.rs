@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use regex::Regex;
 use sha2::{Digest, Sha256};
@@ -75,9 +75,17 @@ pub(crate) fn validate_revision_content_lock(
     let before_blocks = segment_editorial_blocks(before);
     let after_blocks = segment_editorial_blocks(after);
     let changed_ids = changed_received_block_ids(&before_blocks, &after_blocks);
+    let reordered_ids = reordered_received_block_ids(&before_blocks, &after_blocks);
+    let reordered = !reordered_ids.is_empty();
     let Some(changed_section) = extract_changed_blocks_section(report) else {
-        if changed_ids.is_empty() && after_blocks.len() <= before_blocks.len() {
+        if changed_ids.is_empty() && after_blocks.len() <= before_blocks.len() && !reordered {
             return Ok(());
+        }
+        if reordered {
+            return Err(format!(
+                "approved-content lock violation: revised custody reordered received blocks {} but maestro_revision_report has no changed_blocks section with change_type reorder",
+                reordered_ids.join(", ")
+            ));
         }
         return Err(format!(
             "approved-content lock violation: revised custody changed received blocks {} but maestro_revision_report has no changed_blocks section with block IDs",
@@ -98,7 +106,14 @@ pub(crate) fn validate_revision_content_lock(
         ));
     }
 
-    let missing_protocol_basis = changed_ids
+    let mut ids_requiring_protocol_basis = changed_ids.clone();
+    for id in &reordered_ids {
+        if !ids_requiring_protocol_basis.contains(id) {
+            ids_requiring_protocol_basis.push(id.clone());
+        }
+    }
+
+    let missing_protocol_basis = ids_requiring_protocol_basis
         .iter()
         .filter(|id| {
             declarations
@@ -126,15 +141,28 @@ pub(crate) fn validate_revision_content_lock(
         );
     }
 
-    if received_block_order_changed(&before_blocks, &after_blocks)
-        && !declarations
-            .values()
-            .any(|declaration| declaration.allows_reorder)
+    if reordered
+        && !reordered_ids.iter().all(|id| {
+            declarations
+                .get(id)
+                .map(|declaration| declaration.allows_reorder)
+                .unwrap_or(false)
+        })
     {
-        return Err(
-            "approved-content lock violation: revised custody reordered received blocks without declaring change_type reorder in changed_blocks"
-                .to_string(),
-        );
+        let missing_reorder = reordered_ids
+            .iter()
+            .filter(|id| {
+                declarations
+                    .get(*id)
+                    .map(|declaration| !declaration.allows_reorder)
+                    .unwrap_or(true)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        return Err(format!(
+            "approved-content lock violation: reordered received blocks {} must each declare change_type reorder in changed_blocks",
+            missing_reorder.join(", ")
+        ));
     }
 
     Ok(())
@@ -216,10 +244,42 @@ fn changed_received_block_ids(
         .collect()
 }
 
-fn received_block_order_changed(
+fn reordered_received_block_ids(
     before_blocks: &[EditorialContentBlock],
     after_blocks: &[EditorialContentBlock],
-) -> bool {
+) -> Vec<String> {
+    let common_counts = common_normalized_hash_counts(before_blocks, after_blocks);
+    if common_counts.values().sum::<usize>() <= 1 {
+        return Vec::new();
+    }
+
+    let before_sequence = common_block_id_sequence(before_blocks, before_blocks, &common_counts);
+    let after_sequence = common_block_id_sequence(before_blocks, after_blocks, &common_counts);
+    if before_sequence == after_sequence {
+        return Vec::new();
+    }
+
+    let before_positions = before_sequence
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (id.clone(), index))
+        .collect::<BTreeMap<_, _>>();
+    let after_positions = after_sequence
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (id.clone(), index))
+        .collect::<BTreeMap<_, _>>();
+
+    before_sequence
+        .into_iter()
+        .filter(|id| before_positions.get(id) != after_positions.get(id))
+        .collect()
+}
+
+fn common_normalized_hash_counts(
+    before_blocks: &[EditorialContentBlock],
+    after_blocks: &[EditorialContentBlock],
+) -> BTreeMap<String, usize> {
     let mut before_counts = BTreeMap::<String, usize>::new();
     let mut after_counts = BTreeMap::<String, usize>::new();
     for block in before_blocks {
@@ -239,24 +299,38 @@ fn received_block_order_changed(
             common_counts.insert(hash, before_count.min(*after_count));
         }
     }
-    if common_counts.values().sum::<usize>() <= 1 {
-        return false;
-    }
-
-    common_block_hash_sequence(before_blocks, &common_counts)
-        != common_block_hash_sequence(after_blocks, &common_counts)
+    common_counts
 }
 
-fn common_block_hash_sequence(
-    blocks: &[EditorialContentBlock],
+fn common_block_id_sequence(
+    before_blocks: &[EditorialContentBlock],
+    ordered_blocks: &[EditorialContentBlock],
     common_counts: &BTreeMap<String, usize>,
 ) -> Vec<String> {
+    let mut ids_by_hash = BTreeMap::<String, VecDeque<String>>::new();
     let mut remaining = common_counts.clone();
-    let mut sequence = Vec::new();
-    for block in blocks {
+    for block in before_blocks {
         if let Some(count) = remaining.get_mut(&block.normalized_hash) {
             if *count > 0 {
-                sequence.push(block.normalized_hash.clone());
+                ids_by_hash
+                    .entry(block.normalized_hash.clone())
+                    .or_default()
+                    .push_back(block.id.clone());
+                *count -= 1;
+            }
+        }
+    }
+
+    let mut remaining = common_counts.clone();
+    let mut sequence = Vec::new();
+    for block in ordered_blocks {
+        if let Some(count) = remaining.get_mut(&block.normalized_hash) {
+            if *count > 0 {
+                if let Some(ids) = ids_by_hash.get_mut(&block.normalized_hash) {
+                    if let Some(id) = ids.pop_front() {
+                        sequence.push(id);
+                    }
+                }
                 *count -= 1;
             }
         }
@@ -266,27 +340,14 @@ fn common_block_hash_sequence(
 
 fn extract_changed_blocks_section(report: &str) -> Option<&str> {
     let lower = report.to_ascii_lowercase();
-    let start = find_first_key(
-        &lower,
-        &[
-            "\"changed_blocks\"",
-            "changed_blocks",
-            "\"changes\"",
-            "changes",
-        ],
-    )?;
-    let relative_end = find_first_key(
+    let start = find_first_report_field_key(&lower, &["changed_blocks", "changes"])?;
+    let relative_end = find_first_report_field_key(
         &lower[start + 1..],
         &[
-            "\"operator_evidence_required\"",
             "operator_evidence_required",
-            "\"out_of_scope\"",
             "out_of_scope",
-            "\"quality_preservation\"",
             "quality_preservation",
-            "\"unchanged_approved_blocks\"",
             "unchanged_approved_blocks",
-            "\"custody\"",
             "custody",
         ],
     );
@@ -296,8 +357,75 @@ fn extract_changed_blocks_section(report: &str) -> Option<&str> {
     report.get(start..end)
 }
 
-fn find_first_key(haystack: &str, keys: &[&str]) -> Option<usize> {
-    keys.iter().filter_map(|key| haystack.find(key)).min()
+fn find_first_report_field_key(haystack: &str, keys: &[&str]) -> Option<usize> {
+    let bytes = haystack.as_bytes();
+    let mut index = 0usize;
+    let mut in_quote: Option<u8> = None;
+    let mut escaped = false;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if let Some(quote) = in_quote {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == quote {
+                in_quote = None;
+            }
+            index += 1;
+            continue;
+        }
+        if byte == b'"' || byte == b'\'' {
+            let field_start = index;
+            if let Some(end_quote) = haystack[index + 1..].find(byte as char) {
+                let key_start = index + 1;
+                let key_end = key_start + end_quote;
+                let candidate = &haystack[key_start..key_end];
+                let after = key_end + 1;
+                if keys.contains(&candidate)
+                    && field_key_is_delimited_before(bytes, field_start)
+                    && field_key_has_assignment_after(bytes, after)
+                {
+                    return Some(field_start);
+                }
+            }
+            in_quote = Some(byte);
+            index += 1;
+            continue;
+        }
+        if field_key_is_delimited_before(bytes, index) {
+            for key in keys {
+                if haystack[index..].starts_with(key) {
+                    let after = index + key.len();
+                    if field_key_has_assignment_after(bytes, after) {
+                        return Some(index);
+                    }
+                }
+            }
+        }
+        index += 1;
+    }
+    None
+}
+
+fn field_key_is_delimited_before(bytes: &[u8], index: usize) -> bool {
+    if index == 0 {
+        return true;
+    }
+    bytes[..index]
+        .iter()
+        .rev()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .map(|byte| matches!(byte, b'{' | b'[' | b',' | b'\n' | b'\r'))
+        .unwrap_or(true)
+}
+
+fn field_key_has_assignment_after(bytes: &[u8], index: usize) -> bool {
+    bytes[index..]
+        .iter()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .map(|byte| matches!(byte, b':' | b'='))
+        .unwrap_or(false)
 }
 
 fn extract_changed_block_declarations(section: &str) -> BTreeMap<String, ChangedBlockDeclaration> {
@@ -363,20 +491,99 @@ fn extract_block_id_field(fragment: &str) -> Option<String> {
 }
 
 fn fragment_has_nonempty_protocol_basis(fragment: &str) -> bool {
-    Regex::new(r#"(?is)["']?protocol_basis["']?\s*[:=]\s*(?:"([^"]+)"|'([^']+)'|([^\s,}\]]+))"#)
-        .expect("valid protocol_basis field regex")
-        .captures(fragment)
-        .and_then(|captures| {
-            captures
-                .get(1)
-                .or_else(|| captures.get(2))
-                .or_else(|| captures.get(3))
-        })
-        .map(|matched| {
-            let value = matched.as_str().trim();
-            !value.is_empty() && value != "null" && value != "[]" && value != "{}"
-        })
-        .unwrap_or(false)
+    let Some(matched) = Regex::new(r#"(?is)["']?protocol_basis["']?\s*[:=]\s*"#)
+        .expect("valid protocol_basis key regex")
+        .find(fragment)
+    else {
+        return false;
+    };
+    protocol_basis_value_is_nonempty(&fragment[matched.end()..])
+}
+
+fn protocol_basis_value_is_nonempty(value: &str) -> bool {
+    let value = value.trim_start();
+    if value.is_empty() {
+        return false;
+    }
+    if let Some(rest) = value.strip_prefix('"') {
+        return quoted_value_is_nonempty(rest, '"');
+    }
+    if let Some(rest) = value.strip_prefix('\'') {
+        return quoted_value_is_nonempty(rest, '\'');
+    }
+    if let Some(rest) = value.strip_prefix('[') {
+        return bracketed_value_is_nonempty(rest, '[', ']');
+    }
+    if let Some(rest) = value.strip_prefix('{') {
+        return bracketed_value_is_nonempty(rest, '{', '}');
+    }
+    let token = value
+        .split(|character: char| character.is_whitespace() || matches!(character, ',' | '}' | ']'))
+        .next()
+        .unwrap_or("")
+        .trim();
+    !token.is_empty() && !token.eq_ignore_ascii_case("null") && token != "[]" && token != "{}"
+}
+
+fn quoted_value_is_nonempty(rest: &str, quote: char) -> bool {
+    let mut escaped = false;
+    let mut value = String::new();
+    for character in rest.chars() {
+        if escaped {
+            value.push(character);
+            escaped = false;
+            continue;
+        }
+        if character == '\\' {
+            escaped = true;
+            continue;
+        }
+        if character == quote {
+            return !value.trim().is_empty();
+        }
+        value.push(character);
+    }
+    false
+}
+
+fn bracketed_value_is_nonempty(rest: &str, open: char, close: char) -> bool {
+    let mut depth = 1usize;
+    let mut body = String::new();
+    let mut in_quote: Option<char> = None;
+    let mut escaped = false;
+    for character in rest.chars() {
+        if let Some(quote) = in_quote {
+            body.push(character);
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == quote {
+                in_quote = None;
+            }
+            continue;
+        }
+        if character == '"' || character == '\'' {
+            in_quote = Some(character);
+            body.push(character);
+            continue;
+        }
+        if character == open {
+            depth += 1;
+            body.push(character);
+            continue;
+        }
+        if character == close {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return !body.trim().is_empty();
+            }
+            body.push(character);
+            continue;
+        }
+        body.push(character);
+    }
+    false
 }
 
 fn fragment_declares_block_count_growth(fragment: &str) -> bool {
@@ -450,6 +657,31 @@ mod tests {
         let error = validate_revision_content_lock(before, after, report).unwrap_err();
 
         assert!(error.contains("protocol_basis"), "{error}");
+    }
+
+    #[test]
+    fn empty_structured_protocol_basis_is_rejected() {
+        let before = "# Titulo\n\nParagrafo aprovado.";
+        let after = "# Titulo\n\nParagrafo encurtado.";
+        let array_report = r#"{
+          "changed_blocks": [
+            {"block_id": "B0002", "protocol_basis": []}
+          ],
+          "custody": "revised"
+        }"#;
+        let object_report = r#"{
+          "changed_blocks": [
+            {"block_id": "B0002", "protocol_basis": {}}
+          ],
+          "custody": "revised"
+        }"#;
+
+        let array_error = validate_revision_content_lock(before, after, array_report).unwrap_err();
+        let object_error =
+            validate_revision_content_lock(before, after, object_report).unwrap_err();
+
+        assert!(array_error.contains("protocol_basis"), "{array_error}");
+        assert!(object_error.contains("protocol_basis"), "{object_error}");
     }
 
     #[test]
@@ -545,6 +777,123 @@ mod tests {
     }
 
     #[test]
+    fn silent_reorder_without_changed_blocks_section_is_rejected() {
+        let before = "# Titulo\n\nPrimeiro bloco aprovado.\n\nSegundo bloco aprovado.";
+        let after = "# Titulo\n\nSegundo bloco aprovado.\n\nPrimeiro bloco aprovado.";
+        let report = r#"{
+          "reviewer": "gemini",
+          "status": "READY",
+          "custody": "revised"
+        }"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+
+        assert!(error.contains("reordered received blocks"), "{error}");
+    }
+
+    #[test]
+    fn reorder_declaration_must_name_moved_received_blocks() {
+        let before = "# Titulo\n\nPrimeiro bloco aprovado.\n\nSegundo bloco aprovado.";
+        let after = "# Titulo\n\nSegundo bloco aprovado.\n\nPrimeiro bloco aprovado.";
+        let report = r#"{
+          "changed_blocks": [
+            {
+              "block_id": "B0001",
+              "change_type": "reorder",
+              "protocol_basis": "structure"
+            }
+          ],
+          "custody": "revised"
+        }"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+
+        assert!(error.contains("B0002"), "{error}");
+        assert!(error.contains("B0003"), "{error}");
+        assert!(error.contains("reorder"), "{error}");
+    }
+
+    #[test]
+    fn declared_reorder_for_each_moved_received_block_is_allowed() {
+        let before = "# Titulo\n\nPrimeiro bloco aprovado.\n\nSegundo bloco aprovado.";
+        let after = "# Titulo\n\nSegundo bloco aprovado.\n\nPrimeiro bloco aprovado.";
+        let report = r#"{
+          "changed_blocks": [
+            {
+              "block_id": "B0002",
+              "change_type": "reorder",
+              "protocol_basis": "structure"
+            },
+            {
+              "block_id": "B0003",
+              "change_type": "reorder",
+              "protocol_basis": "structure"
+            }
+          ],
+          "custody": "revised"
+        }"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
+    fn duplicate_identical_blocks_do_not_hide_distinct_reorder_requirements() {
+        let before = "# Titulo\n\nParagrafo repetido aprovado.\n\nBloco medio aprovado.\n\nParagrafo repetido aprovado.\n\nConclusao aprovada.";
+        let after = "# Titulo\n\nBloco medio aprovado.\n\nParagrafo repetido aprovado.\n\nParagrafo repetido aprovado.\n\nConclusao aprovada.";
+        let report = r#"{
+          "changed_blocks": [
+            {
+              "block_id": "B0003",
+              "change_type": "reorder",
+              "protocol_basis": "structure"
+            }
+          ],
+          "custody": "revised"
+        }"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+
+        assert!(error.contains("B0002"), "{error}");
+        assert!(error.contains("reorder"), "{error}");
+    }
+
+    #[test]
+    fn changed_section_terminators_match_fields_not_value_text() {
+        let before = "# Titulo\n\nParagrafo aprovado.";
+        let after = "# Titulo\n\nParagrafo corrigido.";
+        let report = r#"{
+          "changed_blocks": [
+            {
+              "block_id": "B0002",
+              "reason": "clarifies custody transfer without changing scope",
+              "protocol_basis": "editorial precision"
+            }
+          ],
+          "custody": "revised"
+        }"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
+    fn changed_section_terminators_ignore_escaped_quotes_inside_value_text() {
+        let before = "# Titulo\n\nParagrafo aprovado.";
+        let after = "# Titulo\n\nParagrafo corrigido.";
+        let report = r#"{
+          "changed_blocks": [
+            {
+              "block_id": "B0002",
+              "reason": "clarifies \"custody\" transfer without changing scope",
+              "protocol_basis": "editorial precision with escaped \"custody\" text"
+            }
+          ],
+          "custody": "revised"
+        }"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
     fn reorder_with_concurrent_declared_edit_is_rejected_without_reorder_declaration() {
         let before = "# Titulo\n\nPrimeiro bloco aprovado.\n\nSegundo bloco aprovado.\n\nTerceiro bloco aprovado.";
         let after = "# Titulo\n\nTerceiro bloco aprovado.\n\nPrimeiro bloco editado.\n\nSegundo bloco aprovado.";
@@ -558,6 +907,22 @@ mod tests {
         let error = validate_revision_content_lock(before, after, report).unwrap_err();
 
         assert!(error.contains("reordered received blocks"), "{error}");
+    }
+
+    #[test]
+    fn moved_and_edited_block_still_requires_changed_blocks_protocol_basis() {
+        let before = "# Titulo\n\nPrimeiro bloco aprovado.\n\nSegundo bloco aprovado.\n\nTerceiro bloco aprovado.";
+        let after = "# Titulo\n\nTerceiro bloco editado.\n\nPrimeiro bloco aprovado.\n\nSegundo bloco aprovado.";
+        let report = r#"{
+          "reviewer": "grok",
+          "status": "READY",
+          "custody": "revised"
+        }"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+
+        assert!(error.contains("B0004"), "{error}");
+        assert!(error.contains("changed_blocks"), "{error}");
     }
 
     #[test]

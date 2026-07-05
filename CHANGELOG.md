@@ -6,6 +6,23 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.50] - 2026-07-05
+
+### Fixed
+
+- **Reorder-only bypass prevention.** Approved-content validation now rejects revisions that only reorder received blocks even when the report omits the `changed_blocks` section entirely.
+- **Moved-block reorder authorization.** Reorder declarations must name the received blocks that actually moved; declaring `change_type: "reorder"` on an unrelated block no longer authorizes the move.
+- **Structured protocol basis validation.** Empty structured values such as `protocol_basis: []` and `protocol_basis: {}` no longer satisfy the concrete protocol-basis requirement.
+- **Changed-block section parsing.** Section terminators such as `custody` are now matched as report field keys, not as arbitrary words inside `reason` or `protocol_basis` values.
+
+### Validation
+
+- `cargo test --locked --lib editorial_content_lock`: red/green verified for all four PR review findings; now passed, 19 tests, including duplicate-block reorder, escaped-quote section parsing, valid fully declared reorder, and moved+edited governance coverage.
+- `cargo check --locked --all-targets`: passed.
+- `cargo test --locked`: passed, 221 tests.
+- `cargo clippy --locked --no-deps --all-targets`: passed.
+- `git diff --check`: passed.
+
 ## [v0.5.49] - 2026-07-05
 
 ### Fixed
