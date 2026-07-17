@@ -6,6 +6,20 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.51] - 2026-07-16
+
+### Security
+
+- **Dependabot alert #4 / GHSA-7gcf-g7xr-8hxj.** Updated the transitive `serde_with` and `serde_with_macros` dependencies from `3.18.0` to `3.21.0` through the Tauri dependency graph, removing the `KeyValueMap` empty-entry serialization panic fixed upstream in `3.21.0`.
+- **Portable release coverage.** Triggers a new user-facing Windows portable release from the remediated lockfile; the prior `v00.05.50` artifact predates the dependency update and must not be treated as containing this fix.
+
+### Validation
+
+- Dependabot alert #4 is `fixed` on GitHub after merged PR #193.
+- `cargo tree --locked --manifest-path src-tauri/Cargo.toml -i serde_with`: resolves `serde_with v3.21.0` through `tauri-utils v2.9.3`.
+- `cargo audit --file src-tauri/Cargo.lock`: no known vulnerabilities; 15 pre-existing allowed warnings remain.
+- PR #193: all required CI, CodeQL, Dependency Review, Socket Security, StepSecurity, and Rust `cargo --locked` gates passed.
+
 ## [v0.5.50] - 2026-07-05
 
 ### Fixed
