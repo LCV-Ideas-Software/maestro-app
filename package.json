@@ -29,7 +29,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "6.0.3",
     "jsdom": "^29.1.1",
-    "prettier": "^3.9.5",
+    "prettier": "^3.9.6",
     "typescript": "7.0.2",
     "vite": "8.1.5",
     "vitest": "^4.1.10"
@@ -72,7 +72,7 @@
     "lowlight": "3.3.0",
     "lucide-react": "1.25.0",
     "mammoth": "1.12.0",
-    "marked": "18.0.6",
+    "marked": "18.0.7",
     "prosemirror-model": "1.25.11",
     "prosemirror-state": "1.4.4",
     "prosemirror-view": "1.42.1",
