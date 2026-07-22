@@ -15,8 +15,7 @@ on:
         description: "Existing vXX.YY.ZZ or vXX.YY.ZZ-betaN tag to publish"
         required: true
         type: string
-permissions:
-  contents: read
+permissions: write-all
 env:
   NODE_VERSION: 24
 concurrency:
@@ -24,11 +23,14 @@ concurrency:
   cancel-in-progress: false
 jobs:
   prepare-release:
-    name: Prepare release tag
+    name: Authorize immutable release identity
     runs-on: ubuntu-latest
+    permissions: write-all
     outputs:
       tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
       should_release: ${{ steps.release.outputs.should_release }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -38,12 +40,21 @@ jobs:
       - name: Checkout release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
           fetch-depth: 0
-      - name: Resolve release tag
+      - name: Resolve and verify release identity
         id: release
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_TAG: ${{ inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_REF_NAME: ${{ github.ref_name }}
+          EVENT_REF_TYPE: ${{ github.ref_type }}
+          EVENT_REF_PROTECTED: ${{ github.ref_protected }}
+          EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
 
@@ -59,49 +70,329 @@ jobs:
             printf 'v%02d.%02d.%02d%s' "$major" "$minor" "$patch" "$suffix"
           }
 
-          legacy_tag_from_version() {
-            local version="$1"
-            local core="${version%%-*}"
-            local suffix=""
-            if [[ "$version" == *-* ]]; then
-              suffix="-${version#*-}"
-            fi
-
-            IFS='.' read -r major minor patch <<< "$core"
-            printf 'v%d.%d.%d%s' "$major" "$minor" "$patch" "$suffix"
+          cargo_version_from_stream() {
+            awk '
+              $0 == "[package]" { in_package=1; next }
+              /^\[/ && in_package { exit }
+              in_package && $1 == "version" {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            '
           }
 
-          should_release="true"
+          package_version="$(node -p "require('./package.json').version")"
+          cargo_version="$(cargo_version_from_stream < src-tauri/Cargo.toml)"
+          tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
 
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            tag="${INPUT_TAG}"
-          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            tag="${GITHUB_REF_NAME}"
-          else
-            version="$(node -p "require('./package.json').version")"
-            tag="$(universal_tag_from_version "$version")"
-            legacy_tag="$(legacy_tag_from_version "$version")"
+          if [[ ! "$package_version" =~ ^(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)(-beta(0|[1-9][0-9]*))?$ ]]; then
+            echo "::error::package.json version must use non-zero-padded 0-99 components as X.Y.Z or X.Y.Z-betaN, got '$package_version'."
+            exit 1
+          fi
+          if [[ "$cargo_version" != "$package_version" || "$tauri_version" != "$package_version" ]]; then
+            echo "::error::Release versions diverge (package.json=$package_version Cargo.toml=${cargo_version:-missing} tauri.conf.json=${tauri_version:-missing})."
+            exit 1
+          fi
 
-            if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
-              echo "Release tag ${tag} already exists. Skipping duplicate release."
-              should_release="false"
-            elif [[ "$legacy_tag" != "$tag" ]] && git ls-remote --exit-code --tags origin "refs/tags/${legacy_tag}" >/dev/null 2>&1; then
-              echo "Legacy release tag ${legacy_tag} already exists for ${tag}. Skipping duplicate release."
-              should_release="false"
+          expected_tag="$(universal_tag_from_version "$package_version")"
+          prerelease="false"
+          if [[ "$package_version" == *-beta* ]]; then
+            prerelease="true"
+          fi
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$EVENT_REF_TYPE" != "tag" || "$EVENT_REF_PROTECTED" != "true" ]]; then
+              echo "::error::workflow_dispatch must run on an existing protected tag ref."
+              exit 1
             fi
+            if [[ "$INPUT_TAG" != "$EVENT_REF_NAME" ]]; then
+              echo "::error::workflow_dispatch input '$INPUT_TAG' must exactly match event tag '$EVENT_REF_NAME'."
+              exit 1
+            fi
+            tag="$INPUT_TAG"
+            mode="tag"
+          elif [[ "$EVENT_NAME" == "push" && "$EVENT_REF_TYPE" == "tag" ]]; then
+            if [[ "$EVENT_REF_PROTECTED" != "true" ]]; then
+              echo "::error::Release tag '$EVENT_REF_NAME' is not protected by an active GitHub rule."
+              exit 1
+            fi
+            tag="$EVENT_REF_NAME"
+            mode="tag"
+          elif [[ "$EVENT_NAME" == "push" && "$EVENT_REF_TYPE" == "branch" && "$EVENT_REF" == "refs/heads/main" ]]; then
+            if [[ "$EVENT_REF_PROTECTED" != "true" ]]; then
+              echo "::error::Automatic release preparation requires protected main."
+              exit 1
+            fi
+            tag="$expected_tag"
+            mode="branch"
+          else
+            echo "::error::Unsupported release trigger ($EVENT_NAME $EVENT_REF_TYPE $EVENT_REF)."
+            exit 1
           fi
 
           if [[ ! "$tag" =~ ^v[0-9]{2}\.[0-9]{2}\.[0-9]{2}(-beta[0-9]+)?$ ]]; then
             echo "::error::Release tag must use vXX.YY.ZZ or vXX.YY.ZZ-betaN, got '${tag}'."
             exit 1
           fi
+          if [[ "$tag" != "$expected_tag" ]]; then
+            echo "::error::Release tag '$tag' does not exactly match synchronized version '$package_version' (expected '$expected_tag')."
+            exit 1
+          fi
+
+          checked_out_sha="$(git rev-parse HEAD)"
+          remote_main_sha="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
+          if [[ "$checked_out_sha" != "$EVENT_SHA" || "$checked_out_sha" != "$remote_main_sha" ]]; then
+            echo "::error::Release source must be current main (event=$EVENT_SHA checkout=$checked_out_sha main=${remote_main_sha:-missing})."
+            exit 1
+          fi
+
+          should_release="false"
+          if [[ "$mode" == "tag" ]]; then
+            git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+            if ! git show-ref --verify --quiet "refs/tags/$tag"; then
+              echo "::error::Release tag '$tag' does not exist on origin."
+              exit 1
+            fi
+            tag_sha="$(git rev-parse "refs/tags/$tag^{commit}")"
+            if [[ "$tag_sha" != "$checked_out_sha" || "$tag_sha" != "$remote_main_sha" ]]; then
+              echo "::error::Release identity diverges (tag=$tag_sha checkout=$checked_out_sha main=${remote_main_sha:-missing})."
+              exit 1
+            fi
+            should_release="true"
+          elif git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+            existing_tag_sha="$(git rev-parse "refs/tags/$tag^{commit}")"
+            if [[ "$existing_tag_sha" != "$checked_out_sha" ]]; then
+              previous_package_version="$(git show "$checked_out_sha^:package.json" | jq -r '.version // empty')"
+              previous_cargo_version="$(git show "$checked_out_sha^:src-tauri/Cargo.toml" | cargo_version_from_stream)"
+              previous_tauri_version="$(git show "$checked_out_sha^:src-tauri/tauri.conf.json" | jq -r '.version // empty')"
+              if [[ "$previous_package_version" == "$package_version" && "$previous_cargo_version" == "$package_version" && "$previous_tauri_version" == "$package_version" ]]; then
+                mode="skip"
+                echo "Version $package_version was already released by $tag at $existing_tag_sha; this main push did not change the synchronized release identity."
+              else
+                echo "::error::Version identity changed to $package_version, but immutable tag $tag already names $existing_tag_sha. Refusing version reuse."
+                exit 1
+              fi
+            fi
+          fi
+
+          if [[ "$mode" != "skip" ]]; then
+            tag_ref="refs/tags/$tag"
+            tag_rulesets="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/rulesets?includes_parents=true&targets=tag&per_page=100")"
+            mapfile -t tag_ruleset_ids < <(jq -r '.[][] | select(.target == "tag" and .enforcement == "active") | .id' <<<"$tag_rulesets")
+            protected_by_active_ruleset="false"
+            for ruleset_id in "${tag_ruleset_ids[@]}"; do
+              ruleset_id="${ruleset_id%$'\r'}"
+              ruleset="$(gh api "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id?includes_parents=true")"
+              if ! jq -e '
+                (([.rules[].type] | index("deletion")) != null) and
+                (([.rules[].type] | index("non_fast_forward")) != null) and
+                (([.rules[].type] | index("required_signatures")) != null)
+              ' <<<"$ruleset" >/dev/null; then
+                continue
+              fi
+
+              included="false"
+              mapfile -t include_patterns < <(jq -r '.conditions.ref_name.include[]?' <<<"$ruleset")
+              for pattern in "${include_patterns[@]}"; do
+                pattern="${pattern%$'\r'}"
+                if [[ "$pattern" == "~ALL" || "$tag_ref" == $pattern ]]; then
+                  included="true"
+                  break
+                fi
+              done
+              [[ "$included" == "true" ]] || continue
+
+              excluded="false"
+              mapfile -t exclude_patterns < <(jq -r '.conditions.ref_name.exclude[]?' <<<"$ruleset")
+              for pattern in "${exclude_patterns[@]}"; do
+                pattern="${pattern%$'\r'}"
+                if [[ "$pattern" == "~ALL" || "$tag_ref" == $pattern ]]; then
+                  excluded="true"
+                  break
+                fi
+              done
+              if [[ "$excluded" == "false" ]]; then
+                protected_by_active_ruleset="true"
+                break
+              fi
+            done
+            if [[ "$protected_by_active_ruleset" != "true" ]]; then
+              echo "::error::$tag_ref is not covered by an active tag ruleset requiring deletion, non-fast-forward, and signature protections."
+              exit 1
+            fi
+            echo "$tag_ref is covered by an active protective tag ruleset."
+          fi
 
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "sha=${checked_out_sha}" >> "$GITHUB_OUTPUT"
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
           echo "should_release=${should_release}" >> "$GITHUB_OUTPUT"
+          echo "Authorized metadata identity: $tag -> $package_version at $checked_out_sha (mode=$mode prerelease=$prerelease)."
+      - name: Require exact-SHA workflows and processed security results
+        if: steps.release.outputs.mode != 'skip'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_MODE: ${{ steps.release.outputs.mode }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_files="$(git diff-tree --no-commit-id --name-only -r "$RELEASE_SHA")"
+          required_workflows=("CI" "CodeQL" "Socket Security" "Public Format" "Zizmor")
+          scorecard_required="false"
+          if grep -Eq '^(\.github/workflows/|\.github/dependabot\.yml$|socketsecurity-requirements\.txt$|SECURITY\.md$)' <<<"$changed_files"; then
+            required_workflows+=("OpenSSF Scorecard")
+            scorecard_required="true"
+          fi
+          if grep -Eq '^(\.github/workflows/pages\.yml$|site/)' <<<"$changed_files"; then
+            required_workflows+=("Pages")
+          fi
+
+          runs_json="[]"
+          for attempt in {1..60}; do
+            remote_main_sha="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
+            checked_out_sha="$(git rev-parse HEAD)"
+            if [[ "$remote_main_sha" != "$RELEASE_SHA" || "$checked_out_sha" != "$RELEASE_SHA" ]]; then
+              echo "::error::Release identity changed while waiting for checks (expected=$RELEASE_SHA checkout=$checked_out_sha main=${remote_main_sha:-missing})."
+              exit 1
+            fi
+
+            runs_json="$(gh run list --repo "$GITHUB_REPOSITORY" --branch main --commit "$RELEASE_SHA" --event push --limit 100 --json databaseId,workflowName,name,status,conclusion,url)"
+            all_ready="true"
+            for workflow_name in "${required_workflows[@]}"; do
+              workflow_state="$(jq -r --arg workflow "$workflow_name" '
+                [.[] | select(.workflowName == $workflow)]
+                | sort_by(.databaseId)
+                | last
+                | if . == null then "missing" else "\(.status):\(.conclusion // "")" end
+              ' <<<"$runs_json")"
+              if [[ "$workflow_state" == "completed:success" ]]; then
+                continue
+              fi
+              if [[ "$workflow_state" == completed:* ]]; then
+                echo "::error::$workflow_name finished as $workflow_state for exact SHA $RELEASE_SHA."
+                jq -r --arg workflow "$workflow_name" '.[] | select(.workflowName == $workflow) | [.databaseId, .name, .status, .conclusion, .url] | @tsv' <<<"$runs_json"
+                exit 1
+              fi
+              all_ready="false"
+              echo "Waiting for $workflow_name on exact SHA $RELEASE_SHA (state: $workflow_state)."
+            done
+            if [[ "$all_ready" == "true" ]]; then
+              echo "All exact-SHA workflows passed: ${required_workflows[*]}."
+              break
+            fi
+            if [[ "$attempt" -eq 60 ]]; then
+              echo "::error::Required workflows did not all complete successfully for $RELEASE_SHA."
+              exit 1
+            fi
+            sleep 5
+          done
+
+          for attempt in {1..12}; do
+            remote_main_sha="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
+            if [[ "$remote_main_sha" != "$RELEASE_SHA" ]]; then
+              echo "::error::main advanced while waiting for CodeQL analyses."
+              exit 1
+            fi
+            categories="$(gh api --paginate -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/code-scanning/analyses?ref=refs/heads/main&per_page=100" --jq '.[] | .commit_sha + " " + .category' | grep -F "$RELEASE_SHA " || true)"
+            if grep -Fq "/language:actions" <<<"$categories" && \
+              grep -Fq "/language:javascript-typescript" <<<"$categories" && \
+              grep -Fq "/language:rust" <<<"$categories" && \
+              grep -Fq ".github/workflows/codeql.yml:analyze" <<<"$categories"; then
+              echo "All four CodeQL categories are processed for $RELEASE_SHA."
+              break
+            fi
+            if [[ "$attempt" -eq 12 ]]; then
+              echo "::error::All CodeQL categories were not visible for exact SHA $RELEASE_SHA."
+              exit 1
+            fi
+            sleep 5
+          done
+
+          if [[ "$scorecard_required" == "true" ]]; then
+            for attempt in {1..12}; do
+              categories="$(gh api --paginate -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/code-scanning/analyses?ref=refs/heads/main&per_page=100" --jq '.[] | .commit_sha + " " + .category' | grep -F "$RELEASE_SHA " || true)"
+              if grep -Fq "supply-chain/local" <<<"$categories" && \
+                grep -Fq "supply-chain/online-scm" <<<"$categories" && \
+                grep -Fq "supply-chain/branch-protection" <<<"$categories"; then
+                echo "All Scorecard SARIF categories are processed for $RELEASE_SHA."
+                break
+              fi
+              if [[ "$attempt" -eq 12 ]]; then
+                echo "::error::All Scorecard categories were not visible for exact SHA $RELEASE_SHA."
+                exit 1
+              fi
+              sleep 5
+            done
+          fi
+
+          alert_main_before="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
+          [[ "$alert_main_before" == "$RELEASE_SHA" ]] || { echo "::error::main changed before alert query."; exit 1; }
+          open_alerts="$(gh api --paginate -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/code-scanning/alerts?state=open&ref=refs/heads/main&per_page=100" --jq '.[].number')"
+          alert_main_after="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
+          [[ "$alert_main_after" == "$RELEASE_SHA" ]] || { echo "::error::main changed during alert query."; exit 1; }
+          if [[ -n "$open_alerts" ]]; then
+            echo "::error::Open code-scanning alerts block release: $(tr '\n' ' ' <<<"$open_alerts")"
+            exit 1
+          fi
+
+          if [[ "$RELEASE_MODE" == "tag" ]]; then
+            git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+            final_tag_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+            [[ "$final_tag_sha" == "$RELEASE_SHA" ]] || { echo "::error::Release tag moved during security gates."; exit 1; }
+          fi
+          echo "Exact-SHA workflow and security gates passed for $RELEASE_SHA."
+      - name: Create protected tag and dispatch tag-bound release
+        if: steps.release.outputs.mode == 'branch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_main_sha="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
+          checked_out_sha="$(git rev-parse HEAD)"
+          if [[ "$remote_main_sha" != "$RELEASE_SHA" || "$checked_out_sha" != "$RELEASE_SHA" ]]; then
+            echo "::error::main changed before protected tag creation."
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+            existing_tag_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+            if [[ "$existing_tag_sha" != "$RELEASE_SHA" ]]; then
+              echo "::error::Existing tag $RELEASE_TAG names $existing_tag_sha, not authorized SHA $RELEASE_SHA."
+              exit 1
+            fi
+            echo "Existing tag $RELEASE_TAG already names authorized SHA $RELEASE_SHA."
+          else
+            if gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$RELEASE_TAG" \
+              -f sha="$RELEASE_SHA" >/dev/null; then
+              echo "Created protected release tag $RELEASE_TAG at $RELEASE_SHA."
+            elif git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+              echo "Tag $RELEASE_TAG was created concurrently; verifying its immutable identity."
+            else
+              echo "::error::Failed to create protected release tag $RELEASE_TAG."
+              exit 1
+            fi
+          fi
+
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          final_tag_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          [[ "$final_tag_sha" == "$RELEASE_SHA" ]] || { echo "::error::Tag verification failed after creation."; exit 1; }
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG" -f tag="$RELEASE_TAG"
+          echo "Dispatched tag-bound Release workflow for $RELEASE_TAG."
     timeout-minutes: 60
   release-gates:
     name: Release gates
     runs-on: windows-latest
+    permissions: write-all
     needs: prepare-release
     if: needs.prepare-release.outputs.should_release == 'true'
     steps:
@@ -113,12 +404,36 @@ jobs:
       - name: Checkout release ref
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+          persist-credentials: false
+          ref: ${{ needs.prepare-release.outputs.sha }}
+          fetch-depth: 0
+      - name: Revalidate immutable tag identity before release gates
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+          RELEASE_SHA: ${{ needs.prepare-release.outputs.sha }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_REF_TYPE: ${{ github.ref_type }}
+          EVENT_REF_PROTECTED: ${{ github.ref_protected }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_REF_TYPE" != "tag" || "$EVENT_REF" != "refs/tags/$RELEASE_TAG" || "$EVENT_REF_PROTECTED" != "true" ]]; then
+            echo "::error::Release gates require the authorized protected tag event."
+            exit 1
+          fi
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          tag_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          checkout_sha="$(git rev-parse HEAD)"
+          main_sha="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
+          if [[ "$tag_sha" != "$RELEASE_SHA" || "$checkout_sha" != "$RELEASE_SHA" || "$main_sha" != "$RELEASE_SHA" ]]; then
+            echo "::error::Release identity changed (tag=$tag_sha checkout=$checkout_sha main=${main_sha:-missing} expected=$RELEASE_SHA)."
+            exit 1
+          fi
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          package-manager-cache: false
       - name: Setup Rust stable
         shell: pwsh
         run: |
@@ -145,10 +460,7 @@ jobs:
   build-windows-portable:
     name: Build Windows portable bundle
     runs-on: windows-latest
-    permissions:
-      contents: read
-      attestations: write
-      id-token: write
+    permissions: write-all
     needs:
       - prepare-release
       - release-gates
@@ -164,12 +476,36 @@ jobs:
       - name: Checkout release ref
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+          persist-credentials: false
+          ref: ${{ needs.prepare-release.outputs.sha }}
+          fetch-depth: 0
+      - name: Revalidate immutable tag identity before build
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+          RELEASE_SHA: ${{ needs.prepare-release.outputs.sha }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_REF_TYPE: ${{ github.ref_type }}
+          EVENT_REF_PROTECTED: ${{ github.ref_protected }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_REF_TYPE" != "tag" || "$EVENT_REF" != "refs/tags/$RELEASE_TAG" || "$EVENT_REF_PROTECTED" != "true" ]]; then
+            echo "::error::Build requires the authorized protected tag event."
+            exit 1
+          fi
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          tag_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          checkout_sha="$(git rev-parse HEAD)"
+          main_sha="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
+          if [[ "$tag_sha" != "$RELEASE_SHA" || "$checkout_sha" != "$RELEASE_SHA" || "$main_sha" != "$RELEASE_SHA" ]]; then
+            echo "::error::Release identity changed (tag=$tag_sha checkout=$checkout_sha main=${main_sha:-missing} expected=$RELEASE_SHA)."
+            exit 1
+          fi
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          package-manager-cache: false
       - name: Setup Rust stable
         shell: pwsh
         run: |
@@ -218,7 +554,12 @@ jobs:
 
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           $zipName = Split-Path $zip -Leaf
-          "$hash  $zipName" | Set-Content -Path (Join-Path $releaseRoot "SHA256SUMS.txt") -Encoding ascii
+          $checksumPath = Join-Path $releaseRoot "SHA256SUMS.txt"
+          [System.IO.File]::WriteAllText(
+            $checksumPath,
+            "$hash  $zipName`n",
+            [System.Text.Encoding]::ASCII
+          )
       - name: Upload portable archive artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -235,28 +576,43 @@ jobs:
   publish-github-release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    permissions: write-all
     needs:
       - prepare-release
       - build-windows-portable
     if: needs.prepare-release.outputs.should_release == 'true'
     env:
       RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+      RELEASE_SHA: ${{ needs.prepare-release.outputs.sha }}
+      PRERELEASE: ${{ needs.prepare-release.outputs.prerelease }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
 
+      - name: Checkout immutable release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare-release.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Download portable archive
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: maestro-windows-portable-${{ env.RELEASE_TAG }}
           path: release
-      - name: Publish release assets
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify portable archive checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t archives < <(find release -maxdepth 1 -type f -name '*.zip' -print)
+          if [[ "${#archives[@]}" -ne 1 || ! -f release/SHA256SUMS.txt ]]; then
+            echo "::error::Expected exactly one ZIP and SHA256SUMS.txt."
+            exit 1
+          fi
+          (cd release && sha256sum --check --strict SHA256SUMS.txt)
+      - name: Create immutable release notes
         shell: bash
         run: |
           set -euo pipefail
@@ -312,58 +668,150 @@ jobs:
           - Release workflow builds the portable executable on GitHub-hosted Windows runner.
           - ZIP receives a SHA-256 checksum.
           - ZIP receives GitHub artifact attestation.
-          - CI, CodeQL Default Setup, and Dependabot checks are expected to be green on the release commit.
+          - CI, CodeQL, Socket Security, and public-format checks are required to pass on the exact release commit.
+          - All expected CodeQL analyses must be processed and the default branch must have zero open code-scanning alerts.
           NOTES
           sed -i "s|__TAG__|${tag}|g; s|__REPOSITORY__|${GITHUB_REPOSITORY}|g" "$release_notes"
+          cp "$release_notes" release-notes.md
+
+      - name: Revalidate identity and publish immutable GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_REF_TYPE: ${{ github.ref_type }}
+          EVENT_REF_PROTECTED: ${{ github.ref_protected }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$RELEASE_TAG"
+          if [[ "$EVENT_REF_TYPE" != "tag" || "$EVENT_REF" != "refs/tags/$tag" || "$EVENT_REF_PROTECTED" != "true" ]]; then
+            echo "::error::GitHub Release publication requires the authorized protected tag event."
+            exit 1
+          fi
+          git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+          tag_sha="$(git rev-parse "refs/tags/$tag^{commit}")"
+          checkout_sha="$(git rev-parse HEAD)"
+          main_sha="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
+          if [[ "$tag_sha" != "$RELEASE_SHA" || "$checkout_sha" != "$RELEASE_SHA" || "$main_sha" != "$RELEASE_SHA" ]]; then
+            echo "::error::Release identity changed (tag=$tag_sha checkout=$checkout_sha main=${main_sha:-missing} expected=$RELEASE_SHA)."
+            exit 1
+          fi
 
           assets=(release/*.zip release/SHA256SUMS.txt)
           for asset in "${assets[@]}"; do
             if [[ ! -f "$asset" ]]; then
-              echo "Missing release asset: $asset" >&2
+              echo "::error::Missing release asset: $asset"
               exit 1
             fi
           done
 
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            edit_args=(release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "Maestro Editorial AI $tag" --notes-file "$release_notes")
-            edit_args+=(--latest)
-            gh "${edit_args[@]}"
-            gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
-          else
-            args=(release create "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --title "Maestro Editorial AI $tag" --notes-file "$release_notes")
-            if ! gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
-              args+=(--target "$GITHUB_SHA")
+          verify_release() {
+            local release_json="$1"
+            local expected_title="Maestro Editorial AI $tag"
+            local actual_tag actual_target actual_title actual_draft actual_prerelease actual_immutable
+            actual_tag="$(jq -r '.tag_name' <<<"$release_json")"
+            actual_target="$(jq -r '.target_commitish' <<<"$release_json")"
+            actual_title="$(jq -r '.name' <<<"$release_json")"
+            actual_draft="$(jq -r '.draft' <<<"$release_json")"
+            actual_prerelease="$(jq -r '.prerelease' <<<"$release_json")"
+            actual_immutable="$(jq -r '.immutable' <<<"$release_json")"
+            if [[ "$actual_tag" != "$tag" || "$actual_target" != "$RELEASE_SHA" || "$actual_title" != "$expected_title" || "$actual_draft" != "false" || "$actual_prerelease" != "$PRERELEASE" || "$actual_immutable" != "true" ]]; then
+              echo "::error::Release metadata diverges (tag=$actual_tag target=$actual_target title='$actual_title' draft=$actual_draft prerelease=$actual_prerelease immutable=$actual_immutable)."
+              return 1
             fi
-            args+=(--latest)
+
+            remote_asset_count="$(jq '.assets | length' <<<"$release_json")"
+            if [[ "$remote_asset_count" -ne "${#assets[@]}" ]]; then
+              echo "::error::Existing immutable release has $remote_asset_count assets; expected ${#assets[@]}."
+              return 1
+            fi
+            for asset in "${assets[@]}"; do
+              asset_name="$(basename "$asset")"
+              local_digest="sha256:$(sha256sum "$asset" | awk '{print $1}')"
+              remote_digest="$(jq -r --arg name "$asset_name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].digest else "" end' <<<"$release_json")"
+              if [[ "$remote_digest" != "$local_digest" ]]; then
+                echo "::error::Immutable asset $asset_name diverges (remote=${remote_digest:-missing} local=$local_digest)."
+                return 1
+              fi
+            done
+
+            if ! latest_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name' 2>/dev/null)"; then
+              latest_probe="$(gh api --include "repos/$GITHUB_REPOSITORY/releases/latest" 2>&1 || true)"
+              if ! grep -Eq '^HTTP/[^ ]+ 404 ' <<<"$latest_probe"; then
+                echo "::error::Unable to determine the repository Latest release."
+                printf '%s\n' "$latest_probe"
+                return 1
+              fi
+              latest_tag=""
+            fi
+            if [[ "$PRERELEASE" == "true" && "$latest_tag" == "$tag" ]]; then
+              echo "::error::Prerelease $tag must not be marked Latest."
+              return 1
+            fi
+            if [[ "$PRERELEASE" == "false" && "$latest_tag" != "$tag" ]]; then
+              echo "::error::Stable release $tag is not the repository Latest release (actual=${latest_tag:-missing})."
+              return 1
+            fi
+            return 0
+          }
+
+          if release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" 2>/dev/null)"; then
+            verify_release "$release_json"
+            echo "Existing immutable release $tag and both asset digests are identical; no overwrite is needed."
+          else
+            args=(release create "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$RELEASE_SHA" --verify-tag --title "Maestro Editorial AI $tag" --notes-file release-notes.md)
+            if [[ "$PRERELEASE" == "true" ]]; then
+              args+=(--prerelease --latest=false)
+            else
+              args+=(--latest)
+            fi
             gh "${args[@]}"
+
+            for attempt in {1..12}; do
+              release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" 2>/dev/null || true)"
+              if [[ -n "$release_json" ]] && verify_release "$release_json"; then
+                echo "Created and verified immutable release $tag with exact asset digests."
+                exit 0
+              fi
+              if [[ "$attempt" -eq 12 ]]; then
+                echo "::error::Created release $tag did not converge to the expected immutable state."
+                exit 1
+              fi
+              sleep 5
+            done
           fi
     timeout-minutes: 60
   publish-github-package:
     name: Publish GitHub Package
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    permissions: write-all
     needs:
       - prepare-release
       - publish-github-release
     if: needs.prepare-release.outputs.should_release == 'true'
     env:
       RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+      RELEASE_SHA: ${{ needs.prepare-release.outputs.sha }}
+      PRERELEASE: ${{ needs.prepare-release.outputs.prerelease }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
 
+      - name: Checkout immutable release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare-release.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Download portable archive
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: maestro-windows-portable-${{ env.RELEASE_TAG }}
           path: release
-      - name: Publish GHCR OCI mirror
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Build local GHCR OCI mirror
+        id: oci
         shell: bash
         run: |
           set -euo pipefail
@@ -375,10 +823,19 @@ jobs:
 
           owner="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
           image="ghcr.io/${owner}/maestro-app-windows-portable"
+          channel="latest"
+          if [[ "$PRERELEASE" == "true" ]]; then
+            channel="beta"
+          fi
 
           mkdir -p oci-package
           test -f release/SHA256SUMS.txt
-          test -n "$(find release -maxdepth 1 -type f -name '*.zip' -print -quit)"
+          mapfile -t archives < <(find release -maxdepth 1 -type f -name '*.zip' -print)
+          if [[ "${#archives[@]}" -ne 1 ]]; then
+            echo "::error::Expected exactly one portable ZIP."
+            exit 1
+          fi
+          (cd release && sha256sum --check --strict SHA256SUMS.txt)
           cp release/*.zip release/SHA256SUMS.txt oci-package/
 
           cat > oci-package/package-metadata.json <<JSON
@@ -407,9 +864,109 @@ jobs:
           COPY . /
           DOCKERFILE
 
+          docker build -t "${image}:${tag}" -t "${image}:${channel}" oci-package
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+      - name: Revalidate identity and publish or verify GHCR mirror
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          IMAGE: ${{ steps.oci.outputs.image }}
+          CHANNEL: ${{ steps.oci.outputs.channel }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_REF_TYPE: ${{ github.ref_type }}
+          EVENT_REF_PROTECTED: ${{ github.ref_protected }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$RELEASE_TAG"
+          if [[ "$EVENT_REF_TYPE" != "tag" || "$EVENT_REF" != "refs/tags/$tag" || "$EVENT_REF_PROTECTED" != "true" ]]; then
+            echo "::error::GHCR publication requires the authorized protected tag event."
+            exit 1
+          fi
+          git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+          tag_sha="$(git rev-parse "refs/tags/$tag^{commit}")"
+          checkout_sha="$(git rev-parse HEAD)"
+          main_sha="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
+          if [[ "$tag_sha" != "$RELEASE_SHA" || "$checkout_sha" != "$RELEASE_SHA" || "$main_sha" != "$RELEASE_SHA" ]]; then
+            echo "::error::Release identity changed (tag=$tag_sha checkout=$checkout_sha main=${main_sha:-missing} expected=$RELEASE_SHA)."
+            exit 1
+          fi
+
           echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          image_args=(-t "${image}:${tag}" -t "${image}:latest")
-          docker build "${image_args[@]}" oci-package
-          docker push "${image}:${tag}"
-          docker push "${image}:latest"
+          package_name="maestro-app-windows-portable"
+          packages_json="$(gh api --paginate --slurp "orgs/$GITHUB_REPOSITORY_OWNER/packages?package_type=container&per_page=100")"
+          version_exists="false"
+          if jq -e --arg package "$package_name" 'any(.[][]; .name == $package)' <<<"$packages_json" >/dev/null; then
+            versions_json="$(gh api --paginate --slurp "orgs/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name/versions?per_page=100")"
+            if jq -e --arg tag "$tag" 'any(.[][]; ((.metadata.container.tags // []) | index($tag)) != null)' <<<"$versions_json" >/dev/null; then
+              version_exists="true"
+            fi
+          fi
+
+          if [[ "$version_exists" == "true" ]]; then
+            echo "Immutable GHCR version tag $IMAGE:$tag already exists; verifying instead of overwriting."
+          else
+            docker push "$IMAGE:$tag"
+          fi
+
+          for attempt in {1..12}; do
+            if docker pull "$IMAGE:$tag"; then
+              break
+            fi
+            if [[ "$attempt" -eq 12 ]]; then
+              echo "::error::GHCR version $IMAGE:$tag was not readable after publication."
+              exit 1
+            fi
+            sleep 5
+          done
+          version_image_id="$(docker image inspect "$IMAGE:$tag" --format '{{.Id}}')"
+          remote_label_version="$(docker image inspect "$IMAGE:$tag" --format '{{ index .Config.Labels "org.opencontainers.image.version" }}')"
+          remote_label_source="$(docker image inspect "$IMAGE:$tag" --format '{{ index .Config.Labels "org.opencontainers.image.source" }}')"
+          if [[ "$remote_label_version" != "$tag" || "$remote_label_source" != "https://github.com/$GITHUB_REPOSITORY" ]]; then
+            echo "::error::GHCR version image labels diverge."
+            exit 1
+          fi
+
+          verify_root="$(mktemp -d)"
+          container_id="$(docker create "$IMAGE:$tag" /nonexistent)"
+          cleanup() {
+            docker rm -f "$container_id" >/dev/null 2>&1 || true
+            rm -rf "$verify_root"
+          }
+          trap cleanup EXIT
+          zip_name="$(basename "$(find release -maxdepth 1 -type f -name '*.zip' -print -quit)")"
+          docker cp "$container_id:/$zip_name" "$verify_root/$zip_name"
+          docker cp "$container_id:/SHA256SUMS.txt" "$verify_root/SHA256SUMS.txt"
+          docker cp "$container_id:/package-metadata.json" "$verify_root/package-metadata.json"
+          cmp "release/$zip_name" "$verify_root/$zip_name"
+          cmp release/SHA256SUMS.txt "$verify_root/SHA256SUMS.txt"
+          jq -e --arg tag "$tag" --arg repository "https://github.com/$GITHUB_REPOSITORY" '
+            .tag == $tag and .repository == $repository and
+            .distribution == "github-release-primary-ghcr-oci-mirror" and .nuget == false
+          ' "$verify_root/package-metadata.json" >/dev/null
+          cleanup
+          trap - EXIT
+
+          docker tag "$IMAGE:$tag" "$IMAGE:$CHANNEL"
+          docker push "$IMAGE:$CHANNEL"
+          docker pull "$IMAGE:$CHANNEL"
+          channel_image_id="$(docker image inspect "$IMAGE:$CHANNEL" --format '{{.Id}}')"
+          if [[ "$channel_image_id" != "$version_image_id" ]]; then
+            echo "::error::GHCR channel $CHANNEL does not point to immutable version $tag."
+            exit 1
+          fi
+          if [[ "$PRERELEASE" == "true" ]]; then
+            if docker pull "$IMAGE:latest" >/dev/null 2>&1; then
+              latest_image_id="$(docker image inspect "$IMAGE:latest" --format '{{.Id}}')"
+              if [[ "$latest_image_id" == "$version_image_id" ]]; then
+                echo "::error::Beta $tag must never be published as GHCR latest."
+                exit 1
+              fi
+            fi
+            [[ "$CHANNEL" == "beta" ]] || { echo "::error::Prerelease channel must be beta."; exit 1; }
+          else
+            [[ "$CHANNEL" == "latest" ]] || { echo "::error::Stable channel must be latest."; exit 1; }
+          fi
+          echo "Verified GHCR $IMAGE:$tag and channel $CHANNEL against the exact portable assets."
     timeout-minutes: 60
