@@ -81,6 +81,7 @@
     "tiptap-markdown": "0.9.0"
   },
   "overrides": {
+    "linkify-it": "5.0.2",
     "markdown-it": "14.2.0",
     "undici": "7.28.0"
   }

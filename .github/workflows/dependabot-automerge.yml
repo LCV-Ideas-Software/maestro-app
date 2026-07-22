@@ -1,245 +1,47 @@
 name: Dependabot Automerge
+
 on:
-  pull_request_target:
+  workflow_run:
+    workflows:
+      - CI
+      - CodeQL
+      - Dependency Review
+      - Public Format
+      - Socket Security
+      - OpenSSF Scorecard
+      - Zizmor
     types:
-      - opened
-      - reopened
-      - synchronize
-      - ready_for_review
-permissions:
-  contents: read
+      - completed
+  schedule:
+    - cron: "19 * * * *"
+  workflow_dispatch:
+
+permissions: write-all
+
 jobs:
-  enable-automerge:
-    if: github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]'
+  dependabot-automerge:
+    name: Process Dependabot pull requests
     runs-on: ubuntu-latest
-    permissions:
-      checks: read
-      contents: write
-      pull-requests: write
+    permissions: write-all
+    environment: dependabot-automation
+    timeout-minutes: 10
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
-          egress-policy: audit
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
 
-      - name: Detect workflow-file changes
-        id: workflow_changes
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: |
-          set -euo pipefail
-          if ! changed_files="$(gh pr diff "$PR_URL" --name-only)"; then
-            echo "::warning::Unable to inspect PR diff; skipping automerge rather than merging without workflow-file classification."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if printf '%s\n' "$changed_files" | grep -Eq '^\.github/workflows/'; then
-            echo "::notice::Dependabot PR changes GitHub Actions workflow files. Skipping automerge because GITHUB_TOKEN cannot update workflows; merge this PR manually with a credential that has workflow permission."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
+      - name: Process one guarded queue mutation
+        uses: LCV-Ideas-Software/.github/dependabot-automerge@c846bc77cbeb38dcf5fb4b8c798dc75227b65f04
+        with:
+          github_token: ${{ github.token }}
+          automation_token: ${{ secrets.LCV_AUTOMATION_TOKEN }}
+          required_checks_json: '[{"name":"Dependency Review","app_id":15368},{"name":"Check index.html formatting","app_id":15368},{"name":"CodeQL","app_id":57789},{"name":"Socket Security: Project Report","app_id":156372},{"name":"Repository hygiene","app_id":15368},{"name":"Rust gates (cargo --locked)","app_id":15368},{"name":"zizmor","app_id":57789}]'
 
-      - name: Wait for PR checks
-        if: steps.workflow_changes.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: |
-          set -euo pipefail
-          for attempt in {1..90}; do
-            state="$(gh pr view "$PR_URL" --json statusCheckRollup --jq '
-              [
-                .statusCheckRollup[]
-                | select(.workflowName != "Dependabot Automerge")
-                | select(.name != "StepSecurity Optional Checks")
-                | select(.name != "StepSecurity Harden-Runner")
-              ] as $checks
-              | ["Repository hygiene", "Rust gates (cargo --locked)", "Check index.html formatting"] as $required
-              | ([ $checks[] | select(.workflowName == "CodeQL" or .name == "CodeQL") ]) as $codeql
-              | if ($checks | length) == 0 then "pending"
-                elif any($checks[]; .status != "COMPLETED") then "pending"
-                elif any($required[]; . as $required_name | all($checks[]; .name != $required_name)) then "pending"
-                elif ($codeql | length) == 0 then "pending"
-                elif any($codeql[]; .conclusion != "SUCCESS") then "failure"
-                elif all($checks[]; (.conclusion == "SUCCESS" or .conclusion == "SKIPPED" or .conclusion == "NEUTRAL")) then "success"
-                else "failure"
-                end
-            ')"
-
-            case "$state" in
-              success)
-                echo "PR checks are green for $PR_URL."
-                exit 0
-                ;;
-              failure)
-                echo "::error::One or more PR checks failed for $PR_URL; refusing automerge."
-                gh pr view "$PR_URL" --json statusCheckRollup --jq '
-                  .statusCheckRollup[]
-                  | select(.workflowName != "Dependabot Automerge")
-                  | select(.name != "StepSecurity Optional Checks")
-                  | select(.name != "StepSecurity Harden-Runner")
-                  | [.workflowName, .name, .status, .conclusion]
-                  | @tsv
-                '
-                exit 1
-                ;;
-              pending)
-                echo "Waiting for PR checks, attempt ${attempt}/90."
-                sleep 10
-                ;;
-              *)
-                echo "::error::Unexpected PR check state: $state"
-                exit 1
-                ;;
-            esac
-          done
-
-          echo "::error::Timed out waiting for PR checks."
-          exit 1
-
-      - name: Auto-approve Dependabot PR
-        if: steps.workflow_changes.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: |
-          gh pr review "$PR_URL" --approve --body "Auto-approved Dependabot dependency update after the configured PR checks passed."
-
-      - name: Merge PR
-        if: steps.workflow_changes.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: |
-          set -euo pipefail
-          VALIDATED_HEAD=""
-
-          wait_for_checks() {
-            for attempt in {1..90}; do
-              # Read the rollup and the head commit in ONE query so the green
-              # verdict provably belongs to that exact SHA; export it so the
-              # merge below pins --match-head-commit to the validated head.
-              pr_json="$(gh pr view "$PR_URL" --json statusCheckRollup,headRefOid)"
-              head_sha="$(printf '%s' "$pr_json" | jq -r '.headRefOid')"
-              state="$(printf '%s' "$pr_json" | jq -r '
-                [
-                  .statusCheckRollup[]
-                  | select(.workflowName != "Dependabot Automerge")
-                  | select(.name != "StepSecurity Optional Checks")
-                  | select(.name != "StepSecurity Harden-Runner")
-                ] as $checks
-                | ["Repository hygiene", "Rust gates (cargo --locked)", "Check index.html formatting"] as $required
-                | ([ $checks[] | select(.workflowName == "CodeQL" or .name == "CodeQL") ]) as $codeql
-                | if ($checks | length) == 0 then "pending"
-                  elif any($checks[]; .status != "COMPLETED") then "pending"
-                  elif any($required[]; . as $required_name | all($checks[]; .name != $required_name)) then "pending"
-                  elif ($codeql | length) == 0 then "pending"
-                  elif any($codeql[]; .conclusion != "SUCCESS") then "failure"
-                  elif all($checks[]; (.conclusion == "SUCCESS" or .conclusion == "SKIPPED" or .conclusion == "NEUTRAL")) then "success"
-                  else "failure"
-                  end
-              ')"
-
-              case "$state" in
-                success)
-                  echo "PR checks are green for $PR_URL at ${head_sha}."
-                  VALIDATED_HEAD="$head_sha"
-                  return 0
-                  ;;
-                failure)
-                  echo "::error::One or more PR checks failed for $PR_URL; refusing automerge."
-                  gh pr view "$PR_URL" --json statusCheckRollup --jq '
-                    .statusCheckRollup[]
-                    | select(.workflowName != "Dependabot Automerge")
-                    | select(.name != "StepSecurity Optional Checks")
-                    | select(.name != "StepSecurity Harden-Runner")
-                    | [.workflowName, .name, .status, .conclusion]
-                    | @tsv
-                  '
-                  return 1
-                  ;;
-                pending)
-                  echo "Waiting for PR checks, attempt ${attempt}/90."
-                  sleep 10
-                  ;;
-                *)
-                  echo "::error::Unexpected PR check state: $state"
-                  return 1
-                  ;;
-              esac
-            done
-
-            echo "::error::Timed out waiting for PR checks."
-            return 1
-          }
-
-          for merge_attempt in {1..3}; do
-            state="$(gh pr view "$PR_URL" --json state --jq '.state')"
-            if [ "$state" != "OPEN" ]; then
-              echo "PR is no longer open; nothing to merge."
-              exit 0
-            fi
-
-            # Re-validate checks on every attempt (including the first): a
-            # dependabot rebase can land a new head after the standalone wait
-            # step. wait_for_checks captures the validated head OID (from the
-            # same query as the check rollup) into VALIDATED_HEAD; we pin the
-            # merge to exactly that OID below, so the head we merge is provably
-            # the head whose CodeQL result (and all checks) we just saw green.
-            wait_for_checks
-
-            head_oid="$VALIDATED_HEAD"
-            merge_state="$(gh pr view "$PR_URL" --json mergeStateStatus --jq '.mergeStateStatus')"
-
-            case "$merge_state" in
-              CLEAN|HAS_HOOKS)
-                ;;
-              BEHIND)
-                echo "::error::PR merge state is ${merge_state}; refusing to update a Dependabot branch with GITHUB_TOKEN because the resulting commit may not receive required pull_request checks. Comment @dependabot rebase or @dependabot recreate on the PR, then let this workflow retry on the new Dependabot-authored head."
-                exit 1
-                ;;
-              UNKNOWN)
-                echo "PR merge state is ${merge_state} after non-automerge checks passed; attempting merge so GitHub returns the concrete blocker if one remains."
-                ;;
-              UNSTABLE)
-                echo "PR merge state is ${merge_state} after non-automerge checks passed; attempting merge so GitHub returns the concrete blocker if one remains."
-                ;;
-              DIRTY)
-                echo "::error::PR has merge conflicts; refusing automerge."
-                exit 1
-                ;;
-              *)
-                echo "::error::PR merge state is ${merge_state}; refusing automerge."
-                exit 1
-                ;;
-            esac
-
-            merge_log="$(mktemp)"
-            if gh pr merge "$PR_URL" --squash --delete-branch --match-head-commit "$head_oid" >"$merge_log" 2>&1; then
-              cat "$merge_log"
-              exit 0
-            fi
-
-            cat "$merge_log"
-            if grep -Eiq 'base branch was modified|head branch is not up to date' "$merge_log"; then
-              echo "::error::Merge failed because the branch is stale or temporarily unmergeable. Comment @dependabot rebase or @dependabot recreate on the PR, then let this workflow retry on the new Dependabot-authored head."
-              exit 1
-            fi
-
-            if grep -Eiq 'merge conflict|not clean' "$merge_log"; then
-              echo "::error::Merge failed because the PR is not clean; refusing automerge."
-              exit 1
-            fi
-
-            echo "::error::Unexpected merge failure."
-            exit 1
-          done
-
-          echo "::error::Unable to merge PR after retries."
-          exit 1
-    timeout-minutes: 30
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: dependabot-automerge-${{ github.repository }}
+  queue: max
   cancel-in-progress: false
