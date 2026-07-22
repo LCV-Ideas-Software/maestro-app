@@ -76,11 +76,12 @@
     "prosemirror-model": "1.25.11",
     "prosemirror-state": "1.4.4",
     "prosemirror-view": "1.42.1",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "tiptap-markdown": "0.9.0"
   },
   "overrides": {
+    "linkify-it": "5.0.2",
     "markdown-it": "14.2.0",
     "undici": "7.28.0"
   }
