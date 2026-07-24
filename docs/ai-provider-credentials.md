@@ -142,7 +142,7 @@ Current planning references:
 - Direct API attachments are provider-shaped instead of text-only: OpenAI receives supported images as `input_image` and supported documents as `input_file` with base64 data URLs; Anthropic receives supported images and PDFs as base64 content blocks; Gemini receives supported media/documents as `inline_data` parts.
 - Attachment types that are not natively supported by the selected provider, or that exceed the native API inline size cap, remain available through the session manifest and bounded text previews. Native attachment payload size is included in the conservative pre-call cost projection.
 - The session UI mirrors this as a pre-run per-provider prediction, so mixed support is visible before invocation instead of collapsed into a single native/manifest label.
-- DeepSeek supports OpenAI-compatible authentication with bearer tokens at `https://api.deepseek.com`; the implemented direct peer uses `/models` for verification/model selection and `/chat/completions` for editorial calls. In the current authenticated probe, `/models` exposes `deepseek-v4-pro` and `deepseek-v4-flash`.
+- DeepSeek supports OpenAI-compatible authentication with bearer tokens at `https://api.deepseek.com`; the implemented direct peer uses `/models` for verification/model selection and `/chat/completions` for editorial calls. In the current authenticated probe, `/models` exposes `deepseek-v4-pro` and `deepseek-v4-flash`. The legacy aliases `deepseek-chat` and `deepseek-reasoner` were deprecated upstream on 2026-07-24 (mapped to `deepseek-v4-flash` modes), no longer appear in `/models`, and were removed from the resolver candidate list.
 
 Official documentation:
 

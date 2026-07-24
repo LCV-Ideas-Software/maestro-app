@@ -674,6 +674,18 @@ mod tests {
     }
 
     #[test]
+    fn provider_cache_plan_omits_extended_openai_retention_for_gpt_56_family() {
+        let plan = provider_cache_plan("openai", "gpt-5.6-sol", "draft", "Codex", "system");
+
+        assert_eq!(plan.provider_mode, "prompt_cache_key");
+        assert_eq!(
+            plan.cache_control_status,
+            "prompt_cache_key_default_retention"
+        );
+        assert_eq!(plan.cache_retention, None);
+    }
+
+    #[test]
     fn provider_cache_plan_keeps_perplexity_without_invented_payload_fields() {
         let plan = provider_cache_plan(
             "perplexity",

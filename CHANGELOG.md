@@ -6,6 +6,28 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.52] - 2026-07-24
+
+### Changed
+
+- **OpenAI model refresh (GPT-5.6 family).** Resolver preference now leads with `gpt-5.6-sol`, then `gpt-5.6-terra` and `gpt-5.6-luna` (GA 2026-07-09), ahead of the retained `gpt-5.5`, `gpt-5.4`, `gpt-5.2`, `gpt-5`, `gpt-4.1` chain (all still live-listed); hardcoded fallback and model hint moved from `gpt-5.4` to `gpt-5.6-sol`. The bare `gpt-5.6` alias and bare `gpt-5.3` are not exposed by the authenticated `/models` listing, so they are not candidates — only live-listed ids are. Scheduled removal: `gpt-5` after its published 2026-12-11 shutdown.
+- **Anthropic model refresh (Claude 5 family).** Resolver preference now leads with `claude-fable-5`, then `claude-opus-4-8`, `claude-opus-4-7`, and `claude-sonnet-5`; hardcoded fallback and model hint moved off `claude-opus-4-1-20250805`, which is deprecated upstream and retires 2026-08-05 (kept as last-priority candidate until then; scheduled removal after retirement). Removed retired candidates `claude-opus-4-20250514` and `claude-sonnet-4-20250514` (retired 2026-06-15) and `claude-3-7-sonnet-latest` (absent from the live `/models` listing).
+- **Grok model refresh (Grok 4.5).** Resolver preference now leads with `grok-4.5`; the 4.20-generation candidates use the dated ids actually exposed by `api.x.ai/v1/models` (`grok-4.20-multi-agent-0309`, `grok-4.20-0309-reasoning`) instead of the unsuffixed forms that never exact-match. Default and fallback moved from `grok-4.20-multi-agent` to `grok-4.5`; removed the economy-tier `grok-4-1-fast` and the not-live-listed `grok-4-latest`/`grok-4`.
+- **DeepSeek fallback correction.** `deepseek-chat` and `deepseek-reasoner` were deprecated upstream on 2026-07-24 and removed from `/models`; both were removed from the candidate list, and the resolver fallback moved from `deepseek-reasoner` to `deepseek-v4-pro` (aligning with the env-override default), with `deepseek-v4-flash` as the second candidate.
+- **Gemini candidate hygiene.** Candidate list is now pro-only (`gemini-3.1-pro-preview`, `gemini-3-pro-preview`, `gemini-2.5-pro`), removing `gemini-2.5-flash` (violated the pro-only model directive) and the below-floor `gemini-1.5-pro`. Perplexity remains `sonar-reasoning-pro`.
+- **Prompt-cache retention gate unchanged by design.** Extended 24h retention support for the gpt-5.6 family is not yet verified in official documentation, so the gate keeps the documented-family allowlist and gpt-5.6 ids use provider default retention, per the v0.5.19 policy for unknown/unverified OpenAI ids. A regression test pins `gpt-5.6-sol` to `prompt_cache_key_default_retention`.
+- **UI label.** Editor AI tooltip no longer hardcodes a Gemini model version ("Gemini 2.5 Pro" → "Gemini Pro"), since the backend resolver selects the model dynamically.
+
+### Operator action
+
+- Per-provider cost rates are runtime configuration; update them to the new default models' pricing (OpenAI `gpt-5.6-sol` $5/$30 per 1M in/out, Anthropic `claude-fable-5` $10/$50, xAI `grok-4.5` $2/$6 under 200K context) — stale rates miscost sessions silently.
+
+### Validation
+
+- Authenticated `GET /models` captures (2026-07-24) confirm every leading candidate: OpenAI lists `gpt-5.6-sol`/`gpt-5.6-terra`/`gpt-5.6-luna`; Anthropic lists `claude-fable-5`/`claude-opus-4-8`/`claude-sonnet-5`; xAI lists `grok-4.5` and the dated `-0309` 4.20 ids; DeepSeek lists only `deepseek-v4-pro`/`deepseek-v4-flash`; Gemini lists all three pro candidates.
+- Official deprecation pages: OpenAI (`gpt-5` shutdown 2026-12-11), Anthropic (`claude-opus-4-1-20250805` retires 2026-08-05; Opus/Sonnet 4 retired 2026-06-15), DeepSeek changelog (2026-07-24 alias deprecation).
+- Gates recorded after run: `cargo check --locked --all-targets`, `cargo test --locked`, `cargo clippy --locked --no-deps --all-targets`, `git diff --check`, `npm run biome`, `npm run typecheck`, `npm test`, `npm run build`, plus cross-review unanimous READY (session id recorded in `.ai/memory.md`).
+
 ## [v0.5.51] - 2026-07-16
 
 ### Security

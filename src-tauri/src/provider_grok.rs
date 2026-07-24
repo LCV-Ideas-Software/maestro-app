@@ -260,7 +260,7 @@ pub(crate) fn grok_model() -> String {
     ])
     .map(|(_, _, value)| sanitize_short(&value, 120))
     .filter(|value| !value.is_empty())
-    .unwrap_or_else(|| "grok-4.20-multi-agent".to_string())
+    .unwrap_or_else(|| "grok-4.5".to_string())
 }
 
 pub(crate) fn resolve_grok_model(client: &Client, api_key: &str) -> String {
@@ -283,13 +283,10 @@ pub(crate) fn resolve_grok_model(client: &Client, api_key: &str) -> String {
             if let Ok(value) = serde_json::from_str::<Value>(&body) {
                 let models = grok_model_ids(&value);
                 for candidate in [
-                    "grok-4.20-multi-agent",
-                    "grok-4-latest",
+                    "grok-4.5",
+                    "grok-4.20-multi-agent-0309",
+                    "grok-4.20-0309-reasoning",
                     "grok-4.3",
-                    "grok-4.20-reasoning",
-                    "grok-4.20",
-                    "grok-4-1-fast",
-                    "grok-4",
                 ] {
                     if models.iter().any(|model| model == candidate) {
                         return candidate.to_string();
@@ -302,7 +299,7 @@ pub(crate) fn resolve_grok_model(client: &Client, api_key: &str) -> String {
         }
     }
 
-    "grok-4.20-multi-agent".to_string()
+    "grok-4.5".to_string()
 }
 
 pub(crate) fn grok_model_ids(value: &Value) -> Vec<String> {
@@ -332,14 +329,14 @@ mod tests {
         let value = json!({
             "object": "list",
             "data": [
-                { "id": "grok-4.20", "object": "model" },
-                { "id": "grok-4.20-multi-agent", "object": "model" }
+                { "id": "grok-4.3", "object": "model" },
+                { "id": "grok-4.5", "object": "model" }
             ]
         });
 
         assert_eq!(
             grok_model_ids(&value),
-            vec!["grok-4.20".to_string(), "grok-4.20-multi-agent".to_string()]
+            vec!["grok-4.3".to_string(), "grok-4.5".to_string()]
         );
     }
 

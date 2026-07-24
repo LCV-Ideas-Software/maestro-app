@@ -520,7 +520,7 @@ pub(crate) async fn run_openai_api_agent(
     let name = "Codex";
     let cli = "openai-api";
     let provider = "openai";
-    let model_hint = "gpt-5.4";
+    let model_hint = "gpt-5.6-sol";
     let invocation = ProviderInvocation {
         log_session,
         run_id,
@@ -746,7 +746,7 @@ pub(crate) async fn run_anthropic_api_agent(
     let name = "Claude";
     let cli = "anthropic-api";
     let provider = "anthropic";
-    let model_hint = "claude-opus-4-1-20250805";
+    let model_hint = "claude-fable-5";
     let invocation = ProviderInvocation {
         log_session,
         run_id,
@@ -1193,14 +1193,21 @@ pub(crate) fn resolve_openai_model(client: &Client, api_key: &str) -> String {
                 return choose_preferred_model(
                     &api_model_ids(&value),
                     &[
-                        "gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2", "gpt-5", "gpt-4.1",
+                        "gpt-5.6-sol",
+                        "gpt-5.6-terra",
+                        "gpt-5.6-luna",
+                        "gpt-5.5",
+                        "gpt-5.4",
+                        "gpt-5.2",
+                        "gpt-5",
+                        "gpt-4.1",
                     ],
-                    "gpt-5.4",
+                    "gpt-5.6-sol",
                 );
             }
         }
     }
-    "gpt-5.4".to_string()
+    "gpt-5.6-sol".to_string()
 }
 
 pub(crate) fn resolve_anthropic_model(client: &Client, api_key: &str) -> String {
@@ -1216,18 +1223,18 @@ pub(crate) fn resolve_anthropic_model(client: &Client, api_key: &str) -> String 
                 return choose_preferred_model(
                     &api_model_ids(&value),
                     &[
+                        "claude-fable-5",
+                        "claude-opus-4-8",
                         "claude-opus-4-7",
+                        "claude-sonnet-5",
                         "claude-opus-4-1-20250805",
-                        "claude-opus-4-20250514",
-                        "claude-sonnet-4-20250514",
-                        "claude-3-7-sonnet-latest",
                     ],
-                    "claude-opus-4-1-20250805",
+                    "claude-fable-5",
                 );
             }
         }
     }
-    "claude-opus-4-1-20250805".to_string()
+    "claude-fable-5".to_string()
 }
 
 pub(crate) fn resolve_gemini_model(client: &Client, api_key: &str) -> String {
@@ -1245,8 +1252,6 @@ pub(crate) fn resolve_gemini_model(client: &Client, api_key: &str) -> String {
                         "gemini-3.1-pro-preview",
                         "gemini-3-pro-preview",
                         "gemini-2.5-pro",
-                        "gemini-2.5-flash",
-                        "gemini-1.5-pro",
                     ],
                     "gemini-2.5-pro",
                 );
@@ -1442,5 +1447,23 @@ mod tests {
         assert!(lines.contains("Cache key hash: `abc123`"));
         assert!(lines.contains("Cache control status: `prompt_cache_key_24h`"));
         assert!(lines.contains("Cache retention: `24h`"));
+    }
+
+    #[test]
+    fn choose_preferred_model_picks_exact_match_then_first_then_fallback() {
+        let models = vec!["gpt-5.5".to_string(), "gpt-5.6-sol".to_string()];
+
+        assert_eq!(
+            choose_preferred_model(&models, &["gpt-5.6-sol", "gpt-5.5"], "fallback"),
+            "gpt-5.6-sol"
+        );
+        assert_eq!(
+            choose_preferred_model(&models, &["gpt-5.6"], "fallback"),
+            "gpt-5.5"
+        );
+        assert_eq!(
+            choose_preferred_model(&[], &["gpt-5.6-sol"], "fallback"),
+            "fallback"
+        );
     }
 }

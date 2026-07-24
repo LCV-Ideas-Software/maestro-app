@@ -529,12 +529,7 @@ pub(crate) fn resolve_deepseek_model(client: &Client, api_key: &str) -> String {
             let body = response.text().unwrap_or_default();
             if let Ok(value) = serde_json::from_str::<Value>(&body) {
                 let models = deepseek_model_ids(&value);
-                for candidate in [
-                    "deepseek-v4-pro",
-                    "deepseek-reasoner",
-                    "deepseek-chat",
-                    "deepseek-v4-flash",
-                ] {
+                for candidate in ["deepseek-v4-pro", "deepseek-v4-flash"] {
                     if models.iter().any(|model| model == candidate) {
                         return candidate.to_string();
                     }
@@ -546,7 +541,7 @@ pub(crate) fn resolve_deepseek_model(client: &Client, api_key: &str) -> String {
         }
     }
 
-    "deepseek-reasoner".to_string()
+    "deepseek-v4-pro".to_string()
 }
 
 pub(crate) fn deepseek_model_ids(value: &Value) -> Vec<String> {

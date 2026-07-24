@@ -1213,7 +1213,7 @@ export default function PostEditor({
               <select
                 id="ai-action"
                 name="aiAction"
-                title="Inteligência Artificial (Gemini 2.5 Pro)"
+                title="Inteligência Artificial (Gemini Pro)"
                 autoComplete="off"
                 onChange={(e) => {
                   if (e.target.value) {
