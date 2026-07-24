@@ -26,7 +26,7 @@ _No unreleased changes._
 
 - Authenticated `GET /models` captures (2026-07-24) confirm every leading candidate: OpenAI lists `gpt-5.6-sol`/`gpt-5.6-terra`/`gpt-5.6-luna`; Anthropic lists `claude-fable-5`/`claude-opus-4-8`/`claude-sonnet-5`; xAI lists `grok-4.5` and the dated `-0309` 4.20 ids; DeepSeek lists only `deepseek-v4-pro`/`deepseek-v4-flash`; Gemini lists all three pro candidates.
 - Official deprecation pages: OpenAI (`gpt-5` shutdown 2026-12-11), Anthropic (`claude-opus-4-1-20250805` retires 2026-08-05; Opus/Sonnet 4 retired 2026-06-15), DeepSeek changelog (2026-07-24 alias deprecation).
-- Gates recorded after run: `cargo check --locked --all-targets`, `cargo test --locked`, `cargo clippy --locked --no-deps --all-targets`, `git diff --check`, `npm run biome`, `npm run typecheck`, `npm test`, `npm run build`, plus cross-review unanimous READY (session id recorded in `.ai/memory.md`).
+- Gates recorded after run: `cargo check --locked --all-targets`, `cargo test --locked`, `cargo clippy --locked --no-deps --all-targets`, `git diff --check`, `npm run biome`, `npm run typecheck`, `npm test`, `npm run build`. Pre-commit cross-review conducted; session outcome recorded in the local app memory file.
 
 ## [v0.5.51] - 2026-07-16
 
