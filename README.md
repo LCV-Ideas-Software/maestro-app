@@ -17,7 +17,7 @@ Portable Windows editorial workbench for protocol-driven AI drafting, source ver
 [![stack: Tauri 2 + React 19](https://img.shields.io/badge/stack-Tauri%202%20%2B%20React%2019-blueviolet.svg)](#architecture)
 [![license: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 
-**Status.** Stable. Current release: **v0.5.48** (release tag `v00.05.48`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release: **v0.5.53** (release tag `v00.05.53`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 Operational stable baseline started at `v0.5.25`, with live bootstrap, diagnostics, navigation, Cloudflare credential provisioning, AI API credential checks, PostEditor parity, link auditing, and a real background Claude/Codex/Gemini/DeepSeek/Grok editorial session path. From `v0.5.27`, Maestro also supports Perplexity as an API-only Sonar peer. Runtime evidence from session `run-2026-05-11T01-09-30-556Z` confirms the first documented end-to-end unanimous editorial delivery: Maestro `0.5.25` resumed a real API-mode session, reached `READY_UNANIMOUS`, and wrote a clean `texto-final.md`.
 
@@ -25,6 +25,11 @@ The version history at a glance:
 
 | Release | Scope |
 | --- | --- |
+| **`v0.5.53`** | Release-pipeline fix: the GHCR immutable-version check now uses `docker manifest inspect` instead of the org Packages REST API, which rejects the workflow `GITHUB_TOKEN` (HTTP 400). |
+| **`v0.5.52`** | AI model generation refresh: resolver candidates and fallbacks updated to GPT-5.6 (Sol/Terra/Luna), Claude Fable 5, Grok 4.5, and DeepSeek V4; retired/dead candidate ids removed; Gemini list kept pro-only. |
+| **`v0.5.51`** | Security release: transitive `serde_with`/`serde_with_macros` update to 3.21.0 (Dependabot alert #4) with fresh portable release coverage. |
+| **`v0.5.50`** | Approved-content lock hardening: reorder-only bypass prevention, moved-block reorder authorization, and structured protocol-basis validation. |
+| **`v0.5.49`** | Approved-content block lock: revisions must declare each changed received block with concrete protocol basis; reorder detection works under concurrent edits. |
 | **`v0.5.48`** | Serial no-self-review hardening: the closing redactor turn is allowed only when the current version was authored by another peer; if the current author already has all independent approvals, the round can close instead of assigning self-review. |
 | **`v0.5.47`** | Serial convergence hardening: contradictory `NOT_READY` + unchanged-custody turns are rejected and retried, so reviewers must either approve the current version as READY or return corrected complete text. |
 | **`v0.5.46`** | Serial retry restoration: `operator_evidence_required` no longer pauses bibliographic-lacuna turns; reviewers that find unresolved evidence markers must revise, remove, narrow, or quarantine the unsupported material in the same turn. |
