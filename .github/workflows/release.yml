@@ -894,14 +894,9 @@ jobs:
           fi
 
           echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          package_name="maestro-app-windows-portable"
-          packages_json="$(gh api --paginate --slurp "orgs/$GITHUB_REPOSITORY_OWNER/packages?package_type=container&per_page=100")"
           version_exists="false"
-          if jq -e --arg package "$package_name" 'any(.[][]; .name == $package)' <<<"$packages_json" >/dev/null; then
-            versions_json="$(gh api --paginate --slurp "orgs/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name/versions?per_page=100")"
-            if jq -e --arg tag "$tag" 'any(.[][]; ((.metadata.container.tags // []) | index($tag)) != null)' <<<"$versions_json" >/dev/null; then
-              version_exists="true"
-            fi
+          if docker manifest inspect "$IMAGE:$tag" >/dev/null 2>&1; then
+            version_exists="true"
           fi
 
           if [[ "$version_exists" == "true" ]]; then

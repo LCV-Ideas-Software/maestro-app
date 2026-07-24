@@ -6,6 +6,19 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.53] - 2026-07-24
+
+### Fixed
+
+- **Release pipeline: GHCR immutable-version check no longer uses the org Packages REST API.** Release run #228 (tag `v00.05.52`) failed in the `Publish GitHub Package` job: the pre-publish existence check called `GET /orgs/{org}/packages` with the workflow `GITHUB_TOKEN`, but that endpoint only accepts OAuth app tokens and personal access tokens (classic) with `read:packages`, and the API rejected the Actions installation token with HTTP 400 ("Invalid argument"). The check was introduced by PR #211 and run #228 was its first tag-release execution. The job now verifies whether the immutable version tag already exists in GHCR via `docker manifest inspect "$IMAGE:$tag"`, using the registry credentials from the existing `docker login` step, and no longer depends on the Packages REST API.
+- **Release coverage.** The `v00.05.52` GitHub Release and its Windows portable assets were published before the failing step, but its GHCR mirror was not; `v00.05.53` republishes the same application content with the repaired mirror flow and supersedes it.
+
+### Validation
+
+- Official GitHub REST documentation ("List packages for an organization") confirms the endpoint's supported credentials exclude the Actions `GITHUB_TOKEN`, matching the observed HTTP 400.
+- Central markdownlint over the edited files: zero issues.
+- End-to-end validation is the `v00.05.53` tag release run itself (the failing step only executes on protected tag events).
+
 ## [v0.5.52] - 2026-07-24
 
 ### Changed
