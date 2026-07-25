@@ -474,6 +474,7 @@ pub(crate) struct ResumeSessionState {
     pub(crate) current_draft_path: Option<PathBuf>,
     pub(crate) next_review_round: usize,
     pub(crate) existing_agents: Vec<EditorialAgentResult>,
+    pub(crate) circular_state: Option<crate::session_artifacts::CircularReviewState>,
 }
 
 #[derive(Clone, Copy)]

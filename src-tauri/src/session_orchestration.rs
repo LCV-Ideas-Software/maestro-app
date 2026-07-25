@@ -56,7 +56,10 @@ use crate::logging::{write_log_record, LogEventInput, LogSession};
 use crate::provider_config::{
     api_provider_for_agent, provider_cost_rates_from_config, should_run_agent_via_api,
 };
-use crate::session_artifacts::parse_agent_artifact_name;
+use crate::session_artifacts::{
+    circular_draft_sha256, parse_agent_artifact_name, write_circular_review_state,
+    CircularReviewState, CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+};
 use crate::session_controls::{
     api_role_max_tokens, effective_draft_lead, estimate_provider_cost_from_input_chars,
     provider_cost_guard_for, sanitize_optional_positive_f64, sanitize_optional_positive_u64,
@@ -367,6 +370,7 @@ pub(crate) fn run_editorial_session_core(
     let mut round_turn_index = 0usize;
     let mut valid_round_agents = BTreeSet::<String>::new();
     let mut corrective_contract_retry_counts = BTreeMap::<String, u32>::new();
+    let mut resumed_circular_state = None::<CircularReviewState>;
     const ALL_ERROR_ESCALATION_THRESHOLD: u32 = 3;
 
     if let Some(invalid_initial_agent) = invalid_initial_agent {
@@ -409,12 +413,20 @@ pub(crate) fn run_editorial_session_core(
     );
 
     if let Some(state) = resume_state {
-        agents = filter_existing_agents_to_active_set(state.existing_agents, &active_agent_keys);
-        current_draft = state.current_draft;
-        current_draft_path = state.current_draft_path;
+        let ResumeSessionState {
+            current_draft: restored_draft,
+            current_draft_path: restored_draft_path,
+            next_review_round,
+            existing_agents,
+            circular_state,
+        } = state;
+        agents = filter_existing_agents_to_active_set(existing_agents, &active_agent_keys);
+        current_draft = restored_draft;
+        current_draft_path = restored_draft_path;
         current_draft_author_key =
             current_draft_author_from_path(&agent_dir, current_draft_path.as_ref());
-        round = state.next_review_round.max(1);
+        round = next_review_round.max(1);
+        resumed_circular_state = circular_state;
         let _ = write_log_record(
             log_session,
             LogEventInput {
@@ -639,18 +651,44 @@ pub(crate) fn run_editorial_session_core(
         ));
     }
     if is_resume && !current_draft.trim().is_empty() {
-        let progress = restore_circular_resume_progress(
-            &agent_dir,
-            current_draft_path.as_ref(),
-            &agents,
-            round,
-            &round_turn_specs,
-        );
-        let restored_round_had_substantive_change = progress.had_substantive_change;
-        let restored_round_had_editorial_divergence = progress.had_editorial_divergence;
-        round = progress.round;
-        round_turn_index = progress.turn_index;
-        valid_round_agents = progress.valid_agents;
+        let (
+            resume_state_source,
+            restored_round_had_substantive_change,
+            restored_round_had_editorial_divergence,
+        ) = if let Some(state) = resumed_circular_state.take() {
+            let progress = restore_persisted_circular_progress(
+                state,
+                &round_turn_specs,
+                current_draft_author_key.as_deref(),
+            );
+            round = progress.round;
+            round_turn_index = progress.turn_index;
+            valid_round_agents = progress.valid_agents;
+            stable_serial_approval_agents = progress.stable_approvals;
+            (
+                "persisted_atomic_state",
+                progress.had_substantive_change,
+                progress.had_editorial_divergence,
+            )
+        } else {
+            let progress = restore_circular_resume_progress(
+                &agent_dir,
+                current_draft_path.as_ref(),
+                &current_draft,
+                &agents,
+                round,
+                &round_turn_specs,
+            );
+            round = progress.round;
+            round_turn_index = progress.turn_index;
+            valid_round_agents = progress.valid_agents;
+            stable_serial_approval_agents = progress.stable_approvals;
+            (
+                "legacy_artifact_migration",
+                progress.had_substantive_change,
+                progress.had_editorial_divergence,
+            )
+        };
         let _ = write_log_record(
             log_session,
             LogEventInput {
@@ -663,8 +701,10 @@ pub(crate) fn run_editorial_session_core(
                     "next_turn": round_turn_index + 1,
                     "round_turn_count": round_turn_count,
                     "valid_round_agents": valid_round_agents.iter().cloned().collect::<Vec<_>>(),
+                    "stable_serial_approval_agents": stable_serial_approval_agents.iter().cloned().collect::<Vec<_>>(),
                     "round_had_substantive_change": restored_round_had_substantive_change,
                     "round_had_editorial_divergence": restored_round_had_editorial_divergence,
+                    "resume_state_source": resume_state_source,
                     "policy": "resume_continues_the_circular_circuit_without_self_review"
                 })),
             },
@@ -717,6 +757,25 @@ pub(crate) fn run_editorial_session_core(
             ));
         }};
     }
+
+    macro_rules! persist_circular_progress {
+        () => {
+            persist_circular_review_progress(CircularProgressPersistence {
+                session_dir: &session_dir,
+                run_id: &run_id,
+                current_draft_path: current_draft_path.as_ref(),
+                current_draft_author_key: current_draft_author_key.as_deref(),
+                current_draft: &current_draft,
+                round,
+                turn_index: round_turn_index,
+                round_roster: &round_turn_specs,
+                valid_round_agents: &valid_round_agents,
+                stable_serial_approval_agents: &stable_serial_approval_agents,
+            })?
+        };
+    }
+
+    persist_circular_progress!();
 
     loop {
         // Operator-driven stop check at the top of every turn. Granularity
@@ -885,6 +944,14 @@ pub(crate) fn run_editorial_session_core(
             let selected_reviewer = round_turn_specs[selected_turn_index].key;
             let redraw_reason = if nominal_reviewer == current_author_key {
                 "nominal_reviewer_is_current_author"
+            } else if nominal_reviewer == draft_lead_key
+                && !closing_turn_has_required_prior_reviews(
+                    &round_turn_specs,
+                    draft_lead_key,
+                    &valid_round_agents,
+                )
+            {
+                "original_author_closure_waiting_for_full_peer_circuit"
             } else {
                 "nominal_reviewer_already_approved_current_version"
             };
@@ -1276,6 +1343,7 @@ pub(crate) fn run_editorial_session_core(
                 ));
             }
             round_turn_index += 1;
+            persist_circular_progress!();
             if round_turn_index >= round_turn_count {
                 let minutes_path = session_dir.join("ata-da-sessao.md");
                 write_text_file(
@@ -1321,7 +1389,10 @@ pub(crate) fn run_editorial_session_core(
                     last.tone = result.tone.clone();
                 }
                 reclassify_agent_artifact_status(&output_path, "CONTRACT_VIOLATION", &reason);
-                stable_serial_approval_agents.clear();
+                apply_stable_approval_transition(
+                    &mut stable_serial_approval_agents,
+                    StableApprovalTransition::RejectedAttempt,
+                );
                 let retry_count = corrective_contract_retry_counts
                     .entry(retry_key.clone())
                     .or_insert(0);
@@ -1368,6 +1439,7 @@ pub(crate) fn run_editorial_session_core(
                     },
                 );
                 round_turn_index += 1;
+                persist_circular_progress!();
                 if round_turn_index >= round_turn_count {
                     let minutes_path = session_dir.join("ata-da-sessao.md");
                     write_text_file(
@@ -1457,7 +1529,10 @@ pub(crate) fn run_editorial_session_core(
                             "NOT_READY unchanged rejected: the reviewer must either approve the current version as READY unchanged or return a revised complete text that resolves the blocker: {reason}"
                         );
                         reclassify_agent_artifact_status(&output_path, "CONTRACT_VIOLATION", &note);
-                        stable_serial_approval_agents.clear();
+                        apply_stable_approval_transition(
+                            &mut stable_serial_approval_agents,
+                            StableApprovalTransition::RejectedAttempt,
+                        );
                         corrective_contract_retry_counts.insert(retry_key.clone(), retry_count);
                         let _ = write_log_record(
                             log_session,
@@ -1502,6 +1577,7 @@ pub(crate) fn run_editorial_session_core(
                             },
                         );
                         round_turn_index += 1;
+                        persist_circular_progress!();
                         if round_turn_index >= round_turn_count {
                             let minutes_path = session_dir.join("ata-da-sessao.md");
                             write_text_file(
@@ -1560,11 +1636,18 @@ pub(crate) fn run_editorial_session_core(
                 },
             );
             if result.status == "READY" {
-                stable_serial_approval_agents.insert(spec.key.to_string());
+                apply_stable_approval_transition(
+                    &mut stable_serial_approval_agents,
+                    StableApprovalTransition::StableApproval(spec.key),
+                );
             } else {
-                stable_serial_approval_agents.clear();
+                apply_stable_approval_transition(
+                    &mut stable_serial_approval_agents,
+                    StableApprovalTransition::RejectedAttempt,
+                );
             }
             round_turn_index += 1;
+            persist_circular_progress!();
             if round_turn_index >= round_turn_count {
                 if current_version_has_all_independent_approvals(
                     &round_turn_specs,
@@ -1585,6 +1668,7 @@ pub(crate) fn run_editorial_session_core(
                 round_turn_index = 0;
                 valid_round_agents.clear();
             }
+            persist_circular_progress!();
             continue;
         };
 
@@ -1596,7 +1680,10 @@ pub(crate) fn run_editorial_session_core(
                 last.tone = result.tone.clone();
             }
             reclassify_agent_artifact_status(&output_path, "CONTRACT_VIOLATION", &reason);
-            stable_serial_approval_agents.clear();
+            apply_stable_approval_transition(
+                &mut stable_serial_approval_agents,
+                StableApprovalTransition::RejectedAttempt,
+            );
             let retry_count = corrective_contract_retry_counts
                 .entry(retry_key.clone())
                 .or_insert(0);
@@ -1640,6 +1727,7 @@ pub(crate) fn run_editorial_session_core(
                 },
             );
             round_turn_index += 1;
+            persist_circular_progress!();
             if round_turn_index >= round_turn_count {
                 let minutes_path = session_dir.join("ata-da-sessao.md");
                 write_text_file(
@@ -1681,6 +1769,26 @@ pub(crate) fn run_editorial_session_core(
             &revised_text,
             substantive_change,
         ) {
+            let reason = format!(
+                "anti-impoverishment quality guard rejected a shrinkage from {} to {} characters",
+                current_draft.chars().count(),
+                revised_text.chars().count()
+            );
+            result.status = "CONTRACT_VIOLATION".to_string();
+            result.tone = "error".to_string();
+            if let Some(last) = agents.last_mut() {
+                last.status = result.status.clone();
+                last.tone = result.tone.clone();
+            }
+            reclassify_agent_artifact_status(&output_path, "CONTRACT_VIOLATION", &reason);
+            apply_stable_approval_transition(
+                &mut stable_serial_approval_agents,
+                StableApprovalTransition::RejectedAttempt,
+            );
+            let retry_count = corrective_contract_retry_counts
+                .entry(retry_key.clone())
+                .or_insert(0);
+            *retry_count += 1;
             let _ = write_log_record(
                 log_session,
                 LogEventInput {
@@ -1695,18 +1803,23 @@ pub(crate) fn run_editorial_session_core(
                         "current_author": current_draft_author_key.clone(),
                         "current_chars": current_draft.chars().count(),
                         "revised_chars": revised_text.chars().count(),
-                        "policy": "anti_impoverishment_quality_ratchet"
+                        "retry_count": *retry_count,
+                        "max_retries": MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
+                        "policy": "anti_impoverishment_quality_ratchet_same_reviewer_retry"
                     })),
                 },
             );
-            stable_serial_approval_agents.clear();
+            if *retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
+                continue;
+            }
+            consecutive_reviewer_outage_rounds += 1;
             round_turn_index += 1;
             if round_turn_index >= round_turn_count {
                 round += 1;
                 round_turn_index = 0;
                 valid_round_agents.clear();
-                stable_serial_approval_agents.clear();
             }
+            persist_circular_progress!();
             continue;
         }
 
@@ -1718,7 +1831,10 @@ pub(crate) fn run_editorial_session_core(
             current_draft = revised_text;
             current_draft_path = Some(output_path);
             current_draft_author_key = Some(spec.key.to_string());
-            stable_serial_approval_agents.clear();
+            apply_stable_approval_transition(
+                &mut stable_serial_approval_agents,
+                StableApprovalTransition::AcceptedVersionAdvanced,
+            );
             let _ = write_log_record(
                 log_session,
                 LogEventInput {
@@ -1736,7 +1852,10 @@ pub(crate) fn run_editorial_session_core(
                 },
             );
         } else if result.status == "READY" {
-            stable_serial_approval_agents.insert(spec.key.to_string());
+            apply_stable_approval_transition(
+                &mut stable_serial_approval_agents,
+                StableApprovalTransition::StableApproval(spec.key),
+            );
             let _ = write_log_record(
                 log_session,
                 LogEventInput {
@@ -1756,10 +1875,14 @@ pub(crate) fn run_editorial_session_core(
                 },
             );
         } else {
-            stable_serial_approval_agents.clear();
+            apply_stable_approval_transition(
+                &mut stable_serial_approval_agents,
+                StableApprovalTransition::RejectedAttempt,
+            );
         }
 
         round_turn_index += 1;
+        persist_circular_progress!();
         if round_turn_index >= round_turn_count {
             if current_version_has_all_independent_approvals(
                 &round_turn_specs,
@@ -1779,6 +1902,7 @@ pub(crate) fn run_editorial_session_core(
             round_turn_index = 0;
             valid_round_agents.clear();
         }
+        persist_circular_progress!();
     }
 
     let minutes_path = session_dir.join("ata-da-sessao.md");
@@ -1811,6 +1935,86 @@ pub(crate) fn run_editorial_session_core(
     ))
 }
 
+struct CircularProgressPersistence<'a> {
+    session_dir: &'a Path,
+    run_id: &'a str,
+    current_draft_path: Option<&'a PathBuf>,
+    current_draft_author_key: Option<&'a str>,
+    current_draft: &'a str,
+    round: usize,
+    turn_index: usize,
+    round_roster: &'a [crate::EditorialAgentSpec],
+    valid_round_agents: &'a BTreeSet<String>,
+    stable_serial_approval_agents: &'a BTreeSet<String>,
+}
+
+fn persist_circular_review_progress(input: CircularProgressPersistence<'_>) -> Result<(), String> {
+    let path = input.current_draft_path.ok_or_else(|| {
+        "cannot persist circular state without accepted draft custody".to_string()
+    })?;
+    let author = input.current_draft_author_key.ok_or_else(|| {
+        "cannot persist circular state without an accepted draft author".to_string()
+    })?;
+    let artifact_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "accepted draft path has no UTF-8 artifact name".to_string())?;
+    let agent_dir = path
+        .parent()
+        .ok_or_else(|| "accepted draft path has no agent-runs parent".to_string())?;
+    let artifact = parse_agent_artifact_name(agent_dir, artifact_name)
+        .ok_or_else(|| "accepted draft path is not a canonical agent artifact".to_string())?;
+    if artifact.agent != author || !matches!(artifact.role.as_str(), "draft" | "revision") {
+        return Err(
+            "accepted draft path does not match circular custody author or role".to_string(),
+        );
+    }
+
+    write_circular_review_state(
+        input.session_dir,
+        &CircularReviewState {
+            schema_version: CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+            run_id: input.run_id.to_string(),
+            current_draft_artifact: artifact_name.to_string(),
+            current_draft_author_key: author.to_string(),
+            current_draft_sha256: circular_draft_sha256(input.current_draft),
+            round: input.round.max(1),
+            turn_index: input.turn_index,
+            round_roster: input
+                .round_roster
+                .iter()
+                .map(|spec| spec.key.to_string())
+                .collect(),
+            valid_round_agents: input.valid_round_agents.iter().cloned().collect(),
+            stable_serial_approval_agents: input
+                .stable_serial_approval_agents
+                .iter()
+                .cloned()
+                .collect(),
+            updated_at: Utc::now().to_rfc3339(),
+        },
+    )
+}
+
+enum StableApprovalTransition<'a> {
+    AcceptedVersionAdvanced,
+    StableApproval(&'a str),
+    RejectedAttempt,
+}
+
+fn apply_stable_approval_transition(
+    approvals: &mut BTreeSet<String>,
+    transition: StableApprovalTransition<'_>,
+) {
+    match transition {
+        StableApprovalTransition::AcceptedVersionAdvanced => approvals.clear(),
+        StableApprovalTransition::StableApproval(agent) => {
+            approvals.insert(agent.to_string());
+        }
+        StableApprovalTransition::RejectedAttempt => {}
+    }
+}
+
 fn current_draft_author_from_path(agent_dir: &Path, path: Option<&PathBuf>) -> Option<String> {
     let name = path?.file_name()?.to_str()?;
     let artifact = parse_agent_artifact_name(agent_dir, name)?;
@@ -1836,13 +2040,72 @@ struct CircularResumeProgress {
     round: usize,
     turn_index: usize,
     valid_agents: BTreeSet<String>,
+    stable_approvals: BTreeSet<String>,
     had_substantive_change: bool,
     had_editorial_divergence: bool,
+}
+
+fn restore_persisted_circular_progress(
+    state: CircularReviewState,
+    round_turn_specs: &[crate::EditorialAgentSpec],
+    current_draft_author_key: Option<&str>,
+) -> CircularResumeProgress {
+    let current_roster = round_turn_specs
+        .iter()
+        .map(|spec| spec.key)
+        .collect::<Vec<_>>();
+    let persisted_roster = state
+        .round_roster
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let roster_matches = state.schema_version >= CIRCULAR_REVIEW_STATE_SCHEMA_VERSION
+        && persisted_roster == current_roster;
+
+    let mut round = state.round.max(1);
+    let mut turn_index = state.turn_index;
+    let mut crossed_round_boundary = false;
+    while turn_index >= round_turn_specs.len() {
+        round += 1;
+        turn_index -= round_turn_specs.len();
+        crossed_round_boundary = true;
+    }
+    if !roster_matches {
+        turn_index = 0;
+    }
+
+    let valid_agents = if crossed_round_boundary || !roster_matches {
+        BTreeSet::new()
+    } else {
+        state
+            .valid_round_agents
+            .into_iter()
+            .filter(|agent| round_turn_specs.iter().any(|spec| spec.key == agent))
+            .collect()
+    };
+    let stable_approvals = state
+        .stable_serial_approval_agents
+        .into_iter()
+        .filter(|agent| {
+            round_turn_specs.iter().any(|spec| spec.key == agent)
+                && current_draft_author_key != Some(agent.as_str())
+        })
+        .collect();
+
+    CircularResumeProgress {
+        round,
+        turn_index,
+        valid_agents,
+        stable_approvals,
+        had_substantive_change: false,
+        had_editorial_divergence: false,
+    }
 }
 
 fn restore_circular_resume_progress(
     agent_dir: &Path,
     current_draft_path: Option<&PathBuf>,
+    current_draft: &str,
     agents: &[EditorialAgentResult],
     fallback_round: usize,
     round_turn_specs: &[crate::EditorialAgentSpec],
@@ -1851,6 +2114,7 @@ fn restore_circular_resume_progress(
         round: fallback_round.max(1),
         turn_index: 0,
         valid_agents: BTreeSet::new(),
+        stable_approvals: BTreeSet::new(),
         had_substantive_change: false,
         had_editorial_divergence: false,
     };
@@ -1874,14 +2138,23 @@ fn restore_circular_resume_progress(
             progress.turn_index = index + 1;
         }
     }
-    if progress.turn_index >= round_turn_specs.len() {
-        progress.round += 1;
-        progress.turn_index = 0;
-        progress.had_substantive_change = false;
-        return progress;
-    }
+    let current_modified = fs::metadata(&current_artifact.path)
+        .and_then(|metadata| metadata.modified())
+        .unwrap_or(std::time::UNIX_EPOCH);
+    let mut ordered_agents = agents.iter().collect::<Vec<_>>();
+    ordered_agents.sort_by(|left, right| {
+        let left_modified = fs::metadata(&left.output_path)
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        let right_modified = fs::metadata(&right.output_path)
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        left_modified
+            .cmp(&right_modified)
+            .then_with(|| left.output_path.cmp(&right.output_path))
+    });
 
-    for agent in agents {
+    for agent in ordered_agents {
         let path = Path::new(&agent.output_path);
         let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
             continue;
@@ -1900,18 +2173,39 @@ fn restore_circular_resume_progress(
         else {
             continue;
         };
-        if index >= progress.turn_index {
-            continue;
-        }
         let artifact_text = read_text_file(&artifact.path).unwrap_or_default();
         let stdout = extract_stdout_block(&artifact_text).unwrap_or(artifact_text.as_str());
-        if validate_serial_turn_output(stdout, &agent.status).is_err() {
+        let Ok(serial_output) = validate_serial_turn_output(stdout, &agent.status) else {
             continue;
-        }
+        };
         progress.valid_agents.insert(artifact.agent.clone());
         if agent.status != "READY" {
             progress.had_editorial_divergence = true;
         }
+        let artifact_modified = fs::metadata(&artifact.path)
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        if artifact_modified <= current_modified {
+            continue;
+        }
+        let text_unchanged = serial_output
+            .final_text
+            .as_ref()
+            .map(|text| text.split_whitespace().eq(current_draft.split_whitespace()))
+            .unwrap_or(true);
+        if agent.status == "READY"
+            && text_unchanged
+            && ready_unchanged_release_audit_failure(&agent.status, &serial_output, current_draft)
+                .is_none()
+        {
+            progress.stable_approvals.insert(artifact.agent.clone());
+        }
+        progress.turn_index = index + 1;
+    }
+    if progress.turn_index >= round_turn_specs.len() {
+        progress.round += 1;
+        progress.turn_index = 0;
+        progress.valid_agents.clear();
     }
     progress
 }
@@ -2697,19 +2991,21 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        agent_attempt_output_path, circular_round_turn_specs, current_draft_author_from_path,
-        current_version_has_all_independent_approvals, final_release_audit_failure,
-        is_operational_only_review_round, is_substantive_editorial_change,
-        not_ready_unchanged_release_audit_failure, quality_guard_blocks_revision,
-        ready_unchanged_release_audit_failure, report_declares_custody_value,
-        report_declares_nonempty_changes, report_declares_nonempty_operator_evidence_required,
-        restore_circular_resume_progress, select_serial_reviewer_index,
+        agent_attempt_output_path, apply_stable_approval_transition, circular_round_turn_specs,
+        current_draft_author_from_path, current_version_has_all_independent_approvals,
+        final_release_audit_failure, is_operational_only_review_round,
+        is_substantive_editorial_change, not_ready_unchanged_release_audit_failure,
+        quality_guard_blocks_revision, ready_unchanged_release_audit_failure,
+        report_declares_custody_value, report_declares_nonempty_changes,
+        report_declares_nonempty_operator_evidence_required, restore_circular_resume_progress,
+        restore_persisted_circular_progress, select_serial_reviewer_index,
         serial_turn_counts_as_valid_round_agent, serial_turn_retry_key,
         unrevised_serial_turn_audit_decision, unrevised_serial_turn_runtime_action,
         validate_final_release_candidate, validate_serial_revised_content_lock,
-        validate_serial_turn_output, UnrevisedSerialTurnAuditDecision,
+        validate_serial_turn_output, StableApprovalTransition, UnrevisedSerialTurnAuditDecision,
         UnrevisedSerialTurnRuntimeAction, MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
     };
+    use crate::session_artifacts::{CircularReviewState, CIRCULAR_REVIEW_STATE_SCHEMA_VERSION};
     use crate::EditorialAgentResult;
 
     fn review_result(name: &str, status: &str, tone: &str) -> EditorialAgentResult {
@@ -3042,6 +3338,99 @@ mod tests {
     }
 
     #[test]
+    fn persisted_round_boundary_clears_round_scoped_review_credits_on_resume() {
+        let active = vec![
+            "claude".to_string(),
+            "codex".to_string(),
+            "gemini".to_string(),
+            "deepseek".to_string(),
+            "grok".to_string(),
+            "perplexity".to_string(),
+        ];
+        let specs = circular_round_turn_specs("claude", &active);
+        let roster = specs.iter().map(|spec| spec.key.to_string()).collect();
+        let progress = restore_persisted_circular_progress(
+            CircularReviewState {
+                schema_version: CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+                run_id: "run-test".to_string(),
+                current_draft_artifact: "round-004-perplexity-revision.md".to_string(),
+                current_draft_author_key: "perplexity".to_string(),
+                current_draft_sha256: "unused-by-position-normalizer".to_string(),
+                round: 4,
+                turn_index: specs.len(),
+                round_roster: roster,
+                valid_round_agents: vec![
+                    "codex".to_string(),
+                    "gemini".to_string(),
+                    "deepseek".to_string(),
+                    "grok".to_string(),
+                    "perplexity".to_string(),
+                ],
+                stable_serial_approval_agents: vec!["codex".to_string()],
+                updated_at: "2026-07-25T00:00:00Z".to_string(),
+            },
+            &specs,
+            Some("perplexity"),
+        );
+
+        assert_eq!(progress.round, 5);
+        assert_eq!(progress.turn_index, 0);
+        assert!(progress.valid_agents.is_empty());
+        assert_eq!(
+            progress.stable_approvals,
+            BTreeSet::from(["codex".to_string()])
+        );
+        assert!(!super::closing_turn_has_required_prior_reviews(
+            &specs,
+            "claude",
+            &progress.valid_agents
+        ));
+    }
+
+    #[test]
+    fn persisted_roster_change_restarts_round_position_without_erasing_version_approvals() {
+        let active = vec![
+            "claude".to_string(),
+            "codex".to_string(),
+            "gemini".to_string(),
+            "deepseek".to_string(),
+            "grok".to_string(),
+            "perplexity".to_string(),
+        ];
+        let specs = circular_round_turn_specs("claude", &active);
+        let progress = restore_persisted_circular_progress(
+            CircularReviewState {
+                schema_version: CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+                run_id: "run-test".to_string(),
+                current_draft_artifact: "round-004-grok-revision.md".to_string(),
+                current_draft_author_key: "grok".to_string(),
+                current_draft_sha256: "unused-by-position-normalizer".to_string(),
+                round: 4,
+                turn_index: 3,
+                round_roster: vec![
+                    "codex".to_string(),
+                    "gemini".to_string(),
+                    "deepseek".to_string(),
+                    "grok".to_string(),
+                ],
+                valid_round_agents: vec!["codex".to_string(), "gemini".to_string()],
+                stable_serial_approval_agents: vec!["codex".to_string(), "gemini".to_string()],
+                updated_at: "2026-07-25T00:00:00Z".to_string(),
+            },
+            &specs,
+            Some("grok"),
+        );
+
+        assert_eq!(progress.round, 4);
+        assert_eq!(progress.turn_index, 0);
+        assert!(progress.valid_agents.is_empty());
+        assert_eq!(
+            progress.stable_approvals,
+            BTreeSet::from(["codex".to_string(), "gemini".to_string()])
+        );
+    }
+
+    #[test]
     fn serial_reviewer_returns_none_when_current_author_has_all_independent_approvals() {
         let active = vec![
             "claude".to_string(),
@@ -3175,8 +3564,14 @@ Texto revisado.
         let mut result = review_result("Codex", "READY", "ok");
         result.output_path = artifact_path.to_string_lossy().to_string();
 
-        let progress =
-            restore_circular_resume_progress(&dir, Some(&artifact_path), &[result], 1, &specs);
+        let progress = restore_circular_resume_progress(
+            &dir,
+            Some(&artifact_path),
+            "Texto revisado.",
+            &[result],
+            1,
+            &specs,
+        );
 
         assert_eq!(progress.round, 1);
         assert_eq!(progress.turn_index, 1);
@@ -3259,15 +3654,23 @@ Referencia removida.
         let mut valid_round_agents = BTreeSet::from(["claude".to_string()]);
 
         assert!(validate_serial_revised_content_lock(current_draft, &invalid_output).is_err());
-        stable_serial_approval_agents.clear();
+        apply_stable_approval_transition(
+            &mut stable_serial_approval_agents,
+            StableApprovalTransition::RejectedAttempt,
+        );
 
         assert!(
             !valid_round_agents.contains("gemini"),
             "a content-lock violation must not transfer custody or count as a valid turn"
         );
         assert!(
-            stable_serial_approval_agents.is_empty(),
-            "a content-lock violation must invalidate prior stable approvals"
+            stable_serial_approval_agents
+                == BTreeSet::from([
+                    "claude".to_string(),
+                    "deepseek".to_string(),
+                    "grok".to_string()
+                ]),
+            "a rejected attempt must preserve approvals bound to the unchanged accepted version"
         );
 
         let corrected_stdout = r#"MAESTRO_STATUS: READY
@@ -3306,6 +3709,32 @@ Referencia removida.
             1,
             "the same reviewer retry must count at most once after correction"
         );
+    }
+
+    #[test]
+    fn stable_approval_transitions_change_only_the_accepted_version_state() {
+        let mut approvals = BTreeSet::from(["claude".to_string()]);
+
+        apply_stable_approval_transition(
+            &mut approvals,
+            StableApprovalTransition::StableApproval("gemini"),
+        );
+        assert_eq!(
+            approvals,
+            BTreeSet::from(["claude".to_string(), "gemini".to_string()])
+        );
+
+        apply_stable_approval_transition(&mut approvals, StableApprovalTransition::RejectedAttempt);
+        assert_eq!(
+            approvals,
+            BTreeSet::from(["claude".to_string(), "gemini".to_string()])
+        );
+
+        apply_stable_approval_transition(
+            &mut approvals,
+            StableApprovalTransition::AcceptedVersionAdvanced,
+        );
+        assert!(approvals.is_empty());
     }
 
     #[test]

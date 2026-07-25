@@ -6,6 +6,24 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.56] - 2026-07-25
+
+### Fixed
+
+- **Circular-review custody and resume state are now authoritative and crash-safe.** Each session persists an atomic `circular-review-state.json` snapshot that binds the accepted artifact, current author and accepted-text hash to its round, turn and version-specific READY votes. Resume validates that snapshot fail-closed and cannot promote a later rejected, unchanged or not-yet-committed artifact to text custody.
+- **Round-boundary resume no longer carries stale circuit credits forward.** The persisted state records the ordered reviewer roster. Resume advances any completed turn boundary before restoring progress, clears round-scoped valid-review credits after a rollover or roster change, and preserves only version-bound approvals from still-active independent peers. Corrupt authoritative JSON remains a recoverable fail-closed error instead of silently falling back to potentially rejected artifacts.
+- **Rejected attempts no longer erase approvals for an unchanged accepted version.** Contract violations, content-lock failures, unresolved unchanged `NOT_READY` responses and anti-impoverishment rejections remain append-only audit evidence, retry the responsible reviewer under the existing bound and leave the accepted text, author and votes untouched. Only a substantively accepted revision creates a new version and clears prior votes.
+- **Rejected reports no longer contaminate later reviewer prompts.** Reclassified `CONTRACT_VIOLATION` artifacts are excluded from actionable revision history, while valid history is bounded to 8,000 characters per report and 48,000 characters overall, retaining the most recent material in chronological display order.
+- **Circular diagnostics now distinguish original-author closure.** A redraw caused by the original author being ineligible before the full peer circuit reports `original_author_closure_waiting_for_full_peer_circuit` instead of claiming that author had already approved the current version.
+
+### Validation
+
+- `cargo test --locked`: 232 passed, 0 failed, including new regressions for rejected/unchanged legacy artifacts, persisted version-bound votes, the crash window between artifact persistence and accepted-state commit, completed-round resume, roster drift and corrupt authoritative state.
+- `cargo clippy --locked --no-deps --all-targets -- -D warnings`: clean.
+- Existing circular invariants remain covered: no self-review, original author last, return after the full peer circuit, same-reviewer corrective retry, content lock and stable unanimity.
+- `git diff --check`: clean.
+- Cross-review-v2 session `0ba5b870-bbb3-4f21-95a0-ddd720c65dd4` found the completed-round resume window fixed above. Its secondary atomic-write concern was disproved by the existing temp-file + `sync_all` + rename implementation and regression. In the final post-fix round of session `fa7cff95-8a52-442f-b3f4-b0ccd2b0cf6b`, Claude, Gemini, DeepSeek, Grok and Perplexity all returned raw `READY` with no code blocker; runtime evidence-validation transformations prevented formal convergence. The transport/gate defects are recorded in `docs/cross-review-v2-post-fix-gate-report-2026-07-25.md`.
+
 ## [v0.5.55] - 2026-07-25
 
 ### Changed

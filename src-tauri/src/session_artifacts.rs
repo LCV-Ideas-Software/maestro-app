@@ -30,8 +30,11 @@
 // v0.3.29 is a pure move: every signature, format string, and bullet label
 // is identical to the v0.3.28 lib.rs source (commit 5f35960).
 
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::app_paths::{checked_data_child_path, sanitize_path_segment};
 use crate::session_persistence::load_session_contract;
@@ -40,9 +43,51 @@ use crate::session_resume::{
     humanize_agent_name, known_session_activity_unix,
 };
 use crate::{
-    extract_stdout_block, extract_tagged_block, read_text_file, EditorialAgentResult,
-    ProviderCacheTelemetry, ResumableSessionInfo, ResumeSessionState, SessionArtifact,
+    extract_stdout_block, extract_tagged_block, read_text_file, write_text_file,
+    EditorialAgentResult, ProviderCacheTelemetry, ResumableSessionInfo, ResumeSessionState,
+    SessionArtifact,
 };
+
+const CIRCULAR_REVIEW_STATE_FILE: &str = "circular-review-state.json";
+pub(crate) const CIRCULAR_REVIEW_STATE_SCHEMA_VERSION: u8 = 2;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct CircularReviewState {
+    pub(crate) schema_version: u8,
+    pub(crate) run_id: String,
+    pub(crate) current_draft_artifact: String,
+    pub(crate) current_draft_author_key: String,
+    pub(crate) current_draft_sha256: String,
+    pub(crate) round: usize,
+    pub(crate) turn_index: usize,
+    #[serde(default)]
+    pub(crate) round_roster: Vec<String>,
+    #[serde(default)]
+    pub(crate) valid_round_agents: Vec<String>,
+    #[serde(default)]
+    pub(crate) stable_serial_approval_agents: Vec<String>,
+    pub(crate) updated_at: String,
+}
+
+pub(crate) fn circular_draft_sha256(text: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+pub(crate) fn write_circular_review_state(
+    session_dir: &Path,
+    state: &CircularReviewState,
+) -> Result<(), String> {
+    let path = checked_data_child_path(&session_dir.join(CIRCULAR_REVIEW_STATE_FILE))?;
+    let body = serde_json::to_string_pretty(state)
+        .map_err(|error| format!("failed to serialize circular review state: {error}"))?;
+    write_text_file(&path, &format!("{body}\n"))
+}
 
 pub(crate) fn inspect_resumable_session_dir(
     path: &Path,
@@ -72,7 +117,7 @@ pub(crate) fn inspect_resumable_session_dir(
     let protocol_text = read_text_file(&protocol_path)?;
     let agent_dir = checked_data_child_path(&session_dir.join("agent-runs"))?;
     let artifacts = read_agent_artifacts(&agent_dir)?;
-    let latest_draft = find_latest_draft_artifact_from_artifacts(&artifacts)?;
+    let latest_draft = find_latest_draft_artifact_from_artifacts(&agent_dir, &artifacts)?;
     let next_round = latest_draft
         .as_ref()
         .map(|artifact| artifact.round.max(1))
@@ -133,6 +178,7 @@ pub(crate) fn inspect_resumable_session_dir(
 
 pub(crate) fn load_resume_session_state(agent_dir: &Path) -> Result<ResumeSessionState, String> {
     let agent_dir = checked_data_child_path(agent_dir)?;
+    let persisted = load_persisted_circular_custody(&agent_dir)?;
     let latest_draft = find_latest_draft_artifact(&agent_dir)?;
     let existing_agents = load_agent_results_from_dir(&agent_dir)?;
 
@@ -146,6 +192,7 @@ pub(crate) fn load_resume_session_state(agent_dir: &Path) -> Result<ResumeSessio
                 current_draft_path: Some(artifact.path),
                 next_review_round: artifact.round.max(1),
                 existing_agents,
+                circular_state: persisted.map(|(state, _, _)| state),
             });
         }
     }
@@ -155,6 +202,7 @@ pub(crate) fn load_resume_session_state(agent_dir: &Path) -> Result<ResumeSessio
         current_draft_path: None,
         next_review_round: 1,
         existing_agents,
+        circular_state: None,
     })
 }
 
@@ -162,33 +210,59 @@ pub(crate) fn find_latest_draft_artifact(
     agent_dir: &Path,
 ) -> Result<Option<SessionArtifact>, String> {
     let artifacts = read_agent_artifacts(agent_dir)?;
-    find_latest_draft_artifact_from_artifacts(&artifacts)
+    find_latest_draft_artifact_from_artifacts(agent_dir, &artifacts)
 }
 
 fn find_latest_draft_artifact_from_artifacts(
+    agent_dir: &Path,
     artifacts: &[SessionArtifact],
 ) -> Result<Option<SessionArtifact>, String> {
+    if let Some((_, artifact, _)) = load_persisted_circular_custody(agent_dir)? {
+        return Ok(Some(artifact));
+    }
+
     let mut artifacts = artifacts
         .iter()
         .filter(|artifact| artifact.role == "revision" || artifact.role == "draft")
         .cloned()
         .collect::<Vec<_>>();
     artifacts.sort_by(|left, right| {
-        artifact_resume_rank(right)
-            .cmp(&artifact_resume_rank(left))
-            .then_with(|| right.agent.cmp(&left.agent))
+        artifact_modified_at(left)
+            .cmp(&artifact_modified_at(right))
+            .then_with(|| artifact_resume_rank(left).cmp(&artifact_resume_rank(right)))
+            .then_with(|| left.agent.cmp(&right.agent))
     });
 
+    let mut latest = None::<(SessionArtifact, String)>;
     for artifact in artifacts {
+        let Some(result) = parse_agent_artifact_result(&artifact) else {
+            continue;
+        };
+        if !is_accepted_custody_status(&result.status) {
+            continue;
+        }
         let text = read_text_file(&artifact.path).unwrap_or_default();
         let stdout = extract_stdout_block(&text).unwrap_or(text.as_str());
         let draft = resumable_text_from_artifact_stdout(&artifact.role, stdout).unwrap_or_default();
-        if !draft.trim().is_empty() {
-            return Ok(Some(artifact));
+        if draft.trim().is_empty() {
+            continue;
+        }
+        if artifact.role == "draft" {
+            if latest.is_none() {
+                latest = Some((artifact, draft));
+            }
+            continue;
+        }
+        let changed = latest
+            .as_ref()
+            .map(|(_, current)| normalize_resume_text(current) != normalize_resume_text(&draft))
+            .unwrap_or(true);
+        if changed {
+            latest = Some((artifact, draft));
         }
     }
 
-    Ok(None)
+    Ok(latest.map(|(artifact, _)| artifact))
 }
 
 fn resumable_text_from_artifact_stdout(role: &str, stdout: &str) -> Option<String> {
@@ -204,6 +278,141 @@ fn resumable_text_from_artifact_stdout(role: &str, stdout: &str) -> Option<Strin
 fn artifact_resume_rank(artifact: &SessionArtifact) -> (usize, usize, usize) {
     let role_rank = if artifact.role == "revision" { 1 } else { 0 };
     (artifact.round, role_rank, artifact.attempt)
+}
+
+fn artifact_modified_at(artifact: &SessionArtifact) -> SystemTime {
+    fs::metadata(&artifact.path)
+        .and_then(|metadata| metadata.modified())
+        .unwrap_or(UNIX_EPOCH)
+}
+
+fn normalize_resume_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn is_accepted_custody_status(status: &str) -> bool {
+    matches!(status, "DRAFT_CREATED" | "READY" | "NOT_READY")
+}
+
+fn load_persisted_circular_custody(
+    agent_dir: &Path,
+) -> Result<Option<(CircularReviewState, SessionArtifact, String)>, String> {
+    let session_dir = agent_dir
+        .parent()
+        .ok_or_else(|| "agent-runs directory has no session parent".to_string())?;
+    let state_path = checked_data_child_path(&session_dir.join(CIRCULAR_REVIEW_STATE_FILE))?;
+    if !state_path.is_file() {
+        return Ok(None);
+    }
+
+    let body = read_text_file(&state_path)?;
+    let state = serde_json::from_str::<CircularReviewState>(&body)
+        .map_err(|error| format!("circular review state is invalid JSON: {error}"))?;
+    if !matches!(
+        state.schema_version,
+        1 | CIRCULAR_REVIEW_STATE_SCHEMA_VERSION
+    ) {
+        return Err(format!(
+            "unsupported circular review state schema version: {}",
+            state.schema_version
+        ));
+    }
+    let expected_run_id = session_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if state.run_id != expected_run_id {
+        return Err(
+            "circular review state run_id does not match its session directory".to_string(),
+        );
+    }
+    if !is_supported_agent_key(&state.current_draft_author_key) {
+        return Err("circular review state contains an unknown draft author".to_string());
+    }
+    let artifact_name = Path::new(&state.current_draft_artifact);
+    if artifact_name
+        .parent()
+        .is_some_and(|parent| !parent.as_os_str().is_empty())
+        || artifact_name.file_name().and_then(|value| value.to_str())
+            != Some(state.current_draft_artifact.as_str())
+    {
+        return Err(
+            "circular review state current_draft_artifact must be a canonical file name"
+                .to_string(),
+        );
+    }
+    let artifact =
+        parse_agent_artifact_name(agent_dir, &state.current_draft_artifact).ok_or_else(|| {
+            "circular review state references a noncanonical agent artifact".to_string()
+        })?;
+    if !matches!(artifact.role.as_str(), "draft" | "revision")
+        || artifact.agent != state.current_draft_author_key
+    {
+        return Err(
+            "circular review state artifact role or author does not match accepted custody"
+                .to_string(),
+        );
+    }
+    let result = parse_agent_artifact_result(&artifact).ok_or_else(|| {
+        "circular review state references an unreadable agent artifact".to_string()
+    })?;
+    if !is_accepted_custody_status(&result.status) {
+        return Err(format!(
+            "circular review state references rejected artifact status {}",
+            result.status
+        ));
+    }
+    if state
+        .round_roster
+        .iter()
+        .chain(state.valid_round_agents.iter())
+        .chain(state.stable_serial_approval_agents.iter())
+        .any(|agent| !is_supported_agent_key(agent))
+    {
+        return Err("circular review state contains an unknown reviewer".to_string());
+    }
+    let unique_roster = state
+        .round_roster
+        .iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    if unique_roster.len() != state.round_roster.len() {
+        return Err("circular review state contains a duplicate roster member".to_string());
+    }
+    if state
+        .valid_round_agents
+        .iter()
+        .chain(state.stable_serial_approval_agents.iter())
+        .any(|agent| {
+            state.schema_version >= CIRCULAR_REVIEW_STATE_SCHEMA_VERSION
+                && !state.round_roster.contains(agent)
+        })
+    {
+        return Err(
+            "circular review state progress references an agent outside its roster".to_string(),
+        );
+    }
+
+    let text = read_text_file(&artifact.path)?;
+    let stdout = extract_stdout_block(&text).unwrap_or(text.as_str());
+    let draft = resumable_text_from_artifact_stdout(&artifact.role, stdout)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            "circular review state references an artifact without accepted text".to_string()
+        })?;
+    if circular_draft_sha256(&draft) != state.current_draft_sha256 {
+        return Err(
+            "circular review state draft hash does not match the accepted artifact".to_string(),
+        );
+    }
+
+    Ok(Some((state, artifact, draft)))
+}
+
+fn is_supported_agent_key(agent: &str) -> bool {
+    matches!(
+        agent,
+        "claude" | "codex" | "gemini" | "deepseek" | "grok" | "perplexity"
+    )
 }
 
 pub(crate) fn load_agent_results_from_dir(
@@ -390,8 +599,15 @@ fn parse_cache_telemetry_from_artifact(text: &str) -> Option<ProviderCacheTeleme
 
 #[cfg(test)]
 mod tests {
-    use super::parse_agent_artifact_name;
+    use super::{
+        circular_draft_sha256, load_resume_session_state, parse_agent_artifact_name,
+        write_circular_review_state, CircularReviewState, CIRCULAR_REVIEW_STATE_FILE,
+        CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+    };
+    use crate::{sessions_dir, write_text_file};
     use std::path::PathBuf;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn parse_agent_artifact_name_accepts_append_only_attempt_suffix() {
@@ -422,5 +638,214 @@ mod tests {
             parse_agent_artifact_name(&agent_dir, "round-018-codex-revision-attempt-two.md")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn legacy_resume_skips_rejected_and_unchanged_revision_artifacts() {
+        let session_dir = sessions_dir().join(format!(
+            "maestro-legacy-custody-test-{}",
+            std::process::id()
+        ));
+        let agent_dir = session_dir.join("agent-runs");
+        let _ = std::fs::remove_dir_all(&session_dir);
+        std::fs::create_dir_all(&agent_dir).unwrap();
+
+        write_test_artifact(
+            &agent_dir.join("round-001-claude-draft.md"),
+            "DRAFT_CREATED",
+            "Texto inicial.",
+            false,
+        );
+        thread::sleep(Duration::from_millis(20));
+        let accepted_path = agent_dir.join("round-001-codex-revision-attempt-002.md");
+        write_test_artifact(&accepted_path, "READY", "Texto aceito revisado.", true);
+        thread::sleep(Duration::from_millis(20));
+        write_test_artifact(
+            &agent_dir.join("round-001-gemini-revision-attempt-010.md"),
+            "READY",
+            "Texto aceito revisado.",
+            true,
+        );
+        thread::sleep(Duration::from_millis(20));
+        write_test_artifact(
+            &agent_dir.join("round-001-perplexity-revision-attempt-014.md"),
+            "CONTRACT_VIOLATION",
+            "Texto rejeitado que jamais pode assumir custodia.",
+            true,
+        );
+
+        let state = load_resume_session_state(&agent_dir).unwrap();
+
+        assert_eq!(state.current_draft, "Texto aceito revisado.");
+        assert_eq!(state.current_draft_path.as_ref(), Some(&accepted_path));
+        assert!(state.circular_state.is_none());
+        let _ = std::fs::remove_dir_all(&session_dir);
+    }
+
+    #[test]
+    fn persisted_circular_state_preserves_custody_and_version_bound_approvals() {
+        let run_id = format!("maestro-persisted-custody-test-{}", std::process::id());
+        let session_dir = sessions_dir().join(&run_id);
+        let agent_dir = session_dir.join("agent-runs");
+        let _ = std::fs::remove_dir_all(&session_dir);
+        std::fs::create_dir_all(&agent_dir).unwrap();
+
+        let accepted_path = agent_dir.join("round-003-codex-revision-attempt-006.md");
+        write_test_artifact(&accepted_path, "READY", "Versao corrente aceita.", true);
+        write_test_artifact(
+            &agent_dir.join("round-003-perplexity-revision-attempt-014.md"),
+            "CONTRACT_VIOLATION",
+            "Versao rejeitada posterior.",
+            true,
+        );
+        write_circular_review_state(
+            &session_dir,
+            &CircularReviewState {
+                schema_version: CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+                run_id,
+                current_draft_artifact: "round-003-codex-revision-attempt-006.md".to_string(),
+                current_draft_author_key: "codex".to_string(),
+                current_draft_sha256: circular_draft_sha256("Versao corrente aceita."),
+                round: 3,
+                turn_index: 4,
+                round_roster: vec![
+                    "claude".to_string(),
+                    "codex".to_string(),
+                    "gemini".to_string(),
+                    "deepseek".to_string(),
+                    "grok".to_string(),
+                    "perplexity".to_string(),
+                ],
+                valid_round_agents: vec![
+                    "gemini".to_string(),
+                    "deepseek".to_string(),
+                    "grok".to_string(),
+                ],
+                stable_serial_approval_agents: vec![
+                    "gemini".to_string(),
+                    "deepseek".to_string(),
+                    "grok".to_string(),
+                ],
+                updated_at: "2026-07-25T00:00:00Z".to_string(),
+            },
+        )
+        .unwrap();
+
+        let state = load_resume_session_state(&agent_dir).unwrap();
+        let circular = state
+            .circular_state
+            .expect("persisted circular state should be restored");
+
+        assert_eq!(state.current_draft, "Versao corrente aceita.");
+        assert_eq!(state.current_draft_path.as_ref(), Some(&accepted_path));
+        assert_eq!(
+            circular.stable_serial_approval_agents,
+            vec!["gemini", "deepseek", "grok"]
+        );
+        let _ = std::fs::remove_dir_all(&session_dir);
+    }
+
+    #[test]
+    fn persisted_circular_state_ignores_later_artifact_not_committed_to_state() {
+        let run_id = format!("maestro-crash-window-test-{}", std::process::id());
+        let session_dir = sessions_dir().join(&run_id);
+        let agent_dir = session_dir.join("agent-runs");
+        let _ = std::fs::remove_dir_all(&session_dir);
+        std::fs::create_dir_all(&agent_dir).unwrap();
+
+        let committed_path = agent_dir.join("round-002-codex-revision-attempt-003.md");
+        write_test_artifact(&committed_path, "READY", "Versao confirmada.", true);
+        write_circular_review_state(
+            &session_dir,
+            &CircularReviewState {
+                schema_version: CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+                run_id,
+                current_draft_artifact: "round-002-codex-revision-attempt-003.md".to_string(),
+                current_draft_author_key: "codex".to_string(),
+                current_draft_sha256: circular_draft_sha256("Versao confirmada."),
+                round: 2,
+                turn_index: 3,
+                round_roster: vec![
+                    "claude".to_string(),
+                    "codex".to_string(),
+                    "gemini".to_string(),
+                    "deepseek".to_string(),
+                    "grok".to_string(),
+                    "perplexity".to_string(),
+                ],
+                valid_round_agents: vec!["gemini".to_string()],
+                stable_serial_approval_agents: vec!["gemini".to_string()],
+                updated_at: "2026-07-25T00:00:00Z".to_string(),
+            },
+        )
+        .unwrap();
+
+        // Simulate a crash after the next peer artifact is durable but before
+        // the accepted-state snapshot advances to that artifact.
+        write_test_artifact(
+            &agent_dir.join("round-002-claude-revision-attempt-004.md"),
+            "READY",
+            "Versao posterior ainda nao confirmada pelo estado.",
+            true,
+        );
+
+        let state = load_resume_session_state(&agent_dir).unwrap();
+        let circular = state
+            .circular_state
+            .expect("the last committed circular state must remain authoritative");
+
+        assert_eq!(state.current_draft, "Versao confirmada.");
+        assert_eq!(state.current_draft_path.as_ref(), Some(&committed_path));
+        assert_eq!(circular.current_draft_author_key, "codex");
+        assert_eq!(
+            circular.stable_serial_approval_agents,
+            vec!["gemini".to_string()]
+        );
+        let _ = std::fs::remove_dir_all(&session_dir);
+    }
+
+    #[test]
+    fn corrupt_circular_state_fails_closed_instead_of_falling_back_to_artifacts() {
+        let run_id = format!("maestro-corrupt-state-test-{}", std::process::id());
+        let session_dir = sessions_dir().join(&run_id);
+        let agent_dir = session_dir.join("agent-runs");
+        let _ = std::fs::remove_dir_all(&session_dir);
+        std::fs::create_dir_all(&agent_dir).unwrap();
+
+        write_test_artifact(
+            &agent_dir.join("round-001-codex-draft.md"),
+            "DRAFT_CREATED",
+            "Artefato legado que nao pode contornar estado corrompido.",
+            false,
+        );
+        write_text_file(
+            &session_dir.join(CIRCULAR_REVIEW_STATE_FILE),
+            "{\"schema_version\":",
+        )
+        .unwrap();
+
+        let error = match load_resume_session_state(&agent_dir) {
+            Ok(_) => panic!("invalid authoritative state must stop resume"),
+            Err(error) => error,
+        };
+        assert!(error.contains("circular review state is invalid JSON"));
+        let _ = std::fs::remove_dir_all(&session_dir);
+    }
+
+    fn write_test_artifact(path: &std::path::Path, status: &str, text: &str, revision: bool) {
+        let stdout = if revision {
+            format!(
+                "MAESTRO_STATUS: READY\n<maestro_revision_report>{{\"custody\":\"revised\",\"changes\":[]}}</maestro_revision_report>\n<maestro_final_text>{text}</maestro_final_text>"
+            )
+        } else {
+            text.to_string()
+        };
+        write_text_file(
+            path,
+            &format!(
+                "# Test\n\n- CLI: `test`\n- Status: `{status}`\n- Exit code: `0`\n- Duration ms: `1`\n\n## Stdout\n\n```text\n{stdout}\n```\n"
+            ),
+        )
+        .unwrap();
     }
 }

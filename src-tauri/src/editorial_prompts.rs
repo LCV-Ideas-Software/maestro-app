@@ -325,8 +325,12 @@ pub(crate) fn build_review_objections_block(review_agents: &[EditorialAgentResul
 }
 
 pub(crate) fn build_revision_history_block(agents: &[EditorialAgentResult]) -> String {
-    let mut history = String::new();
-    for agent in agents {
+    const MAX_HISTORY_CHARS: usize = 48_000;
+    const MAX_REPORT_CHARS: usize = 8_000;
+
+    let mut sections = Vec::new();
+    let mut used_chars = 0usize;
+    for agent in agents.iter().rev() {
         if agent.role != "review" && agent.role != "revision" {
             continue;
         }
@@ -346,15 +350,26 @@ pub(crate) fn build_revision_history_block(agents: &[EditorialAgentResult]) -> S
         if report.is_empty() {
             continue;
         }
-        history.push_str(&format!(
+        let header = format!(
+            "\n### {} / {} / `{}`\n\nArtifact: `{}`\n\n```text\n",
+            agent.name, agent.role, agent.status, agent.output_path
+        );
+        let footer = "\n```\n";
+        let fixed_chars = header.chars().count() + footer.chars().count();
+        if used_chars + fixed_chars >= MAX_HISTORY_CHARS {
+            break;
+        }
+        let report_limit = MAX_REPORT_CHARS.min(MAX_HISTORY_CHARS - used_chars - fixed_chars);
+        let report = report.chars().take(report_limit).collect::<String>();
+        let section = format!(
             "\n### {} / {} / `{}`\n\nArtifact: `{}`\n\n```text\n{}\n```\n",
-            agent.name,
-            agent.role,
-            agent.status,
-            agent.output_path,
-            report.chars().take(12_000).collect::<String>()
-        ));
+            agent.name, agent.role, agent.status, agent.output_path, report
+        );
+        used_chars += section.chars().count();
+        sections.push(section);
     }
+    sections.reverse();
+    let history = sections.concat();
     if history.trim().is_empty() {
         "No prior revision reports are recorded for this serial cycle.".to_string()
     } else {
@@ -365,6 +380,7 @@ pub(crate) fn build_revision_history_block(agents: &[EditorialAgentResult]) -> S
 pub(crate) fn is_operational_agent_result(agent: &EditorialAgentResult) -> bool {
     agent.tone == "error"
         || agent.tone == "blocked"
+        || agent.status == "CONTRACT_VIOLATION"
         || agent.status == "RUNNING"
         || agent.status == "AGENT_FAILED_NO_OUTPUT"
         || agent.status == "AGENT_FAILED_EMPTY"
@@ -824,6 +840,67 @@ mod tests {
         assert!(!block.contains("AGENT_FAILED_NO_OUTPUT"));
         assert!(!block.contains("No usable editorial review"));
         assert!(block.contains("Fix the cited paragraph."));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn revision_history_excludes_reclassified_contract_violations() {
+        let dir = sessions_dir().join(format!(
+            "maestro-revision-history-contract-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let accepted_path = dir.join("accepted.md");
+        let rejected_path = dir.join("rejected.md");
+        std::fs::write(
+            &accepted_path,
+            "# Accepted\n\n## Stdout\n\n```text\n<maestro_revision_report>{\"accepted_marker\":true}</maestro_revision_report>\n```\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &rejected_path,
+            "# Rejected\n\n## Stdout\n\n```text\n<maestro_revision_report>{\"rejected_marker\":true}</maestro_revision_report>\n```\n",
+        )
+        .unwrap();
+        let agents = vec![
+            test_agent("Codex", "READY", &accepted_path),
+            test_agent("Perplexity", "CONTRACT_VIOLATION", &rejected_path),
+        ];
+
+        let block = build_revision_history_block(&agents);
+
+        assert!(block.contains("accepted_marker"));
+        assert!(!block.contains("rejected_marker"));
+        assert!(!block.contains("CONTRACT_VIOLATION"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn revision_history_has_a_global_context_cap_and_prefers_recent_reports() {
+        let dir = sessions_dir().join(format!(
+            "maestro-revision-history-cap-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let mut agents = Vec::new();
+        for index in 0..10 {
+            let path = dir.join(format!("report-{index}.md"));
+            let marker = format!("report_{index}_{}", "x".repeat(9_000));
+            std::fs::write(
+                &path,
+                format!(
+                    "# Report\n\n## Stdout\n\n```text\n<maestro_revision_report>{marker}</maestro_revision_report>\n```\n"
+                ),
+            )
+            .unwrap();
+            agents.push(test_agent("Codex", "READY", &path));
+        }
+
+        let block = build_revision_history_block(&agents);
+
+        assert!(block.chars().count() <= 48_000);
+        assert!(block.contains("report_9_"));
+        assert!(!block.contains("report_0_"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
