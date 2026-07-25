@@ -4,10 +4,22 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+## [v0.5.54] - 2026-07-24
+
+### Changed
+
+- **Anthropic: Claude Opus 5 added as the second resolver candidate.** `claude-opus-5` launched upstream on 2026-07-24 (after this morning's model refresh shipped) at $5/$25 per 1M tokens with a 1M context window, positioned by Anthropic below Claude Fable 5. The Anthropic candidate list now reads `claude-fable-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-sonnet-5`, `claude-opus-4-1-20250805`; fallback and hint stay `claude-fable-5` (top-capability policy).
+
 ### Documentation
 
-- README status line and version-history table synced through the current release (they had stopped at an older release).
-- The model-refresh release's Validation wording now references the tracked cross-review session without asserting its outcome.
+- README status line and version-history table synced through the current release (they had stopped at an older release); CHANGELOG validation wording for the model-refresh release corrected to reference the tracked cross-review session without asserting its outcome (both changes shipped earlier today as a docs-only commit and are recorded here for release completeness).
+
+### Validation
+
+- Authenticated `GET /v1/models` (2026-07-24, evening): `claude-opus-5` present alongside `claude-fable-5`; official sources platform.claude.com models overview and the Claude Opus 5 announcement.
+- Gates re-run for this release: `cargo check --locked --all-targets`, `cargo test --locked`, `cargo clippy --locked --no-deps --all-targets`, `git diff --check`, `npm run biome`, `npm run typecheck`, `npm test`, `npm run build`.
 
 ## [v0.5.53] - 2026-07-24
 

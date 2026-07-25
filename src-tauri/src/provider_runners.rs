@@ -1224,6 +1224,7 @@ pub(crate) fn resolve_anthropic_model(client: &Client, api_key: &str) -> String 
                     &api_model_ids(&value),
                     &[
                         "claude-fable-5",
+                        "claude-opus-5",
                         "claude-opus-4-8",
                         "claude-opus-4-7",
                         "claude-sonnet-5",
