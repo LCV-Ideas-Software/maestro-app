@@ -6,6 +6,16 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 _No unreleased changes._
 
+## [v0.5.55] - 2026-07-25
+
+### Changed
+
+- **OpenAI extended prompt-cache retention gate aligned with the official supported-model list.** The official prompt-caching guide lists `gpt-5.5`, `gpt-5.5-pro` and `gpt-5.4` among the models supporting 24h extended retention, and states that for the GPT-5.6 family "the only supported value is `30m`". `openai_supports_extended_prompt_cache` now includes the `gpt-5.5`/`gpt-5.4` prefixes; the 5.6 family correctly remains without the retention override. Practical effect is limited to fallback selections below the 5.6 tier. Finding and fix originated in the cross-review of the previous release; the same change ships on the web port.
+
+### Validation
+
+- Gate tests updated: `gpt-5.2`/`gpt-5.5`/`gpt-5.5-pro`/`gpt-5.4` receive `prompt_cache_key_24h`; the unknown-future case now uses `gpt-5.7` and the `gpt-5.6-sol` default-retention regression stands.
+
 ## [v0.5.54] - 2026-07-24
 
 ### Changed

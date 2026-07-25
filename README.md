@@ -17,7 +17,7 @@ Portable Windows editorial workbench for protocol-driven AI drafting, source ver
 [![stack: Tauri 2 + React 19](https://img.shields.io/badge/stack-Tauri%202%20%2B%20React%2019-blueviolet.svg)](#architecture)
 [![license: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 
-**Status.** Stable. Current release: **v0.5.54** (release tag `v00.05.54`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release: **v0.5.55** (release tag `v00.05.55`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 Operational stable baseline started at `v0.5.25`, with live bootstrap, diagnostics, navigation, Cloudflare credential provisioning, AI API credential checks, PostEditor parity, link auditing, and a real background Claude/Codex/Gemini/DeepSeek/Grok editorial session path. From `v0.5.27`, Maestro also supports Perplexity as an API-only Sonar peer. Runtime evidence from session `run-2026-05-11T01-09-30-556Z` confirms the first documented end-to-end unanimous editorial delivery: Maestro `0.5.25` resumed a real API-mode session, reached `READY_UNANIMOUS`, and wrote a clean `texto-final.md`.
 
@@ -25,6 +25,7 @@ The version history at a glance:
 
 | Release | Scope |
 | --- | --- |
+| **`v0.5.55`** | OpenAI extended-retention gate aligned with the official list: `gpt-5.5*`/`gpt-5.4*` now receive `prompt_cache_retention: "24h"`; the 5.6 family stays on default retention (only `30m` supported). |
 | **`v0.5.54`** | Anthropic resolver: `claude-opus-5` (launched 2026-07-24, $5/$25, 1M ctx) added as the second candidate below `claude-fable-5`; fallback unchanged. |
 | **`v0.5.53`** | Release-pipeline fix: the GHCR immutable-version check now uses `docker manifest inspect` instead of the org Packages REST API, which rejects the workflow `GITHUB_TOKEN` (HTTP 400). |
 | **`v0.5.52`** | AI model generation refresh: resolver candidates and fallbacks updated to GPT-5.6 (Sol/Terra/Luna), Claude Fable 5, Grok 4.5, and DeepSeek V4; retired/dead candidate ids removed; Gemini list kept pro-only. |

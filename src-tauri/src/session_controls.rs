@@ -234,7 +234,9 @@ fn sha256_hex(value: &str) -> String {
 
 fn openai_supports_extended_prompt_cache(model: &str) -> bool {
     let model = model.to_ascii_lowercase();
-    model.starts_with("gpt-5.2")
+    model.starts_with("gpt-5.5")
+        || model.starts_with("gpt-5.4")
+        || model.starts_with("gpt-5.2")
         || model.starts_with("gpt-5.1")
         || model == "gpt-5"
         || model.starts_with("gpt-5-codex")
@@ -653,17 +655,19 @@ mod tests {
 
     #[test]
     fn provider_cache_plan_uses_extended_openai_retention_when_supported() {
-        let plan = provider_cache_plan("openai", "gpt-5.2", "draft", "Codex", "system");
+        for model in ["gpt-5.2", "gpt-5.5", "gpt-5.5-pro", "gpt-5.4"] {
+            let plan = provider_cache_plan("openai", model, "draft", "Codex", "system");
 
-        assert_eq!(plan.provider_mode, "prompt_cache_key");
-        assert_eq!(plan.cache_control_status, "prompt_cache_key_24h");
-        assert_eq!(plan.cache_retention.as_deref(), Some("24h"));
-        assert!(plan.cache_key.starts_with("maestro-openai-draft-"));
+            assert_eq!(plan.provider_mode, "prompt_cache_key");
+            assert_eq!(plan.cache_control_status, "prompt_cache_key_24h");
+            assert_eq!(plan.cache_retention.as_deref(), Some("24h"));
+            assert!(plan.cache_key.starts_with("maestro-openai-draft-"));
+        }
     }
 
     #[test]
     fn provider_cache_plan_omits_extended_openai_retention_for_unknown_future_models() {
-        let plan = provider_cache_plan("openai", "gpt-5.5", "draft", "Codex", "system");
+        let plan = provider_cache_plan("openai", "gpt-5.7", "draft", "Codex", "system");
 
         assert_eq!(plan.provider_mode, "prompt_cache_key");
         assert_eq!(
