@@ -9,7 +9,7 @@ describe("Dependabot Automerge workflow", () => {
     expect(workflow).not.toContain("gh pr update-branch");
     expect(workflow).not.toContain("@dependabot rebase");
     expect(workflow).toContain(
-      "LCV-Ideas-Software/.github/dependabot-automerge@3f62b39a76f767d09a5482b8e380746883be3b94",
+      "LCV-Ideas-Software/.github/dependabot-automerge@86383cce42ac86077f87ad80ab48d4308fdd1ab6",
     );
     expect(workflow).toContain("queue: max");
   });
