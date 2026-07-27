@@ -9,9 +9,15 @@ describe("Dependabot Automerge workflow", () => {
     expect(workflow).not.toContain("gh pr update-branch");
     expect(workflow).not.toContain("@dependabot rebase");
     expect(workflow).toContain(
-      "LCV-Ideas-Software/.github/dependabot-automerge@86383cce42ac86077f87ad80ab48d4308fdd1ab6",
+      "LCV-Ideas-Software/.github/dependabot-automerge@eabe20b6941cc4094e9ab50edac474b572a972a9",
     );
     expect(workflow).toContain("queue: max");
+  });
+
+  it("uses only CodeQL completion as the workflow_run wake-up signal", () => {
+    expect(workflow).toMatch(/workflows:\s*\n\s+- CodeQL\s*\n\s+types:/);
+    expect(workflow).not.toContain("Socket Security");
+    expect(workflow).not.toContain("step-security/harden-runner");
   });
 
   it("binds repository-required checks to immutable GitHub App IDs", () => {
@@ -23,6 +29,5 @@ describe("Dependabot Automerge workflow", () => {
   it("requires CodeQL and zizmor results from GitHub Advanced Security", () => {
     expect(workflow).toContain('{"name":"CodeQL","app_id":57789}');
     expect(workflow).toContain('{"name":"zizmor","app_id":57789}');
-    expect(workflow).toContain("- Zizmor");
   });
 });

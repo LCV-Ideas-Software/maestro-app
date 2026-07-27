@@ -32,11 +32,6 @@ jobs:
       should_release: ${{ steps.release.outputs.should_release }}
       prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
-        with:
-          egress-policy: audit
-
       - name: Checkout release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -242,9 +237,9 @@ jobs:
         run: |
           set -euo pipefail
           changed_files="$(git diff-tree --no-commit-id --name-only -r "$RELEASE_SHA")"
-          required_workflows=("CI" "CodeQL" "Socket Security" "Public Format" "Zizmor")
+          required_workflows=("CI" "CodeQL" "Public Format" "Zizmor")
           scorecard_required="false"
-          if grep -Eq '^(\.github/workflows/|\.github/dependabot\.yml$|socketsecurity-requirements\.txt$|SECURITY\.md$)' <<<"$changed_files"; then
+          if grep -Eq '^(\.github/workflows/|\.github/dependabot\.yml$|SECURITY\.md$)' <<<"$changed_files"; then
             required_workflows+=("OpenSSF Scorecard")
             scorecard_required="true"
           fi
@@ -396,11 +391,6 @@ jobs:
     needs: prepare-release
     if: needs.prepare-release.outputs.should_release == 'true'
     steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
-        with:
-          egress-policy: audit
-
       - name: Checkout release ref
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -468,11 +458,6 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
     steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
-        with:
-          egress-policy: audit
-
       - name: Checkout release ref
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -586,11 +571,6 @@ jobs:
       RELEASE_SHA: ${{ needs.prepare-release.outputs.sha }}
       PRERELEASE: ${{ needs.prepare-release.outputs.prerelease }}
     steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
-        with:
-          egress-policy: audit
-
       - name: Checkout immutable release commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -668,7 +648,7 @@ jobs:
           - Release workflow builds the portable executable on GitHub-hosted Windows runner.
           - ZIP receives a SHA-256 checksum.
           - ZIP receives GitHub artifact attestation.
-          - CI, CodeQL, Socket Security, and public-format checks are required to pass on the exact release commit.
+          - CI, CodeQL, and public-format checks are required to pass on the exact release commit.
           - All expected CodeQL analyses must be processed and the default branch must have zero open code-scanning alerts.
           NOTES
           sed -i "s|__TAG__|${tag}|g; s|__REPOSITORY__|${GITHUB_REPOSITORY}|g" "$release_notes"
@@ -794,11 +774,6 @@ jobs:
       RELEASE_SHA: ${{ needs.prepare-release.outputs.sha }}
       PRERELEASE: ${{ needs.prepare-release.outputs.prerelease }}
     steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
-        with:
-          egress-policy: audit
-
       - name: Checkout immutable release commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
