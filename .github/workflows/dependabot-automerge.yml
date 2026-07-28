@@ -21,11 +21,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Process one guarded queue mutation
-        uses: LCV-Ideas-Software/.github/dependabot-automerge@eabe20b6941cc4094e9ab50edac474b572a972a9
+        uses: LCV-Ideas-Software/.github/dependabot-automerge@aeb0bba0fc26df8203eada443126c5850438107a
         with:
           github_token: ${{ github.token }}
           automation_token: ${{ secrets.LCV_AUTOMATION_TOKEN }}
           required_checks_json: '[{"name":"Dependency Review","app_id":15368},{"name":"Check index.html formatting","app_id":15368},{"name":"CodeQL","app_id":57789},{"name":"Repository hygiene","app_id":15368},{"name":"Rust gates (cargo --locked)","app_id":15368},{"name":"zizmor","app_id":57789}]'
+          settle_timeout_seconds: "480"
 
 concurrency:
   group: dependabot-automerge-${{ github.repository }}
