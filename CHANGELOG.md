@@ -4,7 +4,37 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
-_No unreleased changes._
+## [v0.5.57] - 2026-08-03
+
+### Changed
+
+- **Portable editor dependency refresh.** The release now includes Tiptap
+  3.29.2, ProseMirror View 1.42.2 and Lucide React 1.28.0, plus the current
+  React/Vite type and build integrations used by the verified Windows bundle.
+- **Repository automation no longer depends on expired paid services.** Active
+  Socket Security and StepSecurity workflows, configuration and dependency
+  files are removed. CodeQL 4.37.4, the checksum-pinned central Zizmor workflow
+  and the settled organization Dependabot controller remain the automated
+  security gates.
+- **React render failures retain only the recovery flag.** The top-level error
+  boundary still records the exception through `componentDidCatch`, but no
+  longer keeps a duplicate raw `Error` object in component state; its regression
+  fixture also has no unreachable statement after the deliberate throw.
+
+### Security
+
+- **Current Undici graph without a stale global pin.** Removing the obsolete
+  7.28.0 override lets jsdom 30.0.1 resolve audited Undici 8.10.0. The package
+  remains development/test-only and is not bundled into the portable runtime.
+
+### Validation
+
+- `npm audit --package-lock-only --audit-level=moderate --ignore-scripts`: zero
+  known vulnerabilities.
+- Frontend: 9 tests, Biome, public formatting, typecheck and production build
+  passed.
+- Rust: `cargo check --locked --all-targets` and all 232 tests passed against
+  the synchronized 0.5.57 release identity.
 
 ## [v0.5.56] - 2026-07-25
 

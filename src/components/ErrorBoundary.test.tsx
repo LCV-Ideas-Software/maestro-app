@@ -7,9 +7,8 @@ vi.mock("../diagnostics", () => ({
   logEvent: vi.fn(),
 }));
 
-function BrokenChild() {
+function BrokenChild(): never {
   throw new Error("render failed");
-  return null;
 }
 
 describe("ErrorBoundary", () => {
