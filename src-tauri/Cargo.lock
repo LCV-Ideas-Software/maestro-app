@@ -2248,8 +2248,9 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
 name = "plist"
-version = "1.9.0"
-source = "git+https://github.com/ebarnard/rust-plist?rev=0a2f9e79fe4b85abcfb8013a9f3c97e490750b50#0a2f9e79fe4b85abcfb8013a9f3c97e490750b50"
+version = "1.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7da1d65da6dd5d1e44199ac0f58712d241c0f439f80adea8924d832384087f85"
 dependencies = [
  "base64 0.22.1",
  "indexmap 2.14.0",
