@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions: write-all
     environment: dependabot-automation
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Process one guarded queue mutation
         uses: LCV-Ideas-Software/.github/dependabot-automerge@fe11bf9e3022a598ce90360f4490641285ab2f5f # v1.0.0

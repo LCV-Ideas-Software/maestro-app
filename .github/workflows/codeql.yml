@@ -63,9 +63,9 @@ jobs:
           queries: security-extended
           dependency-caching: true
 
-      # Temporary compatibility analysis for GitHub code-scanning merge protection:
-      # older main-branch analyses used this default workflow/job category, so PRs
-      # remain blocked until the category is produced again or stale analyses age out.
+      # Temporary compatibility analysis for the historical code-scanning category:
+      # older main-branch analyses used this default workflow/job category. Retain it
+      # until stale analyses age out; server-side required status checks are not configured.
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
