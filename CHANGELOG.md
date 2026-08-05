@@ -4,6 +4,16 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- **OSV/RustSec exception register revalidated.** The 15 unique advisories in
+  the cross-platform Cargo lock remain one Linux-only `glib` unsoundness and
+  14 upstream maintenance warnings. The shipped dependency graph is still the
+  latest stable Tauri 2.11.5 graph, which selects Wry 0.55.0; the release
+  remains Windows-only, and the expiring exceptions now require another review
+  by 03/11/2026. The duplicate GHSA/RustSec aliases identify the same `glib`
+  advisory and must not be counted as separate risks.
+
 ## [v0.5.57] - 2026-08-03
 
 ### Changed

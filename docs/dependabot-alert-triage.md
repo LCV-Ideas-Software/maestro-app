@@ -54,11 +54,18 @@ The current Scorecard `VulnerabilitiesID` alert maps to `cargo audit` warnings, 
 - GTK/glib evidence: `cargo tree --locked --target x86_64-pc-windows-msvc -i gtk` and `cargo tree --locked --target x86_64-pc-windows-msvc -i glib` print no dependency path.
 - Cross-platform evidence: `cargo tree --locked --target all -i gtk` and `cargo tree --locked --target all -i glib` show the Linux GTK/WebKit path through Tauri/Wry.
 
-`src-tauri/osv-scanner.toml` records the current OSV exceptions with explicit reasons and `ignoreUntil = 2026-08-09`, forcing a 90-day review window:
+`src-tauri/osv-scanner.toml` records the current OSV exceptions with explicit reasons and technical expiry `ignoreUntil = 2026-11-03`, forcing another review within 90 days. The register was revalidated on 05/08/2026 against the [latest stable Tauri 2.11.5](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.11.5) graph, which selects Wry 0.55.0. Wry 0.56.0 is available independently but is outside that stable Tauri dependency range:
 
 - GTK3 / glib stack: `RUSTSEC-2024-0411`, `RUSTSEC-2024-0412`, `RUSTSEC-2024-0413`, `RUSTSEC-2024-0415`, `RUSTSEC-2024-0416`, `RUSTSEC-2024-0418`, `RUSTSEC-2024-0419`, `RUSTSEC-2024-0420`, `RUSTSEC-2024-0429`.
 - GTK macro transitives: `RUSTSEC-2024-0370`.
 - Tauri/urlpattern rust-unic transitives: `RUSTSEC-2025-0075`, `RUSTSEC-2025-0080`, `RUSTSEC-2025-0081`, `RUSTSEC-2025-0098`, `RUSTSEC-2025-0100`.
+
+Tauri's development branch has [migrated `urlpattern` to
+0.6](https://github.com/tauri-apps/tauri/pull/15660), away from the affected
+`rust-unic` chain, but that change is not available in a stable Tauri release
+yet. The GTK4/WebKitGTK 6 migration is planned for Tauri v3; forcing either
+unreleased graph into the current application would be a breaking platform
+change rather than a safe advisory update.
 
 Do not remove these exceptions without either upgrading the upstream Tauri/Wry graph or adding a supported Linux build target and re-triaging the GTK/WebKit runtime surface.
 
@@ -66,4 +73,5 @@ Do not remove these exceptions without either upgrading the upstream Tauri/Wry g
 
 - Keep Dependabot Cargo updates enabled for `/src-tauri`.
 - Reopen dismissed alerts if Tauri publishes a compatible dependency path that removes the vulnerable transitive crate.
+- Re-evaluate the stable Tauri/Wry graph no later than 03/11/2026, even if no upstream release notification arrives.
 - Do not publish Linux builds until the GTK/WebKit `glib` path is upgraded or separately triaged for that target.
