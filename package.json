@@ -68,7 +68,7 @@
     "@tiptap/react": "3.29.2",
     "@tiptap/starter-kit": "3.29.2",
     "@tiptap/suggestion": "3.29.2",
-    "dompurify": "3.4.12",
+    "dompurify": "3.4.13",
     "lowlight": "3.3.0",
     "lucide-react": "1.28.0",
     "mammoth": "1.12.0",
