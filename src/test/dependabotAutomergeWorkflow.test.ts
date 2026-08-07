@@ -9,7 +9,7 @@ describe("Dependabot Automerge workflow", () => {
     expect(workflow).not.toContain("gh pr update-branch");
     expect(workflow).not.toContain("@dependabot rebase");
     expect(workflow).toContain(
-      "LCV-Ideas-Software/.github/dependabot-automerge@f696635ed718dfb1b9576a1e9bcb1173cc278901",
+      "LCV-Ideas-Software/.github/dependabot-automerge@ac3d4ad22073ee419cb9b861c38fe7bfa93b132a",
     );
     expect(workflow).toContain('settle_timeout_seconds: "480"');
     expect(workflow).toContain("queue: max");
