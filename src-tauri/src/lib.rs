@@ -2270,12 +2270,13 @@ mod tests {
             .map(|index| {
                 let session = session.clone();
                 thread::spawn(move || {
+                    let message = "concurrent log event ".to_owned() + &index.to_string();
                     write_log_record(
                         &session,
                         LogEventInput {
                             level: "info".to_string(),
                             category: "test.concurrent_log".to_string(),
-                            message: format!("concurrent log event {index}"),
+                            message,
                             context: Some(json!({ "index": index })),
                         },
                     )
