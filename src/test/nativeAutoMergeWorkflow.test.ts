@@ -12,7 +12,7 @@ describe("Native Auto-merge workflow", () => {
     );
     expect(workflow).toContain("environment: dependabot-automation");
     expect(workflow).toContain(
-      "automation_token: ${{ secrets.LCV_AUTOMATION_TOKEN }}",
+      ["automation_token: $", "{{ secrets.LCV_AUTOMATION_TOKEN }}"].join(""),
     );
     expect(workflow).not.toContain("dependabot-automerge@");
     expect(workflow).not.toContain("gh pr update-branch");
@@ -21,12 +21,8 @@ describe("Native Auto-merge workflow", () => {
 
   it("runs only after CodeQL pull-request completion", () => {
     expect(workflow).toMatch(/workflows:\s*\n\s+- CodeQL\s*\n\s+types:/);
-    expect(workflow).toContain(
-      "github.event.workflow_run.event == 'pull_request'",
-    );
-    expect(workflow).not.toMatch(
-      /schedule:|workflow_dispatch:|actions\/checkout/,
-    );
+    expect(workflow).toContain("github.event.workflow_run.event == 'pull_request'");
+    expect(workflow).not.toMatch(/schedule:|workflow_dispatch:|actions\/checkout/);
   });
 
   it("passes all six explicit workflow-run event inputs", () => {
