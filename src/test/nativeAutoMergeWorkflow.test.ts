@@ -85,8 +85,22 @@ describe("Native Auto-merge workflow", () => {
     expect(rustExtractionNote).toContain("https://github.com/rust-lang/rust-analyzer/issues/12803");
     expect(rustExtractionNote).toContain("actions/runs/31290510940/job/93188784129");
     expect(codeqlWorkflow).toContain("../CODEQL_RUST_EXTRACTION.md");
-    expect(codeqlWorkflow).toContain("Enforce zero CodeQL findings");
-    expect(codeqlWorkflow).toContain("finding_count");
     expect(codeqlWorkflow).not.toContain("export-diagnostics");
+  });
+
+  it("enforces both CodeQL categories through the immutable strict SARIF action", () => {
+    expect(
+      codeqlWorkflow.match(
+        /uses: LCV-Ideas-Software\/\.github\/codeql-sarif-gate@24b0bcc09a48b47f740b8a8bd972374f7289e48e # codeql-sarif-v1\.0\.0/g,
+      ),
+    ).toHaveLength(2);
+    expect(
+      codeqlWorkflow.match(
+        /uses: LCV-Ideas-Software\/\.github\/codeql-sarif-gate@24b0bcc09a48b47f740b8a8bd972374f7289e48e # codeql-sarif-v1\.0\.0\r?\n\s+with:\r?\n\s+sarif-directory: \$\{\{ runner\.temp \}\}\/codeql-results/g,
+      ),
+    ).toHaveLength(2);
+    expect(codeqlWorkflow).not.toMatch(
+      /mapfile\s+-d|find\s+"\$CODEQL_RESULTS"|CODEQL_RESULTS:|finding_count|jq\s+-s\s+'\[\.\[\]\.runs/,
+    );
   });
 });
