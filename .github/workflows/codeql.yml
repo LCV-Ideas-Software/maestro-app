@@ -52,6 +52,9 @@ jobs:
             "CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT=$sysroot" \
             "CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT_SRC=$sysroot/lib/rustlib/src/rust/library" \
             >> "$GITHUB_ENV"
+      # The one remaining repository-local proc-macro extractor diagnostic is
+      # run-specific evidence, not a standing suppression. See
+      # ../CODEQL_RUST_EXTRACTION.md. Zero SARIF results remain mandatory below.
       - name: Initialize CodeQL
         uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:

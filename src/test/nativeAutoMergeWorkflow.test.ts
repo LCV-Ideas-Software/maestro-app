@@ -2,8 +2,10 @@
 
 import { describe, expect, it } from "vitest";
 
+import rustExtractionNote from "../../.github/CODEQL_RUST_EXTRACTION.md?raw";
 import codeqlWorkflow from "../../.github/workflows/codeql.yml?raw";
 import workflow from "../../.github/workflows/native-auto-merge.yml?raw";
+import zizmorWorkflow from "../../.github/workflows/zizmor.yml?raw";
 
 describe("Native Auto-merge workflow", () => {
   it("delegates only native auto-merge arming to the pinned central action", () => {
@@ -17,6 +19,13 @@ describe("Native Auto-merge workflow", () => {
     expect(workflow).not.toContain("dependabot-automerge@");
     expect(workflow).not.toContain("gh pr update-branch");
     expect(workflow).not.toContain("@dependabot rebase");
+  });
+
+  it("uses the pinned v2 central wrapper for Zizmor", () => {
+    expect(zizmorWorkflow).toContain(
+      "LCV-Ideas-Software/.github/.github/workflows/zizmor.yml@4058fad11eca7c2eb4e9296108667ef6199a6356 # v2.0.0",
+    );
+    expect(zizmorWorkflow).not.toContain("# v1.0.2");
   });
 
   it("runs only after CodeQL pull-request completion", () => {
@@ -58,5 +67,26 @@ describe("Native Auto-merge workflow", () => {
     );
     expect(codeqlWorkflow).toContain('>> "$GITHUB_ENV"');
     expect(codeqlWorkflow).not.toContain("rustup default");
+  });
+
+  it("documents the exact bounded Rust extractor limitation without weakening the SARIF gate", () => {
+    expect(rustExtractionNote).toContain("src-tauri/src/lib.rs:800:14");
+    expect(rustExtractionNote).toContain("expected expression");
+    expect(rustExtractionNote).toContain(
+      "macro expansion failed: the macro `tauri::generate_context` expands to ERROR but a Expr was expected",
+    );
+    expect(rustExtractionNote).toContain("1 of 40 repository Rust source files");
+    expect(rustExtractionNote).toContain(
+      "https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/extraction-errors-in-the-database",
+    );
+    expect(rustExtractionNote).toContain(
+      "https://docs.github.com/en/code-security/reference/code-scanning/codeql/build-options-for-compiled-languages",
+    );
+    expect(rustExtractionNote).toContain("https://github.com/rust-lang/rust-analyzer/issues/12803");
+    expect(rustExtractionNote).toContain("actions/runs/31290510940/job/93188784129");
+    expect(codeqlWorkflow).toContain("../CODEQL_RUST_EXTRACTION.md");
+    expect(codeqlWorkflow).toContain("Enforce zero CodeQL findings");
+    expect(codeqlWorkflow).toContain("finding_count");
+    expect(codeqlWorkflow).not.toContain("export-diagnostics");
   });
 });
