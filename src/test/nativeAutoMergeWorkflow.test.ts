@@ -46,4 +46,17 @@ describe("Native Auto-merge workflow", () => {
     );
     expect(codeqlWorkflow).toMatch(/merge_group:\s*\n\s+types:/);
   });
+
+  it("pins a compatible CodeQL Rust sysroot only for the Rust matrix cell", () => {
+    expect(codeqlWorkflow).toMatch(
+      /name: Install CodeQL-compatible Rust sysroot[\s\S]*if: matrix\.language == 'rust'[\s\S]*rustup toolchain install 1\.94\.0 --profile minimal --component rust-src/,
+    );
+    expect(codeqlWorkflow).toContain("rustup run 1.94.0 rustc --print sysroot");
+    expect(codeqlWorkflow).toContain("CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT=$sysroot");
+    expect(codeqlWorkflow).toContain(
+      "CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT_SRC=$sysroot/lib/rustlib/src/rust/library",
+    );
+    expect(codeqlWorkflow).toContain('>> "$GITHUB_ENV"');
+    expect(codeqlWorkflow).not.toContain("rustup default");
+  });
 });

@@ -40,6 +40,18 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install CodeQL-compatible Rust sysroot
+        if: matrix.language == 'rust'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.94.0 --profile minimal --component rust-src
+          sysroot="$(rustup run 1.94.0 rustc --print sysroot)"
+          test -d "$sysroot/lib/rustlib/src/rust/library"
+          printf '%s\n' \
+            "CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT=$sysroot" \
+            "CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT_SRC=$sysroot/lib/rustlib/src/rust/library" \
+            >> "$GITHUB_ENV"
       - name: Initialize CodeQL
         uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
