@@ -4,6 +4,13 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Governanca de trabalho sobre GitHub Projects, Issues e Discussions: quadro dedicado do repositorio, formularios de issue para Incident, Maintenance e Spike, atalhos para Discussions no seletor de issues, workflow `add-to-project` (inerte ate a organizacao definir `LCV_PROJECTS_APP_CLIENT_ID`) e o ritual de registro G1..G4 documentado para Claude Code e ChatGPT-Codex.
+
+
+## [Unreleased]
+
 ### Security
 
 - **OSV/RustSec exception register revalidated.** The 15 unique advisories in
