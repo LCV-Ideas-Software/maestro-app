@@ -23,7 +23,7 @@ describe("Native Auto-merge workflow", () => {
 
   it("uses the pinned v2 central wrapper for Zizmor", () => {
     expect(zizmorWorkflow).toContain(
-      "LCV-Ideas-Software/.github/.github/workflows/zizmor.yml@4058fad11eca7c2eb4e9296108667ef6199a6356 # v2.0.0",
+      "LCV-Ideas-Software/.github/.github/workflows/zizmor.yml@4058fad11eca7c2eb4e9296108667ef6199a6356 # zizmor/v2.0.0",
     );
     expect(zizmorWorkflow).not.toContain("# v1.0.2");
   });
@@ -103,12 +103,12 @@ describe("Native Auto-merge workflow", () => {
   it("enforces both CodeQL categories through the immutable strict SARIF action", () => {
     expect(
       codeqlWorkflow.match(
-        /uses: LCV-Ideas-Software\/\.github\/codeql-sarif-gate@24b0bcc09a48b47f740b8a8bd972374f7289e48e # codeql-sarif-v1\.0\.0/g,
+        /uses: LCV-Ideas-Software\/\.github\/codeql-sarif-gate@24b0bcc09a48b47f740b8a8bd972374f7289e48e # codeql-sarif-gate\/v1\.0\.0/g,
       ),
     ).toHaveLength(2);
     expect(
       codeqlWorkflow.match(
-        /uses: LCV-Ideas-Software\/\.github\/codeql-sarif-gate@24b0bcc09a48b47f740b8a8bd972374f7289e48e # codeql-sarif-v1\.0\.0\r?\n\s+with:\r?\n\s+sarif-directory: \$\{\{ runner\.temp \}\}\/codeql-results/g,
+        /uses: LCV-Ideas-Software\/\.github\/codeql-sarif-gate@24b0bcc09a48b47f740b8a8bd972374f7289e48e # codeql-sarif-gate\/v1\.0\.0\r?\n\s+with:\r?\n\s+sarif-directory: \$\{\{ runner\.temp \}\}\/codeql-results/g,
       ),
     ).toHaveLength(2);
     expect(codeqlWorkflow).not.toMatch(
