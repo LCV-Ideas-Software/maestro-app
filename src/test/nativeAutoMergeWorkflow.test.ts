@@ -10,7 +10,7 @@ import zizmorWorkflow from "../../.github/workflows/zizmor.yml?raw";
 describe("Native Auto-merge workflow", () => {
   it("delegates only native auto-merge arming to the pinned central action", () => {
     expect(workflow).toContain(
-      "LCV-Ideas-Software/.github/native-auto-merge@4058fad11eca7c2eb4e9296108667ef6199a6356",
+      "LCV-Ideas-Software/.github/native-auto-merge@231cd33f27c260a6b01fec26aa1d0eb606e1ee2d # native-auto-merge/v2.1.4",
     );
     expect(workflow).toContain("environment: dependabot-automation");
     expect(workflow).toContain(
@@ -23,25 +23,37 @@ describe("Native Auto-merge workflow", () => {
 
   it("uses the pinned v2 central wrapper for Zizmor", () => {
     expect(zizmorWorkflow).toContain(
-      "LCV-Ideas-Software/.github/.github/workflows/zizmor.yml@4058fad11eca7c2eb4e9296108667ef6199a6356 # v2.0.0",
+      "LCV-Ideas-Software/.github/.github/workflows/zizmor.yml@4058fad11eca7c2eb4e9296108667ef6199a6356 # zizmor/v2.0.0",
     );
     expect(zizmorWorkflow).not.toContain("# v1.0.2");
   });
 
-  it("runs only after CodeQL pull-request completion", () => {
+  it("uses only the trusted CodeQL and Copilot review wake-ups", () => {
     expect(workflow).toMatch(/workflows:\s*\n\s+- CodeQL\s*\n\s+types:/);
     expect(workflow).toContain("github.event.workflow_run.event == 'pull_request'");
+    expect(workflow).toMatch(/pull_request_target:[\s\S]*types:[\s\S]*- review_requested/);
+    expect(workflow).toContain("github.event.requested_reviewer.id == 175728472");
     expect(workflow).not.toMatch(/schedule:|workflow_dispatch:|actions\/checkout/);
   });
 
-  it("passes all six explicit workflow-run event inputs", () => {
+  it("passes every explicit trusted event input", () => {
     for (const input of [
       "event_repository",
       "workflow_name",
+      "workflow_path",
+      "workflow_display_title",
       "workflow_status",
       "workflow_event",
       "workflow_head_sha",
+      "workflow_actor_id",
       "workflow_pull_requests",
+      "event_action",
+      "pull_number",
+      "pull_head_sha",
+      "pull_head_repository",
+      "pull_base_ref",
+      "requested_reviewer_id",
+      "trigger_run_id",
     ]) {
       expect(workflow).toContain(`${input}:`);
     }
@@ -91,12 +103,12 @@ describe("Native Auto-merge workflow", () => {
   it("enforces both CodeQL categories through the immutable strict SARIF action", () => {
     expect(
       codeqlWorkflow.match(
-        /uses: LCV-Ideas-Software\/\.github\/codeql-sarif-gate@24b0bcc09a48b47f740b8a8bd972374f7289e48e # codeql-sarif-v1\.0\.0/g,
+        /uses: LCV-Ideas-Software\/\.github\/codeql-sarif-gate@24b0bcc09a48b47f740b8a8bd972374f7289e48e # codeql-sarif-gate\/v1\.0\.0/g,
       ),
     ).toHaveLength(2);
     expect(
       codeqlWorkflow.match(
-        /uses: LCV-Ideas-Software\/\.github\/codeql-sarif-gate@24b0bcc09a48b47f740b8a8bd972374f7289e48e # codeql-sarif-v1\.0\.0\r?\n\s+with:\r?\n\s+sarif-directory: \$\{\{ runner\.temp \}\}\/codeql-results/g,
+        /uses: LCV-Ideas-Software\/\.github\/codeql-sarif-gate@24b0bcc09a48b47f740b8a8bd972374f7289e48e # codeql-sarif-gate\/v1\.0\.0\r?\n\s+with:\r?\n\s+sarif-directory: \$\{\{ runner\.temp \}\}\/codeql-results/g,
       ),
     ).toHaveLength(2);
     expect(codeqlWorkflow).not.toMatch(
