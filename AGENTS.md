@@ -25,6 +25,7 @@ npm run build
 cargo check --locked --all-targets
 cargo test --locked
 cargo clippy --locked --no-deps --all-targets
+npm run projects:boundaries
 ```
 
 ## Workspace Policy
