@@ -21,10 +21,9 @@ npm test
 npm run biome
 npm run format:public:check
 npm run build
-# backend Rust — executar em src-tauri/
-cargo check --locked --all-targets
-cargo test --locked
-cargo clippy --locked --no-deps --all-targets
+cargo check --locked --all-targets --manifest-path src-tauri/Cargo.toml
+cargo test --locked --manifest-path src-tauri/Cargo.toml
+cargo clippy --locked --no-deps --all-targets --manifest-path src-tauri/Cargo.toml
 npm run projects:boundaries
 ```
 

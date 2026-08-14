@@ -252,11 +252,11 @@ const CANON_BOUNDARY = [
 
 const PERMISSOES_AGREGADOR = [
   "    permissions:",
-  "      actions: read",
-  "      checks: read",
-  "      contents: read",
-  "      pull-requests: read",
-  "      statuses: read",
+  "      actions: read # associacao do merge group com runs/attempts do workflow",
+  "      checks: read # estado dos check runs do feedback dos bots",
+  "      contents: read # dados de repositorio e refs",
+  "      pull-requests: read # associacao do PR e reviews dos bots",
+  "      statuses: read # commit statuses do head do merge group",
 ].join("\n");
 
 test("the boundary job feeds the required aggregator for every origin", () => {
