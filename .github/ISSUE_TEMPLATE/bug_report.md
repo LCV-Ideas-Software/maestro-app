@@ -4,6 +4,7 @@ about: Report a reproducible defect
 title: "[Bug]: "
 labels: ["bug"]
 assignees: []
+type: Bug
 ---
 
 ## Summary
@@ -15,6 +16,18 @@ assignees: []
 ## Expected Behavior
 
 ## Actual Behavior
+
+## Evidence
+
+Logs, failing check URLs, error output. Redact secrets and real identifiers.
+
+## What Was Attempted
+
+Every action already tried and its outcome. Write "none yet" if nothing was tried.
+
+## Root Cause Hypothesis
+
+What you believe caused it and what evidence supports that. Write "unknown" if not yet known.
 
 ## Environment
 

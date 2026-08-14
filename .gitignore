@@ -49,8 +49,6 @@ vault*.json
 oauth_creds.json
 
 # AI/CLI runtime transcripts and prompt dumps
-AGENTS.md
-CLAUDE.md
 GEMINI.md
 MEMORY.md
 memory.md
