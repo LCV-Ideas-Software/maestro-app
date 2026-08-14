@@ -19,12 +19,12 @@ drafting, source verification and multi-agent editorial convergence.
 ```bash
 npm test
 npm run biome
-npm run build
 npm run format:public:check
-npm run projects:boundaries
+npm run build
 cargo check --locked --all-targets --manifest-path src-tauri/Cargo.toml
 cargo test --locked --manifest-path src-tauri/Cargo.toml
 cargo clippy --locked --no-deps --all-targets --manifest-path src-tauri/Cargo.toml
+npm run projects:boundaries
 ```
 
 ## Workspace Policy
@@ -90,7 +90,8 @@ mudar de escopo, vale o texto de la.
 ### Valvula de escape
 
 Bump de dependencia, correcao de typo, lockfile e ajuste de formatacao **dispensam issue**.
-O PR basta — ele entra no quadro sozinho.
+O PR basta — ele entra no quadro sozinho quando o gatilho o alcanca; PR do Dependabot
+e uma lacuna declarada do gatilho e pode depender do backfill/reconciliacao da ativacao.
 
 ### Campos
 
