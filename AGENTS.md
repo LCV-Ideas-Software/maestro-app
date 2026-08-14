@@ -19,12 +19,13 @@ drafting, source verification and multi-agent editorial convergence.
 ```bash
 npm test
 npm run biome
-npm run format:public:check
 npm run build
+npm run format:public:check
+npm run projects:boundaries
+npm audit --audit-level=moderate
 cargo check --locked --all-targets --manifest-path src-tauri/Cargo.toml
 cargo test --locked --manifest-path src-tauri/Cargo.toml
 cargo clippy --locked --no-deps --all-targets --manifest-path src-tauri/Cargo.toml
-npm run projects:boundaries
 ```
 
 ## Workspace Policy
