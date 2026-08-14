@@ -21,6 +21,10 @@ npm test
 npm run biome
 npm run format:public:check
 npm run build
+# backend Rust — executar em src-tauri/
+cargo check --locked --all-targets
+cargo test --locked
+cargo clippy --locked --no-deps --all-targets
 ```
 
 ## Workspace Policy
