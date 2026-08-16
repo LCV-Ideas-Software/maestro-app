@@ -21,7 +21,6 @@ npm test
 npm run biome
 npm run build
 npm run format:public:check
-npm run projects:boundaries
 npm audit --audit-level=moderate
 cargo check --locked --all-targets --manifest-path src-tauri/Cargo.toml
 cargo test --locked --manifest-path src-tauri/Cargo.toml
@@ -97,8 +96,8 @@ mudar de escopo, vale o texto de la.
 ### Valvula de escape
 
 Bump de dependencia, correcao de typo, lockfile e ajuste de formatacao **dispensam issue**.
-O PR basta — ele entra no quadro sozinho quando o gatilho o alcanca; PR do Dependabot
-e uma lacuna declarada do gatilho e pode depender do backfill/reconciliacao da ativacao.
+O PR basta. Os workflows nativos de Auto-add dos Projects cuidam de novos itens; PRs
+abertos antes da ativacao desses workflows podem exigir backfill manual nos dois quadros.
 
 ### Campos
 

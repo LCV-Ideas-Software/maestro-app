@@ -5,7 +5,6 @@
   "description": "Portable Windows editorial workbench for protocol-driven AI drafting, source verification, and multi-agent editorial convergence.",
   "type": "module",
   "scripts": {
-    "projects:boundaries": "node --test .github/scripts/add-to-project-workflow.regression.mjs",
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173",

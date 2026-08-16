@@ -7,10 +7,11 @@ on:
   merge_group:
     types:
       - checks_requested
-permissions: write-all
+permissions: {}
 jobs:
   prettier-public:
-    permissions: write-all
+    permissions:
+      contents: read # Read the public HTML checked by Prettier.
     name: Check index.html formatting
     runs-on: ubuntu-latest
     steps:
@@ -30,5 +31,5 @@ jobs:
         run: npm run format:public:check
     timeout-minutes: 15
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: public-format-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}

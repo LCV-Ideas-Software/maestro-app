@@ -4,11 +4,33 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- Governanca de trabalho sobre GitHub Projects, Issues e Discussions: quadro dedicado do repositorio, formularios de issue para Incident, Maintenance e Spike, atalhos para Discussions no seletor de issues, workflow `add-to-project` (inerte ate a organizacao definir `LCV_PROJECTS_APP_CLIENT_ID`; gatilho `pull_request_target` sem checkout nem execucao de codigo do PR, para alcancar PRs de fork com o secret do environment (cobertura de PRs do Dependabot nao e garantida por este gatilho: fica decidida por sonda na ativacao e, se necessario, por reconciliacao em evento confiavel), com excecao estreita e documentada do zizmor) e o ritual de registro G1..G4 versionado em `AGENTS.md` e `CLAUDE.md` para Claude Code e ChatGPT-Codex.
+- GitHub Projects, Issues and Discussions governance now relies on the native
+  Project Auto-add and Item-closed workflows. The repository keeps its issue
+  forms and versioned G1..G4 recording ritual, while the privileged
+  `pull_request_target` Project controller and its repository-owned validator
+  are removed.
+- Pull requests and merge groups now use direct official Dependency Review and
+  Zizmor Actions. CodeQL keeps the official three-language Advanced Setup
+  matrix without the duplicate legacy category or a repository-owned SARIF
+  interpreter; explicit human queue admission replaces the custom auto-merge
+  controller.
+- The Windows/Release/GHCR engine retains its automatic padded-tag and recovery
+  contract, with every job reduced from `write-all` to the permissions required
+  for its existing publication responsibility.
+- Dependency maintenance since v0.5.57 includes Mammoth 1.12.1, Lucide React
+  1.31.0, Biome 2.5.7, Vite 8.2.1, base64 0.23.1, DOMPurify 3.4.13, Marked
+  18.0.9, nanoid 3.3.18, and CodeQL 4.37.7.
 
 ### Security
+
+- All non-release GitHub workflows now declare an empty top-level token and
+  minimal job grants. The official Zizmor integration publishes its complete
+  auditor result through GitHub Advanced Security/SARIF without a
+  repository-owned parser; Pages no longer attempts administrative
+  self-enablement, and non-Action Dependabot version updates use the current
+  seven-day stabilization window.
 
 - **OSV/RustSec exception register revalidated.** The 15 unique advisories in
   the cross-platform Cargo lock remain one Linux-only `glib` unsoundness and

@@ -1,10 +1,11 @@
 name: CodeQL
+
 on:
   workflow_dispatch:
   push:
-    branches: ["main"]
+    branches: [main]
   pull_request:
-    branches: ["main"]
+    branches: [main]
     types:
       - opened
       - reopened
@@ -15,16 +16,22 @@ on:
       - checks_requested
   schedule:
     - cron: "19 7 * * 2"
-permissions: write-all
+
+permissions: {}
+
 concurrency:
-  group: codeql-${{ github.ref }}
-  cancel-in-progress: true
+  group: codeql-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   analyze:
-    permissions: write-all
     name: Analyze ${{ matrix.language }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      actions: read # Read workflow metadata needed by CodeQL.
+      contents: read # Read the repository source under analysis.
+      security-events: write # Upload the official CodeQL analysis.
     strategy:
       fail-fast: false
       matrix:
@@ -36,10 +43,11 @@ jobs:
           - language: rust
             build-mode: none
     steps:
-      - name: Checkout
+      - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
       - name: Install CodeQL-compatible Rust sysroot
         if: matrix.language == 'rust'
         shell: bash
@@ -52,9 +60,9 @@ jobs:
             "CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT=$sysroot" \
             "CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT_SRC=$sysroot/lib/rustlib/src/rust/library" \
             >> "$GITHUB_ENV"
-      # The one remaining repository-local proc-macro extractor diagnostic is
-      # run-specific evidence, not a standing suppression. See
-      # ../CODEQL_RUST_EXTRACTION.md. Zero SARIF results remain mandatory below.
+
+      # The bounded proc-macro extractor diagnostic is run-specific evidence,
+      # not a suppression. See ../CODEQL_RUST_EXTRACTION.md.
       - name: Initialize CodeQL
         uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
@@ -62,48 +70,8 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           queries: security-and-quality
           dependency-caching: true
+
       - name: Perform CodeQL analysis
-        id: analyze
         uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           category: "/language:${{ matrix.language }}"
-          output: ${{ runner.temp }}/codeql-results
-
-      - name: Enforce zero CodeQL findings
-        uses: LCV-Ideas-Software/.github/codeql-sarif-gate@24b0bcc09a48b47f740b8a8bd972374f7289e48e # codeql-sarif-gate/v1.0.0
-        with:
-          sarif-directory: ${{ runner.temp }}/codeql-results
-
-  analyze-legacy-category:
-    permissions: write-all
-    name: Analyze legacy CodeQL category
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
-        with:
-          languages: javascript-typescript
-          build-mode: none
-          queries: security-and-quality
-          dependency-caching: true
-
-      # Temporary compatibility analysis for the historical code-scanning category:
-      # older main-branch analyses used this default workflow/job category. Retain it
-      # until stale analyses age out; server-side required status checks are not configured.
-      - name: Perform CodeQL analysis
-        id: analyze
-        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
-        with:
-          category: ".github/workflows/codeql.yml:analyze"
-          output: ${{ runner.temp }}/codeql-results
-
-      - name: Enforce zero CodeQL findings
-        uses: LCV-Ideas-Software/.github/codeql-sarif-gate@24b0bcc09a48b47f740b8a8bd972374f7289e48e # codeql-sarif-gate/v1.0.0
-        with:
-          sarif-directory: ${{ runner.temp }}/codeql-results

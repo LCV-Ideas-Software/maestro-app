@@ -15,7 +15,7 @@ on:
         description: "Existing vXX.YY.ZZ or vXX.YY.ZZ-betaN tag to publish"
         required: true
         type: string
-permissions: write-all
+permissions: {}
 env:
   NODE_VERSION: 24
 concurrency:
@@ -25,7 +25,10 @@ jobs:
   prepare-release:
     name: Authorize immutable release identity
     runs-on: ubuntu-latest
-    permissions: write-all
+    permissions:
+      actions: write # Read exact-SHA runs and dispatch the tag-bound recovery run.
+      contents: write # Read repository policy and create the protected release tag.
+      security-events: read # Verify CodeQL analyses and open code-scanning alerts.
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       sha: ${{ steps.release.outputs.sha }}
@@ -296,9 +299,8 @@ jobs:
             categories="$(gh api --paginate -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/code-scanning/analyses?ref=refs/heads/main&per_page=100" --jq '.[] | .commit_sha + " " + .category' | grep -F "$RELEASE_SHA " || true)"
             if grep -Fq "/language:actions" <<<"$categories" && \
               grep -Fq "/language:javascript-typescript" <<<"$categories" && \
-              grep -Fq "/language:rust" <<<"$categories" && \
-              grep -Fq ".github/workflows/codeql.yml:analyze" <<<"$categories"; then
-              echo "All four CodeQL categories are processed for $RELEASE_SHA."
+              grep -Fq "/language:rust" <<<"$categories"; then
+              echo "All three CodeQL categories are processed for $RELEASE_SHA."
               break
             fi
             if [[ "$attempt" -eq 12 ]]; then
@@ -387,7 +389,8 @@ jobs:
   release-gates:
     name: Release gates
     runs-on: windows-latest
-    permissions: write-all
+    permissions:
+      contents: read # Read the immutable release source under test.
     needs: prepare-release
     if: needs.prepare-release.outputs.should_release == 'true'
     steps:
@@ -451,7 +454,10 @@ jobs:
   build-windows-portable:
     name: Build Windows portable bundle
     runs-on: windows-latest
-    permissions: write-all
+    permissions:
+      attestations: write # Publish provenance for the portable ZIP.
+      contents: read # Read the immutable release source.
+      id-token: write # Sign the build attestation through GitHub OIDC.
     needs:
       - prepare-release
       - release-gates
@@ -563,7 +569,9 @@ jobs:
   publish-github-release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    permissions: write-all
+    permissions:
+      actions: read # Download the portable artifact from this workflow run.
+      contents: write # Create or verify the immutable GitHub Release.
     needs:
       - prepare-release
       - build-windows-portable
@@ -766,7 +774,10 @@ jobs:
   publish-github-package:
     name: Publish GitHub Package
     runs-on: ubuntu-latest
-    permissions: write-all
+    permissions:
+      actions: read # Download the portable artifact from this workflow run.
+      contents: read # Bind package metadata to the immutable source.
+      packages: write # Publish the GHCR OCI mirror.
     needs:
       - prepare-release
       - publish-github-release
