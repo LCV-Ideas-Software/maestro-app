@@ -3,12 +3,13 @@
 ## Supported status
 
 Latest supported source/release target: v00.05.57 for project version v0.5.57.
-The current `main` branch remains supported for security fixes. This patch
-removes the stale Undici 7.28 override, allowing jsdom's development/test graph
-to resolve audited Undici 8.10.0, and completely removes the expired Socket
-Security and StepSecurity integrations from active automation. The React error
-boundary logs render failures through the existing diagnostic channel without
-retaining a duplicate raw `Error` object in component state.
+The current `main` branch remains supported for security fixes. Repository
+automation uses native GitHub controls and SHA-pinned official Actions with
+least-privilege job tokens. The preserved release engine authorizes a
+synchronized version change on the GitHub-verified `main`, creates its protected
+padded tag, and dispatches the tag-bound Windows/Release/GHCR publication. No
+repository-owned controller arms auto-merge, mutates Projects, or interprets
+SARIF.
 
 ## Reporting a vulnerability
 

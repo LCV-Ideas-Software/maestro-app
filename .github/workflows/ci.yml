@@ -7,10 +7,11 @@ on:
   merge_group:
     types:
       - checks_requested
-permissions: write-all
+permissions: {}
 jobs:
   hygiene:
-    permissions: write-all
+    permissions:
+      contents: read # Read the repository source and lockfiles under test.
     name: Repository hygiene
     runs-on: ubuntu-latest
     steps:
@@ -59,7 +60,8 @@ jobs:
           fi
     timeout-minutes: 30
   rust-gates:
-    permissions: write-all
+    permissions:
+      contents: read # Read the Rust workspace under test.
     name: Rust gates (cargo --locked)
     runs-on: windows-latest
     steps:
@@ -83,5 +85,5 @@ jobs:
         run: cargo clippy --locked --no-deps --all-targets
     timeout-minutes: 30
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}

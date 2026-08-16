@@ -40,12 +40,15 @@ issue:
 
 ## Enforcement
 
-This record does not suppress or baseline any CodeQL result. The workflow still
-fails closed when CodeQL produces no SARIF or any SARIF result, and the separate
-Rust job still enforces the complete `cargo --locked` gates. The action does not
-expose this extractor log warning through a stable supported status or
-annotation API, so the workflow does not parse human-oriented logs or depend on
-the experimental diagnostic-export format.
+This record does not suppress or baseline any CodeQL result. The repository uses
+GitHub's official CodeQL Advanced Setup for Actions, JavaScript/TypeScript and
+Rust, while the Enterprise code-scanning rule protects pull requests and the
+default branch. Exact-head analyses and open alerts are checked before queue
+admission; the separate Rust job enforces the complete `cargo --locked` gates.
+No repository-owned SARIF parser or log parser is used. GitHub's documented
+merge-group boundary for code-scanning merge protection is an accepted platform
+limit under the organization-wide native-controls policy, not a waiver for an
+open alert.
 
 This evidence is specific to the exact run, head, location, and messages above.
 Any change in that evidence requires a new investigation; it is not pre-approved

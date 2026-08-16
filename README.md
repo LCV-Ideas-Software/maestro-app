@@ -189,6 +189,9 @@ Link checking, sanitization, correction proposals, and cross-review escalation a
 - **Contributing**: see [CONTRIBUTING.md](./CONTRIBUTING.md).
 - **Sponsorship**: see the repo's `Sponsor` button or [central sponsor page](https://www.lcv.dev/sponsor).
 - **Action pinning**: all GitHub Actions are pinned by full SHA per supply-chain hardening baseline.
+- **Automation authority**: queue admission is explicit and human; GitHub's native merge queue and Project workflows replace repository-owned auto-merge and Project controllers.
+- **Release authority**: a synchronized version change on the GitHub-verified `main` authorizes the preserved release engine to create its protected `vXX.YY.ZZ` tag and dispatch the tag-bound Windows/Release/GHCR publication; an existing protected tag is also the recovery boundary.
+- **Fork Pages setup**: enable **Settings -> Pages -> GitHub Actions** once in a fresh fork before its first Pages run; no administrative token is stored for self-enablement.
 - **Code owners**: [.github/CODEOWNERS](.github/CODEOWNERS).
 
 ## Links

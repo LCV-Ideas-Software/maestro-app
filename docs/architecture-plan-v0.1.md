@@ -23,8 +23,8 @@ The app lives under `maestro-app`, runs from any folder, and uses no installer a
 - Configuration persistence has exactly three modes: local JSON for everything, Windows env-var hybrid for tokens/API keys plus JSON for non-secret settings, or Cloudflare remote persistence using D1 `maestro_db` plus Cloudflare Secrets Store. See `docs/configuration-persistence.md`.
 - GitHub synchronization begins from the first implementation, with public release only after maturity. Repository hygiene is therefore a day-zero hard gate: no secrets, API keys, credentials, local session data, raw CLI transcripts, user drafts, evidence caches, or generated exports may be committed.
 - Before any future private-to-public repository flip, run a full pre-cloud exposure audit and full-history secret scan.
-- Work as if GitHub Secret Scanning, Code Scanning, CodeQL Default Setup, Dependabot alerts, Dependabot version updates, GitHub Releases, GitHub Packages, GitHub Pages, and GitHub Sponsors are already enabled. Repository files must be compatible with these checks from the first commit.
-- CodeQL must remain on GitHub Default Setup. Advanced Setup requires prior technical justification and explicit operator authorization.
+- Work as if GitHub Secret Scanning, Code Scanning, official CodeQL Advanced Setup, Dependabot alerts, Dependabot version updates, GitHub Releases, GitHub Packages, GitHub Pages, and GitHub Sponsors are already enabled. Repository files must be compatible with these checks from the first commit.
+- CodeQL uses the official Advanced Setup matrix required for Actions, JavaScript/TypeScript, and Rust; repository-owned SARIF gates are not part of the architecture.
 
 ## 3. Runtime Architecture
 
@@ -290,10 +290,10 @@ The repository is assumed private during early synchronization and public later.
 - Keep `.env.example` and `config.example.json` sanitized and documented.
 - CI must include secret scanning before public release.
 - Add Dependabot configuration for npm, GitHub Actions, and Rust/Cargo once those manifests exist.
-- Use GitHub CodeQL Default Setup for code scanning. Treat alerts as release blockers unless explicitly triaged.
+- Use GitHub's official CodeQL Advanced Setup for code scanning. Treat alerts as release blockers unless explicitly triaged.
 - README, LICENSE, SECURITY, CONTRIBUTING, CODE_OF_CONDUCT, CHANGELOG, release notes, package metadata, and GitHub Packages publication plan are day-zero deliverables, not post-maturity cleanup.
-- GitHub Releases use annotated tags and generated release notes only after local validation and pre-release audit.
-- GitHub Packages publishing is planned but disabled until package identity, privacy posture, and token handling are settled.
+- GitHub Releases use protected tag refs pointing to GitHub-verified `main` commits and generated release notes only after pre-release validation.
+- GitHub Packages publishing is active as a GHCR/OCI mirror of the verified Windows portable ZIP.
 - GitHub Sponsors support is active through `.github/FUNDING.yml`, mirroring the public `cross-review-mcp` funding model with the Maestro Pages URL.
 - GitHub Pages uses the modern GitHub Actions artifact deployment model from `site/`, not a legacy `gh-pages` publishing branch.
 - Dependabot starts with GitHub Actions updates and enables npm/Cargo blocks as soon as the corresponding manifests exist.
@@ -304,5 +304,5 @@ The repository is assumed private during early synchronization and public later.
 - Verify portable distribution layout and whether a fixed WebView2 runtime should be bundled or only detected.
 - Choose the first set of external catalog APIs after validating availability, terms, and rate limits.
 - Decide whether the optional encrypted JSON vault is in v1 or deferred.
-- Decide the first public package names for GitHub Packages and whether app binaries are released only through GitHub Releases or also package registries.
+- Preserve the current `ghcr.io/lcv-ideas-software/maestro-app-windows-portable` identity and its exact-version plus stable/beta channel contract.
 - Pin the verified stable Rust toolchain with `rust-toolchain.toml` before Tauri scaffolding.
