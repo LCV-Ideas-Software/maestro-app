@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      contents: read # Read the workflows checked out for analysis.
       security-events: write # Upload the official Zizmor SARIF analysis.
     steps:
       - name: Check out repository
