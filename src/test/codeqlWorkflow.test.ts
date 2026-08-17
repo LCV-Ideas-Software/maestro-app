@@ -23,11 +23,14 @@ type MatrixEntry = {
 
 type CodeqlWorkflow = {
   on?: {
+    push?: { branches?: string[] };
     pull_request?: { branches?: string[]; types?: string[] };
     merge_group?: { types?: string[] };
   };
   jobs?: {
     analyze?: {
+      "continue-on-error"?: boolean;
+      if?: string;
       strategy?: { matrix?: { include?: MatrixEntry[] } };
       steps?: WorkflowStep[];
     };
@@ -38,6 +41,7 @@ const parsedWorkflow = parse(codeqlWorkflow) as CodeqlWorkflow;
 
 describe("Official CodeQL workflow governance", () => {
   it("covers pull-request transitions and merge-queue checks", () => {
+    expect(parsedWorkflow.on?.push?.branches).toEqual(["main"]);
     expect(parsedWorkflow.on?.pull_request?.branches).toEqual(["main"]);
     expect(parsedWorkflow.on?.pull_request?.types).toEqual([
       "opened",
@@ -58,11 +62,17 @@ describe("Official CodeQL workflow governance", () => {
     const rustStepIndex = steps.findIndex(
       (step) => step.name === "Install CodeQL-compatible Rust sysroot",
     );
-    const analyzeStepIndex = steps.findIndex((step) => step.name === "Perform CodeQL analysis");
+    const initializeStepIndex = steps.findIndex((step) =>
+      step.uses?.startsWith("github/codeql-action/init@"),
+    );
+    const analyzeStepIndex = steps.findIndex((step) =>
+      step.uses?.startsWith("github/codeql-action/analyze@"),
+    );
     const rustStep = steps[rustStepIndex];
 
     expect(rustStepIndex).toBeGreaterThanOrEqual(0);
-    expect(analyzeStepIndex).toBeGreaterThan(rustStepIndex);
+    expect(initializeStepIndex).toBeGreaterThan(rustStepIndex);
+    expect(analyzeStepIndex).toBeGreaterThan(initializeStepIndex);
     expect(rustStep).toBeDefined();
     expect(rustStep?.if).toBe("matrix.language == 'rust'");
     expect(rustStep?.shell).toBe("bash");
@@ -84,12 +94,15 @@ describe("Official CodeQL workflow governance", () => {
   });
 
   it("keeps the pinned official analyzer and per-language category active", () => {
-    const analyzeSteps = (parsedWorkflow.jobs?.analyze?.steps ?? []).filter((step) =>
+    const analyzeJob = parsedWorkflow.jobs?.analyze;
+    const analyzeSteps = (analyzeJob?.steps ?? []).filter((step) =>
       step.uses?.startsWith("github/codeql-action/analyze@"),
     );
     const [analyzeStep] = analyzeSteps;
 
     expect(analyzeSteps).toHaveLength(1);
+    expect(analyzeJob?.if).toBeUndefined();
+    expect(analyzeJob?.["continue-on-error"] ?? false).toBe(false);
     expect(analyzeStep).toBeDefined();
     expect(analyzeStep?.name).toBe("Perform CodeQL analysis");
     expect(analyzeStep?.uses).toBe(
