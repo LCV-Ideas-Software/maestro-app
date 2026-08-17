@@ -7,9 +7,11 @@ import rustExtractionNote from "../../.github/CODEQL_RUST_EXTRACTION.md?raw";
 import codeqlWorkflow from "../../.github/workflows/codeql.yml?raw";
 
 type WorkflowStep = {
+  "continue-on-error"?: boolean;
   name?: string;
   if?: string;
   run?: string;
+  shell?: string;
   uses?: string;
   with?: Record<string, string>;
 };
@@ -63,28 +65,40 @@ describe("Official CodeQL workflow governance", () => {
     expect(analyzeStepIndex).toBeGreaterThan(rustStepIndex);
     expect(rustStep).toBeDefined();
     expect(rustStep?.if).toBe("matrix.language == 'rust'");
-    expect(rustStep?.run).toContain(
+    expect(rustStep?.shell).toBe("bash");
+    const activeRunLines = (rustStep?.run ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#"));
+    expect(activeRunLines).toEqual([
+      "set -euo pipefail",
       "rustup toolchain install 1.94.0 --profile minimal --component rust-src",
-    );
-    expect(rustStep?.run).toContain("rustup run 1.94.0 rustc --print sysroot");
-    expect(rustStep?.run).toContain("CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT=$sysroot");
-    expect(rustStep?.run).toContain(
-      "CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT_SRC=$sysroot/lib/rustlib/src/rust/library",
-    );
-    expect(rustStep?.run).toContain('>> "$GITHUB_ENV"');
+      'sysroot="$(rustup run 1.94.0 rustc --print sysroot)"',
+      'test -d "$sysroot/lib/rustlib/src/rust/library"',
+      "printf '%s\\n' \\",
+      '"CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT=$sysroot" \\',
+      '"CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT_SRC=$sysroot/lib/rustlib/src/rust/library" \\',
+      '>> "$GITHUB_ENV"',
+    ]);
     expect(rustStep?.run).not.toContain("rustup default");
   });
 
   it("keeps the pinned official analyzer and per-language category active", () => {
-    const analyzeStep = parsedWorkflow.jobs?.analyze?.steps?.find(
-      (step) => step.name === "Perform CodeQL analysis",
+    const analyzeSteps = (parsedWorkflow.jobs?.analyze?.steps ?? []).filter((step) =>
+      step.uses?.startsWith("github/codeql-action/analyze@"),
     );
+    const [analyzeStep] = analyzeSteps;
 
+    expect(analyzeSteps).toHaveLength(1);
     expect(analyzeStep).toBeDefined();
+    expect(analyzeStep?.name).toBe("Perform CodeQL analysis");
     expect(analyzeStep?.uses).toBe(
       "github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd",
     );
+    expect(analyzeStep?.if).toBeUndefined();
+    expect(analyzeStep?.["continue-on-error"] ?? false).toBe(false);
     expect(analyzeStep?.with?.category).toBe(["/language:", "$", "{{ matrix.language }}"].join(""));
+    expect(analyzeStep?.with?.upload ?? "always").toBe("always");
   });
 
   it("documents the bounded Rust extractor limitation without suppressing findings", () => {
