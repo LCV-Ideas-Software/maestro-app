@@ -21,7 +21,7 @@ type MatrixEntry = {
 
 type CodeqlWorkflow = {
   on?: {
-    pull_request?: { types?: string[] };
+    pull_request?: { branches?: string[]; types?: string[] };
     merge_group?: { types?: string[] };
   };
   jobs?: {
@@ -36,6 +36,7 @@ const parsedWorkflow = parse(codeqlWorkflow) as CodeqlWorkflow;
 
 describe("Official CodeQL workflow governance", () => {
   it("covers pull-request transitions and merge-queue checks", () => {
+    expect(parsedWorkflow.on?.pull_request?.branches).toEqual(["main"]);
     expect(parsedWorkflow.on?.pull_request?.types).toEqual([
       "opened",
       "reopened",
@@ -51,10 +52,15 @@ describe("Official CodeQL workflow governance", () => {
       "build-mode": "none",
     });
 
-    const rustStep = parsedWorkflow.jobs?.analyze?.steps?.find(
+    const steps = parsedWorkflow.jobs?.analyze?.steps ?? [];
+    const rustStepIndex = steps.findIndex(
       (step) => step.name === "Install CodeQL-compatible Rust sysroot",
     );
+    const analyzeStepIndex = steps.findIndex((step) => step.name === "Perform CodeQL analysis");
+    const rustStep = steps[rustStepIndex];
 
+    expect(rustStepIndex).toBeGreaterThanOrEqual(0);
+    expect(analyzeStepIndex).toBeGreaterThan(rustStepIndex);
     expect(rustStep).toBeDefined();
     expect(rustStep?.if).toBe("matrix.language == 'rust'");
     expect(rustStep?.run).toContain(
