@@ -90,6 +90,7 @@ describe("Official CodeQL workflow governance", () => {
       JSON.stringify(step).includes("CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT"),
     );
 
+    expect(steps).toHaveLength(4);
     expect(checkoutStepIndex).toBeGreaterThanOrEqual(0);
     expect(rustStepIndex).toBeGreaterThan(checkoutStepIndex);
     expect(initializeStepIndex).toBeGreaterThan(rustStepIndex);
