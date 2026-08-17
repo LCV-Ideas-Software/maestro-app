@@ -1,29 +1,57 @@
 /// <reference types="vite/client" />
 
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 import rustExtractionNote from "../../.github/CODEQL_RUST_EXTRACTION.md?raw";
 import codeqlWorkflow from "../../.github/workflows/codeql.yml?raw";
 
+type WorkflowStep = {
+  name?: string;
+  if?: string;
+  run?: string;
+};
+
+type CodeqlWorkflow = {
+  on?: {
+    pull_request?: { types?: string[] };
+    merge_group?: { types?: string[] };
+  };
+  jobs?: {
+    analyze?: { steps?: WorkflowStep[] };
+  };
+};
+
+const parsedWorkflow = parse(codeqlWorkflow) as CodeqlWorkflow;
+
 describe("Official CodeQL workflow governance", () => {
   it("covers pull-request transitions and merge-queue checks", () => {
-    expect(codeqlWorkflow).toMatch(
-      /pull_request:[\s\S]*types:[\s\S]*- opened[\s\S]*- reopened[\s\S]*- synchronize[\s\S]*- ready_for_review/,
-    );
-    expect(codeqlWorkflow).toMatch(/merge_group:\s*\n\s+types:\s*\n\s+- checks_requested/);
+    expect(parsedWorkflow.on?.pull_request?.types).toEqual([
+      "opened",
+      "reopened",
+      "synchronize",
+      "ready_for_review",
+    ]);
+    expect(parsedWorkflow.on?.merge_group?.types).toEqual(["checks_requested"]);
   });
 
   it("pins the compatible Rust sysroot only for the Rust matrix cell", () => {
-    expect(codeqlWorkflow).toMatch(
-      /name: Install CodeQL-compatible Rust sysroot[\s\S]*if: matrix\.language == 'rust'[\s\S]*rustup toolchain install 1\.94\.0 --profile minimal --component rust-src/,
+    const rustStep = parsedWorkflow.jobs?.analyze?.steps?.find(
+      (step) => step.name === "Install CodeQL-compatible Rust sysroot",
     );
-    expect(codeqlWorkflow).toContain("rustup run 1.94.0 rustc --print sysroot");
-    expect(codeqlWorkflow).toContain("CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT=$sysroot");
-    expect(codeqlWorkflow).toContain(
+
+    expect(rustStep).toBeDefined();
+    expect(rustStep?.if).toBe("matrix.language == 'rust'");
+    expect(rustStep?.run).toContain(
+      "rustup toolchain install 1.94.0 --profile minimal --component rust-src",
+    );
+    expect(rustStep?.run).toContain("rustup run 1.94.0 rustc --print sysroot");
+    expect(rustStep?.run).toContain("CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT=$sysroot");
+    expect(rustStep?.run).toContain(
       "CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT_SRC=$sysroot/lib/rustlib/src/rust/library",
     );
-    expect(codeqlWorkflow).toContain('>> "$GITHUB_ENV"');
-    expect(codeqlWorkflow).not.toContain("rustup default");
+    expect(rustStep?.run).toContain('>> "$GITHUB_ENV"');
+    expect(rustStep?.run).not.toContain("rustup default");
   });
 
   it("documents the bounded Rust extractor limitation without suppressing findings", () => {
