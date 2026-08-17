@@ -25,6 +25,7 @@ type CodeqlAnalyzeJob = {
   "continue-on-error"?: boolean;
   if?: string;
   permissions?: Record<string, string>;
+  "runs-on"?: string;
   strategy?: {
     "fail-fast"?: boolean;
     matrix?: { include?: MatrixEntry[] };
@@ -168,6 +169,7 @@ describe("Official CodeQL workflow governance", () => {
     expect(analyzeSteps).toHaveLength(1);
     expect(analyzeJob?.if).toBeUndefined();
     expect(analyzeJob?.["continue-on-error"] ?? false).toBe(false);
+    expect(analyzeJob?.["runs-on"]).toBe("ubuntu-latest");
     expect(analyzeJob?.permissions).toEqual({
       actions: "read",
       contents: "read",
