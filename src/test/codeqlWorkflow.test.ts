@@ -10,6 +10,13 @@ type WorkflowStep = {
   name?: string;
   if?: string;
   run?: string;
+  uses?: string;
+  with?: Record<string, string>;
+};
+
+type MatrixEntry = {
+  language?: string;
+  "build-mode"?: string;
 };
 
 type CodeqlWorkflow = {
@@ -18,7 +25,10 @@ type CodeqlWorkflow = {
     merge_group?: { types?: string[] };
   };
   jobs?: {
-    analyze?: { steps?: WorkflowStep[] };
+    analyze?: {
+      strategy?: { matrix?: { include?: MatrixEntry[] } };
+      steps?: WorkflowStep[];
+    };
   };
 };
 
@@ -36,6 +46,11 @@ describe("Official CodeQL workflow governance", () => {
   });
 
   it("pins the compatible Rust sysroot only for the Rust matrix cell", () => {
+    expect(parsedWorkflow.jobs?.analyze?.strategy?.matrix?.include).toContainEqual({
+      language: "rust",
+      "build-mode": "none",
+    });
+
     const rustStep = parsedWorkflow.jobs?.analyze?.steps?.find(
       (step) => step.name === "Install CodeQL-compatible Rust sysroot",
     );
@@ -52,6 +67,18 @@ describe("Official CodeQL workflow governance", () => {
     );
     expect(rustStep?.run).toContain('>> "$GITHUB_ENV"');
     expect(rustStep?.run).not.toContain("rustup default");
+  });
+
+  it("keeps the pinned official analyzer and per-language category active", () => {
+    const analyzeStep = parsedWorkflow.jobs?.analyze?.steps?.find(
+      (step) => step.name === "Perform CodeQL analysis",
+    );
+
+    expect(analyzeStep).toBeDefined();
+    expect(analyzeStep?.uses).toBe(
+      "github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd",
+    );
+    expect(analyzeStep?.with?.category).toBe(["/language:", "$", "{{ matrix.language }}"].join(""));
   });
 
   it("documents the bounded Rust extractor limitation without suppressing findings", () => {
