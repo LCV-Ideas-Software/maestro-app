@@ -21,6 +21,17 @@ type MatrixEntry = {
   "build-mode"?: string;
 };
 
+type CodeqlAnalyzeJob = {
+  "continue-on-error"?: boolean;
+  if?: string;
+  permissions?: Record<string, string>;
+  strategy?: {
+    "fail-fast"?: boolean;
+    matrix?: { include?: MatrixEntry[] };
+  };
+  steps?: WorkflowStep[];
+};
+
 type CodeqlWorkflow = {
   name?: string;
   on?: {
@@ -30,14 +41,7 @@ type CodeqlWorkflow = {
     merge_group?: { types?: string[] };
     schedule?: Array<{ cron?: string }>;
   };
-  jobs?: {
-    analyze?: {
-      "continue-on-error"?: boolean;
-      if?: string;
-      strategy?: { matrix?: { include?: MatrixEntry[] } };
-      steps?: WorkflowStep[];
-    };
-  };
+  jobs?: Record<string, unknown> & { analyze?: CodeqlAnalyzeJob };
 };
 
 const parsedWorkflow = parse(codeqlWorkflow) as CodeqlWorkflow;
@@ -58,13 +62,19 @@ describe("Official CodeQL workflow governance", () => {
   });
 
   it("pins the compatible Rust sysroot only for the Rust matrix cell", () => {
-    expect(parsedWorkflow.jobs?.analyze?.strategy?.matrix?.include).toEqual([
-      { language: "actions", "build-mode": "none" },
-      { language: "javascript-typescript", "build-mode": "none" },
-      { language: "rust", "build-mode": "none" },
-    ]);
+    expect(parsedWorkflow.jobs?.analyze?.strategy).toEqual({
+      "fail-fast": false,
+      matrix: {
+        include: [
+          { language: "actions", "build-mode": "none" },
+          { language: "javascript-typescript", "build-mode": "none" },
+          { language: "rust", "build-mode": "none" },
+        ],
+      },
+    });
 
     const steps = parsedWorkflow.jobs?.analyze?.steps ?? [];
+    const checkoutStepIndex = steps.findIndex((step) => step.uses?.startsWith("actions/checkout@"));
     const rustStepIndex = steps.findIndex(
       (step) => step.name === "Install CodeQL-compatible Rust sysroot",
     );
@@ -79,7 +89,8 @@ describe("Official CodeQL workflow governance", () => {
       JSON.stringify(step).includes("CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT"),
     );
 
-    expect(rustStepIndex).toBeGreaterThanOrEqual(0);
+    expect(checkoutStepIndex).toBeGreaterThanOrEqual(0);
+    expect(rustStepIndex).toBeGreaterThan(checkoutStepIndex);
     expect(initializeStepIndex).toBeGreaterThan(rustStepIndex);
     expect(analyzeStepIndex).toBeGreaterThan(initializeStepIndex);
     expect(sysrootConfigurationSteps).toHaveLength(1);
@@ -142,7 +153,9 @@ describe("Official CodeQL workflow governance", () => {
 
     expect(checkoutSteps).toHaveLength(1);
     expect(checkoutStep?.uses).toBe("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1");
-    expect(checkoutStep?.with?.["persist-credentials"]).toBe(false);
+    expect(checkoutStep?.if).toBeUndefined();
+    expect(checkoutStep?.["continue-on-error"] ?? false).toBe(false);
+    expect(checkoutStep?.with).toEqual({ "persist-credentials": false });
   });
 
   it("keeps the pinned official analyzer and per-language category active", () => {
@@ -155,6 +168,11 @@ describe("Official CodeQL workflow governance", () => {
     expect(analyzeSteps).toHaveLength(1);
     expect(analyzeJob?.if).toBeUndefined();
     expect(analyzeJob?.["continue-on-error"] ?? false).toBe(false);
+    expect(analyzeJob?.permissions).toEqual({
+      actions: "read",
+      contents: "read",
+      "security-events": "write",
+    });
     expect(analyzeStep).toBeDefined();
     expect(analyzeStep?.name).toBe("Perform CodeQL analysis");
     expect(analyzeStep?.uses).toBe(
@@ -186,7 +204,7 @@ describe("Official CodeQL workflow governance", () => {
   });
 
   it("keeps the retired custom SARIF and legacy analysis paths absent", () => {
-    expect(parsedWorkflow.jobs).not.toHaveProperty("analyze-legacy-category");
+    expect(Object.keys(parsedWorkflow.jobs ?? {})).toEqual(["analyze"]);
     expect(JSON.stringify(parsedWorkflow)).not.toContain("codeql-sarif-gate");
   });
 });
