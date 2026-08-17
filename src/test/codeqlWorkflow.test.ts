@@ -72,10 +72,15 @@ describe("Official CodeQL workflow governance", () => {
       step.uses?.startsWith("github/codeql-action/analyze@"),
     );
     const rustStep = steps[rustStepIndex];
+    const sysrootConfigurationSteps = steps.filter((step) =>
+      JSON.stringify(step).includes("CODEQL_EXTRACTOR_RUST_OPTION_SYSROOT"),
+    );
 
     expect(rustStepIndex).toBeGreaterThanOrEqual(0);
     expect(initializeStepIndex).toBeGreaterThan(rustStepIndex);
     expect(analyzeStepIndex).toBeGreaterThan(initializeStepIndex);
+    expect(sysrootConfigurationSteps).toHaveLength(1);
+    expect(sysrootConfigurationSteps[0]).toBe(rustStep);
     expect(rustStep).toBeDefined();
     expect(rustStep?.if).toBe("matrix.language == 'rust'");
     expect(rustStep?.["continue-on-error"] ?? false).toBe(false);
@@ -164,5 +169,10 @@ describe("Official CodeQL workflow governance", () => {
     expect(rustExtractionNote).toContain("actions/runs/31290510940/job/93188784129");
     expect(codeqlWorkflow).toContain("../CODEQL_RUST_EXTRACTION.md");
     expect(codeqlWorkflow).not.toContain("export-diagnostics");
+  });
+
+  it("keeps the retired custom SARIF and legacy analysis paths absent", () => {
+    expect(parsedWorkflow.jobs).not.toHaveProperty("analyze-legacy-category");
+    expect(JSON.stringify(parsedWorkflow)).not.toContain("codeql-sarif-gate");
   });
 });
