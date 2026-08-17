@@ -24,9 +24,11 @@ type MatrixEntry = {
 type CodeqlWorkflow = {
   name?: string;
   on?: {
+    workflow_dispatch?: null;
     push?: { branches?: string[] };
     pull_request?: { branches?: string[]; types?: string[] };
     merge_group?: { types?: string[] };
+    schedule?: Array<{ cron?: string }>;
   };
   jobs?: {
     analyze?: {
@@ -41,17 +43,18 @@ type CodeqlWorkflow = {
 const parsedWorkflow = parse(codeqlWorkflow) as CodeqlWorkflow;
 
 describe("Official CodeQL workflow governance", () => {
-  it("covers pull-request transitions and merge-queue checks", () => {
+  it("preserves the complete CodeQL event contract", () => {
     expect(parsedWorkflow.name).toBe("CodeQL");
-    expect(parsedWorkflow.on?.push?.branches).toEqual(["main"]);
-    expect(parsedWorkflow.on?.pull_request?.branches).toEqual(["main"]);
-    expect(parsedWorkflow.on?.pull_request?.types).toEqual([
-      "opened",
-      "reopened",
-      "synchronize",
-      "ready_for_review",
-    ]);
-    expect(parsedWorkflow.on?.merge_group?.types).toEqual(["checks_requested"]);
+    expect(parsedWorkflow.on).toEqual({
+      workflow_dispatch: null,
+      push: { branches: ["main"] },
+      pull_request: {
+        branches: ["main"],
+        types: ["opened", "reopened", "synchronize", "ready_for_review"],
+      },
+      merge_group: { types: ["checks_requested"] },
+      schedule: [{ cron: "19 7 * * 2" }],
+    });
   });
 
   it("pins the compatible Rust sysroot only for the Rust matrix cell", () => {
