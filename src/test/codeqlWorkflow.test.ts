@@ -13,7 +13,7 @@ type WorkflowStep = {
   run?: string;
   shell?: string;
   uses?: string;
-  with?: Record<string, string>;
+  with?: Record<string, boolean | string>;
 };
 
 type MatrixEntry = {
@@ -22,6 +22,7 @@ type MatrixEntry = {
 };
 
 type CodeqlWorkflow = {
+  name?: string;
   on?: {
     push?: { branches?: string[] };
     pull_request?: { branches?: string[]; types?: string[] };
@@ -41,6 +42,7 @@ const parsedWorkflow = parse(codeqlWorkflow) as CodeqlWorkflow;
 
 describe("Official CodeQL workflow governance", () => {
   it("covers pull-request transitions and merge-queue checks", () => {
+    expect(parsedWorkflow.name).toBe("CodeQL");
     expect(parsedWorkflow.on?.push?.branches).toEqual(["main"]);
     expect(parsedWorkflow.on?.pull_request?.branches).toEqual(["main"]);
     expect(parsedWorkflow.on?.pull_request?.types).toEqual([
@@ -53,10 +55,11 @@ describe("Official CodeQL workflow governance", () => {
   });
 
   it("pins the compatible Rust sysroot only for the Rust matrix cell", () => {
-    expect(parsedWorkflow.jobs?.analyze?.strategy?.matrix?.include).toContainEqual({
-      language: "rust",
-      "build-mode": "none",
-    });
+    expect(parsedWorkflow.jobs?.analyze?.strategy?.matrix?.include).toEqual([
+      { language: "actions", "build-mode": "none" },
+      { language: "javascript-typescript", "build-mode": "none" },
+      { language: "rust", "build-mode": "none" },
+    ]);
 
     const steps = parsedWorkflow.jobs?.analyze?.steps ?? [];
     const rustStepIndex = steps.findIndex(
@@ -75,6 +78,7 @@ describe("Official CodeQL workflow governance", () => {
     expect(analyzeStepIndex).toBeGreaterThan(initializeStepIndex);
     expect(rustStep).toBeDefined();
     expect(rustStep?.if).toBe("matrix.language == 'rust'");
+    expect(rustStep?.["continue-on-error"] ?? false).toBe(false);
     expect(rustStep?.shell).toBe("bash");
     const activeRunLines = (rustStep?.run ?? "")
       .split("\n")
@@ -91,6 +95,35 @@ describe("Official CodeQL workflow governance", () => {
       '>> "$GITHUB_ENV"',
     ]);
     expect(rustStep?.run).not.toContain("rustup default");
+  });
+
+  it("initializes CodeQL with the pinned matrix inputs before analysis", () => {
+    const steps = parsedWorkflow.jobs?.analyze?.steps ?? [];
+    const initializeSteps = steps.filter((step) =>
+      step.uses?.startsWith("github/codeql-action/init@"),
+    );
+    const analyzeStepIndex = steps.findIndex((step) =>
+      step.uses?.startsWith("github/codeql-action/analyze@"),
+    );
+    const [initializeStep] = initializeSteps;
+    const initializeStepIndex = steps.findIndex((step) =>
+      step.uses?.startsWith("github/codeql-action/init@"),
+    );
+
+    expect(initializeSteps).toHaveLength(1);
+    expect(initializeStepIndex).toBeGreaterThanOrEqual(0);
+    expect(analyzeStepIndex).toBeGreaterThan(initializeStepIndex);
+    expect(initializeStep?.uses).toBe(
+      "github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd",
+    );
+    expect(initializeStep?.if).toBeUndefined();
+    expect(initializeStep?.["continue-on-error"] ?? false).toBe(false);
+    expect(initializeStep?.with).toEqual({
+      languages: ["$", "{{ matrix.language }}"].join(""),
+      "build-mode": ["$", "{{ matrix.build-mode }}"].join(""),
+      queries: "security-and-quality",
+      "dependency-caching": true,
+    });
   });
 
   it("keeps the pinned official analyzer and per-language category active", () => {
