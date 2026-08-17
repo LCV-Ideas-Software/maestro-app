@@ -131,6 +131,17 @@ describe("Official CodeQL workflow governance", () => {
     });
   });
 
+  it("uses one pinned checkout without persisting credentials", () => {
+    const checkoutSteps = (parsedWorkflow.jobs?.analyze?.steps ?? []).filter((step) =>
+      step.uses?.startsWith("actions/checkout@"),
+    );
+    const [checkoutStep] = checkoutSteps;
+
+    expect(checkoutSteps).toHaveLength(1);
+    expect(checkoutStep?.uses).toBe("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1");
+    expect(checkoutStep?.with?.["persist-credentials"]).toBe(false);
+  });
+
   it("keeps the pinned official analyzer and per-language category active", () => {
     const analyzeJob = parsedWorkflow.jobs?.analyze;
     const analyzeSteps = (analyzeJob?.steps ?? []).filter((step) =>
