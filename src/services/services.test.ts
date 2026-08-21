@@ -9,9 +9,12 @@ import {
   stopEditorialSession,
 } from "./editorial";
 import { auditLinks } from "./evidence";
-import { listenToNativeLogs } from "./nativeEvents";
+import { listenToNativeLogs, listenToRuntimeBootstrapProgress } from "./nativeEvents";
 import {
+  controlRuntimeBootstrapAction,
+  createRuntimeBootstrapPlan,
   dependencyPreflight,
+  executeRuntimeBootstrapAction,
   openDataFile,
   readBootstrapConfig,
   readCloudflareEnvSnapshot,
@@ -69,6 +72,24 @@ describe("Tauri service facades", () => {
     expect(invokeMock).toHaveBeenNthCalledWith(4, "list_resumable_sessions");
   });
 
+  it("keeps runtime bootstrap authorization payloads fail-closed", async () => {
+    await createRuntimeBootstrapPlan();
+    await executeRuntimeBootstrapAction("install-codex", "sha256-plan", true);
+    await controlRuntimeBootstrapAction("install-codex", "sha256-plan", "defer");
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "runtime_bootstrap_plan");
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "execute_runtime_bootstrap_action", {
+      actionId: "install-codex",
+      planHash: "sha256-plan",
+      approved: true,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "runtime_bootstrap_action_control", {
+      actionId: "install-codex",
+      planHash: "sha256-plan",
+      disposition: "defer",
+    });
+  });
+
   it("keeps the native log event boundary stable", async () => {
     const payload = { category: "session.agent.started", context: { run_id: "run-1" } };
     const handler = vi.fn();
@@ -80,6 +101,29 @@ describe("Tauri service facades", () => {
     });
 
     const registeredUnlisten = await listenToNativeLogs(handler);
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(handler).toHaveBeenCalledWith(payload);
+    expect(registeredUnlisten).toBe(unlisten);
+  });
+
+  it("keeps runtime bootstrap progress behind its typed event boundary", async () => {
+    const payload = {
+      action_id: "install-codex",
+      plan_hash: "sha256-plan",
+      phase: "running",
+      message: "Executando acao autorizada",
+      at: "2026-08-21T12:00:00Z",
+    };
+    const handler = vi.fn();
+    const unlisten = vi.fn();
+    listenMock.mockImplementation(async (eventName, callback) => {
+      expect(eventName).toBe("runtime-bootstrap-progress");
+      callback({ payload } as never);
+      return unlisten;
+    });
+
+    const registeredUnlisten = await listenToRuntimeBootstrapProgress(handler);
 
     expect(handler).toHaveBeenCalledOnce();
     expect(handler).toHaveBeenCalledWith(payload);

@@ -51,9 +51,16 @@ import {
   stopEditorialSession,
 } from "./services/editorial";
 import { auditLinks } from "./services/evidence";
-import { listenToNativeLogs, type NativeLogTone } from "./services/nativeEvents";
 import {
+  listenToNativeLogs,
+  listenToRuntimeBootstrapProgress,
+  type NativeLogTone,
+} from "./services/nativeEvents";
+import {
+  controlRuntimeBootstrapAction,
+  createRuntimeBootstrapPlan,
   dependencyPreflight,
+  executeRuntimeBootstrapAction,
   openDataFile,
   readBootstrapConfig,
   readCloudflareEnvSnapshot,
@@ -92,6 +99,10 @@ import type {
   ProviderMode,
   ProviderRateKey,
   ResumableSessionInfo,
+  RuntimeBootstrapActionResult,
+  RuntimeBootstrapDisposition,
+  RuntimeBootstrapPlan,
+  RuntimeBootstrapProgressEvent,
   SessionRunOptions,
   SettingsTab,
   VerbosityMode,
@@ -200,6 +211,18 @@ export function App() {
   const [aiProviderRowsState, setAiProviderRowsState] =
     useState<AiProviderProbeRow[]>(initialAiProviderChecks);
   const [bootstrapRows, setBootstrapRows] = useState<BootstrapCheckRow[]>(initialBootstrapChecks);
+  const [runtimeBootstrapPlan, setRuntimeBootstrapPlan] = useState<RuntimeBootstrapPlan | null>(
+    null,
+  );
+  const [runtimeBootstrapResult, setRuntimeBootstrapResult] =
+    useState<RuntimeBootstrapActionResult | null>(null);
+  const [runtimeBootstrapProgress, setRuntimeBootstrapProgress] = useState<
+    RuntimeBootstrapProgressEvent[]
+  >([]);
+  const [isPlanningRuntimeBootstrap, setIsPlanningRuntimeBootstrap] = useState(false);
+  const [activeRuntimeBootstrapActionId, setActiveRuntimeBootstrapActionId] = useState<
+    string | null
+  >(null);
   const [bootstrapConfigStatus, setBootstrapConfigStatus] = useState(
     "bootstrap.json ainda nao carregado",
   );
@@ -300,6 +323,26 @@ export function App() {
       if (category === "session.editorial.completed" || category === "session.editorial.failed") {
         setActiveAgentNow(null);
       }
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        unsubscribe = unlisten;
+      }
+    });
+
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | null = null;
+    let disposed = false;
+
+    void listenToRuntimeBootstrapProgress((payload) => {
+      setRuntimeBootstrapProgress((current) => [payload, ...current].slice(0, 40));
     }).then((unlisten) => {
       if (disposed) {
         unlisten();
@@ -432,6 +475,7 @@ export function App() {
   useEffect(() => {
     void loadBootstrapConfig();
     void loadAiProviderConfig();
+    void refreshRuntimeBootstrapPlan();
   }, []);
 
   function activityTimestamp() {
@@ -445,6 +489,140 @@ export function App() {
 
   function appendActivity(item: Omit<ActivityItem, "time">) {
     setActivityItems((current) => [{ ...item, time: activityTimestamp() }, ...current].slice(0, 8));
+  }
+
+  async function refreshRuntimeBootstrapPlan() {
+    setIsPlanningRuntimeBootstrap(true);
+    try {
+      const plan = await createRuntimeBootstrapPlan();
+      setRuntimeBootstrapPlan(plan);
+      setBootstrapRows(
+        plan.dependencies.map((dependency) => ({
+          label: dependency.label,
+          value: dependency.detail,
+          tone:
+            dependency.state === "ready"
+              ? "ok"
+              : dependency.required && dependency.state === "missing"
+                ? "blocked"
+                : dependency.state === "outdated" || dependency.state === "misconfigured"
+                  ? "warn"
+                  : "pending",
+        })),
+      );
+      appendActivity({
+        level: "detail",
+        title: "Plano de setup atualizado",
+        detail: `${plan.dependencies.length.toLocaleString("pt-BR")} dependencias; ${plan.actions.length.toLocaleString("pt-BR")} acoes propostas.`,
+      });
+      void logEvent({
+        level: "info",
+        category: "runtime.bootstrap.plan_loaded",
+        message: "runtime bootstrap plan loaded",
+        context: {
+          plan_hash: plan.plan_hash,
+          dependencies: plan.dependencies.length,
+          actions: plan.actions.length,
+          required_ready: plan.required_ready,
+        },
+      });
+    } catch (error) {
+      appendActivity({
+        level: "diagnostic",
+        title: "Falha ao planejar setup",
+        detail: "Nenhuma alteracao foi executada. Consulte o log desta execucao.",
+      });
+      void logEvent({
+        level: "error",
+        category: "runtime.bootstrap.plan_failed",
+        message: "failed to build runtime bootstrap plan",
+        context: { error },
+      });
+    } finally {
+      setIsPlanningRuntimeBootstrap(false);
+    }
+  }
+
+  async function authorizeRuntimeBootstrapAction(actionId: string) {
+    const plan = runtimeBootstrapPlan;
+    const action = plan?.actions.find((candidate) => candidate.action_id === actionId);
+    if (!plan || !action) return;
+
+    const preview = action.command_preview ?? "intervencao manual; nenhum comando automatico";
+    const approved = window.confirm(
+      [
+        `Autorizar esta acao de setup?\n\n${action.title}`,
+        `Fonte: ${action.source}`,
+        `Escopo: ${action.install_scope}`,
+        `Comando/acao: ${preview}`,
+        action.requires_elevation
+          ? "Esta acao exige uma fronteira UAC separada."
+          : "Nenhuma elevacao permanente sera mantida.",
+      ].join("\n"),
+    );
+    if (!approved) return;
+
+    setActiveRuntimeBootstrapActionId(actionId);
+    setRuntimeBootstrapResult(null);
+    try {
+      const result = await executeRuntimeBootstrapAction(actionId, plan.plan_hash, true);
+      setRuntimeBootstrapResult(result);
+      setRuntimeBootstrapPlan(result.refreshed_plan);
+      appendActivity({
+        level: result.status === "completed" ? "detail" : "diagnostic",
+        title: `Setup: ${action.title}`,
+        detail: result.message,
+      });
+      void logEvent({
+        level: result.status === "completed" ? "info" : "warn",
+        category: "runtime.bootstrap.action_finished",
+        message: "runtime bootstrap action finished",
+        context: {
+          action_id: actionId,
+          plan_hash: plan.plan_hash,
+          status: result.status,
+          exit_code: result.exit_code,
+        },
+      });
+    } catch (error) {
+      appendActivity({
+        level: "diagnostic",
+        title: `Falha no setup: ${action.title}`,
+        detail: "A acao falhou fechada; gere um novo plano antes de tentar novamente.",
+      });
+      void logEvent({
+        level: "error",
+        category: "runtime.bootstrap.action_failed",
+        message: "runtime bootstrap action failed",
+        context: { action_id: actionId, plan_hash: plan.plan_hash, error },
+      });
+    } finally {
+      setActiveRuntimeBootstrapActionId(null);
+    }
+  }
+
+  async function controlRuntimeBootstrap(
+    actionId: string,
+    disposition: RuntimeBootstrapDisposition,
+  ) {
+    const plan = runtimeBootstrapPlan;
+    if (!plan) return;
+    try {
+      const result = await controlRuntimeBootstrapAction(actionId, plan.plan_hash, disposition);
+      appendActivity({
+        level: "detail",
+        title: `Acao de setup: ${result.status}`,
+        detail: `${actionId} registrado como ${result.disposition}.`,
+      });
+      if (disposition !== "cancel") await refreshRuntimeBootstrapPlan();
+    } catch (error) {
+      void logEvent({
+        level: "error",
+        category: "runtime.bootstrap.control_failed",
+        message: "runtime bootstrap action control failed",
+        context: { action_id: actionId, plan_hash: plan.plan_hash, disposition, error },
+      });
+    }
   }
 
   async function verifyAgentsNow() {
@@ -500,7 +678,12 @@ export function App() {
       title: "Revalidacao iniciada",
       detail: "Conferindo dependencias, configuracoes locais e chaves carregadas.",
     });
-    await Promise.all([loadBootstrapConfig(), loadAiProviderConfig(), verifyAgentsNow()]);
+    await Promise.all([
+      loadBootstrapConfig(),
+      loadAiProviderConfig(),
+      verifyAgentsNow(),
+      refreshRuntimeBootstrapPlan(),
+    ]);
   }
 
   async function openSessionLedger() {
@@ -2492,10 +2675,21 @@ export function App() {
 
         {activeSection === "setup" && (
           <SetupScreen
+            activeActionId={activeRuntimeBootstrapActionId}
             bootstrapRows={bootstrapRows}
             cloudflareEnvSnapshot={cloudflareEnvSnapshot}
+            isPlanning={isPlanningRuntimeBootstrap}
             operation={operation}
+            plan={runtimeBootstrapPlan}
+            progressEvents={runtimeBootstrapProgress}
+            result={runtimeBootstrapResult}
             sessionRunId={sessionRunId}
+            onActionControl={(actionId, disposition) =>
+              void controlRuntimeBootstrap(actionId, disposition)
+            }
+            onAuthorizeAction={(actionId) => void authorizeRuntimeBootstrapAction(actionId)}
+            onOpenSettings={() => setActiveSection("settings")}
+            onRefresh={() => void refreshRuntimeBootstrapPlan()}
           />
         )}
       </main>

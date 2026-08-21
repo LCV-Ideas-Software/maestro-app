@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import type { RuntimeBootstrapProgressEvent } from "../types";
 
 export type NativeLogPayload = {
   category?: string;
@@ -17,3 +18,10 @@ export type NativeLogTone = NonNullable<NativeLogPayload["context"]>["tone"];
 
 export const listenToNativeLogs = (handler: (payload: NativeLogPayload) => void) =>
   listen<NativeLogPayload>("maestro-log-event", (event) => handler(event.payload));
+
+export const listenToRuntimeBootstrapProgress = (
+  handler: (payload: RuntimeBootstrapProgressEvent) => void,
+) =>
+  listen<RuntimeBootstrapProgressEvent>("runtime-bootstrap-progress", (event) =>
+    handler(event.payload),
+  );

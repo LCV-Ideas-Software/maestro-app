@@ -118,6 +118,93 @@ export type DependencyPreflight = {
   checks: BootstrapCheckRow[];
 };
 
+export type RuntimeDependencyState =
+  | "ready"
+  | "missing"
+  | "outdated"
+  | "misconfigured"
+  | "auth_required"
+  | "manual_action_required";
+
+export type RuntimeBootstrapActionKind =
+  | "install"
+  | "update"
+  | "authenticate"
+  | "manual"
+  | "retry_probe";
+
+export type RuntimeBootstrapDisposition = "retry" | "skip" | "defer" | "cancel";
+
+export type RuntimeDependency = {
+  key: string;
+  label: string;
+  required: boolean;
+  state: RuntimeDependencyState;
+  installed_version: string | null;
+  latest_version: string | null;
+  resolved_path: string | null;
+  detail: string;
+  recommended_action_ids: string[];
+};
+
+export type RuntimeBootstrapAction = {
+  action_id: string;
+  dependency_key: string;
+  kind: RuntimeBootstrapActionKind;
+  title: string;
+  description: string;
+  source: string;
+  command_preview: string | null;
+  install_scope: string;
+  requires_elevation: boolean;
+  requires_interaction: boolean;
+};
+
+export type RuntimeBootstrapPlan = {
+  schema_version: number;
+  plan_hash: string;
+  created_at: string;
+  expires_at: string;
+  dependencies: RuntimeDependency[];
+  actions: RuntimeBootstrapAction[];
+  required_ready: boolean;
+  report_path: string;
+  events_path: string;
+};
+
+export type RuntimeBootstrapActionResult = {
+  action_id: string;
+  plan_hash: string;
+  status: string;
+  message: string;
+  command_preview: string | null;
+  source: string;
+  handoff_opened: boolean;
+  exit_code: number | null;
+  duration_ms: number | null;
+  stdout: string;
+  stderr: string;
+  post_action_dependency: RuntimeDependency | null;
+  refreshed_plan: RuntimeBootstrapPlan;
+  support_bundle_path: string;
+};
+
+export type RuntimeBootstrapControlResult = {
+  action_id: string;
+  plan_hash: string;
+  disposition: RuntimeBootstrapDisposition;
+  status: string;
+  recorded_at: string;
+};
+
+export type RuntimeBootstrapProgressEvent = {
+  action_id: string;
+  plan_hash: string;
+  phase: string;
+  message: string;
+  at: string;
+};
+
 export type CloudflareProbeResult = {
   rows: CloudflarePermissionRow[];
 };

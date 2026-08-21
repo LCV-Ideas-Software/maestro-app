@@ -1491,6 +1491,195 @@ button:disabled {
   gap: 16px;
 }
 
+.bootstrap-workspace {
+  grid-template-columns: minmax(240px, 0.8fr) minmax(360px, 1.35fr) minmax(280px, 1fr);
+  align-items: start;
+}
+
+.bootstrap-inventory-panel,
+.bootstrap-plan-panel,
+.bootstrap-runtime-panel {
+  min-width: 0;
+}
+
+.bootstrap-inventory-panel .pipeline-list,
+.bootstrap-action-list,
+.bootstrap-progress {
+  display: grid;
+  gap: 10px;
+  max-height: min(62vh, 680px);
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.bootstrap-readiness {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #f2c94c;
+  border-radius: 8px;
+  background: #fff8df;
+  color: #8a5a00;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.bootstrap-readiness.ready {
+  border-color: #9bd4af;
+  background: #eaf7ee;
+  color: #176b3a;
+}
+
+.bootstrap-action-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dce3ec;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.bootstrap-action-card p {
+  margin: 0;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.bootstrap-action-heading {
+  display: flex;
+  gap: 10px;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.bootstrap-action-heading div {
+  display: grid;
+  gap: 3px;
+}
+
+.bootstrap-action-heading span,
+.bootstrap-action-heading em {
+  color: #64748b;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.bootstrap-action-heading strong {
+  color: #111827;
+  font-size: 14px;
+}
+
+.bootstrap-action-heading em {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #e8f0fe;
+  color: #1a73e8;
+  white-space: nowrap;
+}
+
+.bootstrap-action-metadata {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.bootstrap-action-metadata div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.bootstrap-action-metadata dt,
+.bootstrap-action-metadata dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
+.bootstrap-action-metadata dt {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.bootstrap-action-metadata dd {
+  color: #1f2937;
+  font-family: "Cascadia Mono", Consolas, monospace;
+}
+
+.bootstrap-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.bootstrap-action-buttons button {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.bootstrap-result {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 12px;
+}
+
+.bootstrap-result pre {
+  max-height: 220px;
+  margin: 4px 0 0;
+  overflow: auto;
+  padding: 9px;
+  border-radius: 7px;
+  background: #111827;
+  color: #e5e7eb;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+
+.bootstrap-progress {
+  margin-top: 12px;
+  max-height: 280px;
+}
+
+.bootstrap-progress-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+}
+
+.bootstrap-progress-row div {
+  display: grid;
+  gap: 3px;
+}
+
+.bootstrap-progress-row strong {
+  color: #1f2937;
+  font-size: 12px;
+}
+
+.bootstrap-progress-row span,
+.bootstrap-progress-row small {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 .settings-layout {
   display: grid;
   grid-template-columns: minmax(220px, 260px) minmax(420px, 1fr);

@@ -47,6 +47,7 @@ mod provider_perplexity;
 mod provider_retry;
 mod provider_routing;
 mod provider_runners;
+mod runtime_bootstrap;
 mod sanitize;
 mod session_artifacts;
 mod session_cancel;
@@ -666,6 +667,10 @@ pub(crate) struct RuntimeProfile {
 use crate::cloudflare_commands::{
     cloudflare_env_snapshot, dependency_preflight, verify_cloudflare_credentials,
 };
+use crate::runtime_bootstrap::{
+    execute_runtime_bootstrap_action, runtime_bootstrap_action_control,
+    runtime_bootstrap_plan,
+};
 use crate::session_commands::{
     list_resumable_sessions, resume_editorial_session, run_editorial_session,
     stop_editorial_session,
@@ -803,7 +808,10 @@ pub fn run() {
             list_resumable_sessions,
             resume_editorial_session,
             run_editorial_session,
-            stop_editorial_session
+            stop_editorial_session,
+            runtime_bootstrap_plan,
+            execute_runtime_bootstrap_action,
+            runtime_bootstrap_action_control
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Maestro Editorial AI");
