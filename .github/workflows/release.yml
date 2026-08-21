@@ -639,6 +639,11 @@ jobs:
           - React workbench UI for real editorial session execution.
           - Protocol import surface with strict full-protocol gate.
           - PostEditor parity surface for MainSite-compatible HTML editing.
+          - Durable MainSite draft recovery plus operator-confirmed Cloudflare D1 insert/update with schema, concurrency, and readback guards.
+          - Fail-closed public ChatGPT, Gemini, and Claude share import with separate provenance artifacts.
+          - Markdown, MainSite HTML, and system-print PDF export.
+          - Web-evidence acquisition, deterministic ABNT citation checks, and persistent link-integrity release gates.
+          - Secure first-run dependency/bootstrap workflow and bounded paid corrective retries.
           - Friendly background-operation indicators with running/completed/blocked states.
           - Settings UI for Cloudflare credentials and AI provider credentials.
           - Three persistence modes in the product contract: local JSON, Windows env-var hybrid, and Cloudflare D1 `maestro_db` plus Secrets Store.
@@ -650,9 +655,9 @@ jobs:
 
           ## Current Limits
 
-          - This is a functional alpha for practical smoke testing, not the final editorial engine.
-          - CLI adapters are now real, but still require local CLI authentication and more hardening for resumable/cancellable long sessions.
-          - Cloudflare persistence provisioning, link validation, ABNT formatting, and MainSite D1 publishing are planned but not production-complete in this build.
+          - CLI adapters require local CLI authentication; API peers require operator-provided credentials, tariffs, and cost limits.
+          - MainSite D1 publication requires an operator-configured database/table, a compatible schema, a successful read-only preview, and explicit confirmation for each write.
+          - Shared-chat pages that require login, consent, CAPTCHA, or unsupported dynamic rendering stop with an operator-action handoff instead of importing unverified content.
           - No NuGet package is published. GitHub Releases is the human-facing distribution channel; GitHub Packages/GHCR is only an automation mirror.
 
           ## Verification

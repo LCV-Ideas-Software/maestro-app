@@ -19,7 +19,7 @@ This is not a generic TipTap implementation. The accepted target is functional a
 
 The compatibility copy lives in `src/editor/posteditor/`.
 
-Final HTML leaves the editor only after `mainsite_post_html.v1` sanitization and Link Integrity approval, then enters the atomic `mainsite_draft.v1` local envelope. Direct D1 insert/update is a separate MAESTRO-7 authority boundary and must independently re-sanitize on the remote side.
+Final HTML leaves the editor only after `mainsite_post_html.v1` sanitization and Link Integrity approval, then enters the atomic `mainsite_draft.v1` local envelope. Direct D1 insert/update is a separate MAESTRO-7 authority boundary and independently re-sanitizes and validates the envelope before constructing any remote mutation.
 
 For runtime weight, Maestro must follow the admin-app pattern: the PostEditor parity module is lazy-loaded and rendered only after the operator clicks `Criar Post`. The session dashboard must not import or mount the Tiptap-heavy editor on initial load.
 

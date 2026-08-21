@@ -4,8 +4,39 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+## [v0.5.58] - 2026-08-21
+
+### Added
+
+- **MAESTRO-3 — secure runtime bootstrap.** First-run dependency discovery,
+  operator-authorized background installation, CLI setup/authentication handoff,
+  and fail-closed readiness reporting now run through the native portable
+  runtime without opening visible command windows.
+- **MAESTRO-4 — web evidence engine.** Public-source acquisition now supports
+  direct fetch, curl-compatible replay, web search, isolated WebView2 rendering,
+  and explicit operator-assisted capture while retaining provenance and refusing
+  to treat unavailable evidence as verified.
+- **MAESTRO-5 and MAESTRO-6 — deterministic release gates.** Structured ABNT
+  citation validation and persistent link-integrity decisions now gate final
+  editorial release, with correction proposals, MainSite-safe sanitization and
+  escalation when evidence cannot be verified.
+- **MAESTRO-7 — import, export and MainSite D1 publication.** Public ChatGPT,
+  Gemini and Claude shares are imported through a fail-closed native extractor
+  that rebuilds safe content and persists provenance. Final content exports as
+  Markdown, MainSite-compatible HTML, or through the system PDF print dialog.
+  D1 preview is read-only; publication requires explicit operator confirmation,
+  validates schema and content hashes, uses optimistic concurrency in a
+  transactional batch, and verifies the stored row by readback.
+- **MAESTRO-8 — durable MainSite drafts.** Sanitized PostEditor output is stored
+  atomically as a recoverable `mainsite_draft.v1`, with editor-parity coverage
+  and the metadata required by the operator-confirmed D1 publication flow.
+
 ### Changed
 
+- **MAESTRO-2 — completed code split.** Native orchestration, persistence,
+  provider, command, evidence and Cloudflare responsibilities, plus the React
+  editor/session/settings surfaces, now live in bounded modules while preserving
+  the existing Tauri command contract.
 - GitHub Projects, Issues and Discussions governance now relies on the native
   Project Auto-add and Item-closed workflows. The repository keeps its issue
   forms and versioned G1..G4 recording ritual, while the privileged
@@ -20,8 +51,18 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   contract, with every job reduced from `write-all` to the permissions required
   for its existing publication responsibility.
 - Dependency maintenance since v0.5.57 includes Mammoth 1.12.1, Lucide React
-  1.31.0, Biome 2.5.7, Vite 8.2.1, base64 0.23.1, DOMPurify 3.4.13, Marked
+  1.31.0, Biome 2.5.8, Vite 8.2.1, base64 0.23.1, DOMPurify 3.4.13, Marked
   18.0.9, nanoid 3.3.18, and CodeQL 4.37.7.
+
+### Fixed
+
+- **MAESTRO-11 — bounded paid correction.** Corrective retries are scoped and
+  capped per editorial round, preventing an unresolved reviewer loop from
+  consuming paid calls without a deterministic stop.
+- A successful automatic D1 insert now persists the returned MainSite post ID
+  into the durable local draft before another preview is allowed. If that local
+  persistence fails after the remote write, Maestro blocks any automatic retry
+  and exposes the recovery state instead of risking a duplicate post.
 
 ### Security
 
@@ -39,6 +80,15 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   remains Windows-only, and the expiring exceptions now require another review
   by 03/11/2026. The duplicate GHSA/RustSec aliases identify the same `glib`
   advisory and must not be counted as separate risks.
+
+### Validation
+
+- Frontend: all 82 Vitest tests passed; Biome, PostEditor parity, public-format,
+  TypeScript/production build, `git diff --check`, and the moderate-level npm
+  audit passed; npm reported zero known vulnerabilities.
+- Native Rust compilation, tests, Clippy and the Windows bundle are deliberately
+  delegated to the GitHub-hosted release gates for the exact PR head; no `cargo`
+  or `rustc` command was run on the operator workstation.
 
 ## [v0.5.57] - 2026-08-03
 

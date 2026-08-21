@@ -2,7 +2,7 @@
 
 ## Supported status
 
-Latest supported source/release target: v00.05.57 for project version v0.5.57.
+Latest supported source/release target: v00.05.58 for project version v0.5.58.
 The current `main` branch remains supported for security fixes. Repository
 automation uses native GitHub controls and SHA-pinned official Actions with
 least-privilege job tokens. The preserved release engine authorizes a

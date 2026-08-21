@@ -1,6 +1,6 @@
 # MainSite Compatibility Contract
 
-Status: local compatibility and durable-draft gate implemented; direct Cloudflare D1 publication remains owned by MAESTRO-7.
+Status: local compatibility, durable-draft gate, and operator-confirmed Cloudflare D1 publication implemented; GitHub-hosted release gates remain required for each published build.
 Last reviewed against `admin-app` and `mainsite-app`: 2026-08-21.
 
 Maestro must be able to read and write `example_db.mainsite_posts` directly, while producing content that renders in `mainsite-app/mainsite-frontend/PostReader` exactly like content produced by `admin-app/MainSite/PostEditor`.
@@ -55,9 +55,9 @@ Before save, Maestro must also run the Link Integrity Engine. Sanitized HTML is 
 
 The editor now applies the reviewed `mainsite_post_html.v1` parser allowlist to final `editor.getHTML()` output, then applies the PostEditor link transform to every non-YouTube link. The save callback runs Link Integrity and refuses persistence while a link has a mechanical failure, blocker, or unresolved editorial review.
 
-An accepted save is written atomically to `data/drafts/mainsite-draft.json` as `mainsite_draft.v1`. The record mirrors the future D1 row boundary: optional positive post ID, title, author, sanitized content, `is_pinned = false`, `display_order = 0`, operator-controlled `is_published`, timestamps, sanitizer profile, and SHA-256. Startup readback validates schema, invariants, timestamps, and content hash before hydrating the editor. A corrupt record fails closed and is not silently overwritten.
+An accepted save is written atomically to `data/drafts/mainsite-draft.json` as `mainsite_draft.v1`. The record mirrors the D1 row boundary: optional positive post ID, title, author, sanitized content, `is_pinned = false`, `display_order = 0`, operator-controlled `is_published`, timestamps, sanitizer profile, and SHA-256. Startup readback validates schema, invariants, timestamps, and content hash before hydrating the editor. A corrupt record fails closed and is not silently overwritten.
 
-This durable local draft is the handoff to MAESTRO-7. It is not a D1 publication and does not weaken the rule that the remote Worker must independently sanitize and validate before insert/update.
+The durable draft is the only input accepted by the MAESTRO-7 publication boundary. Preview performs no write and binds the sanitized draft hash, target, remote-row state and content version to a short-lived confirmation token. Publish revalidates that contract, executes the post mutation and content-version update as one guarded D1 batch, reads the row back, and persists an automatically allocated post ID locally before another preview is allowed. A transport ambiguity or failed local ID persistence blocks automatic retry.
 
 ## HTML Structures Maestro Must Emit
 
@@ -130,7 +130,7 @@ The semantic compatibility suite covers this minimum fixture set:
 - Markdown plus HTML import.
 - PDF-derived article.
 
-No direct write to `mainsite_posts` should be exposed as a stable feature until these fixtures pass.
+No direct write to `mainsite_posts` is treated as release-ready unless these fixtures pass on the exact release commit.
 
 The DOM round-trip fixtures are executable in the frontend suite. Pixel-level screenshot comparison and a real D1 readback remain release/PR canaries; neither is inferred from a DOM-only test.
 
