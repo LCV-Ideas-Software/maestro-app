@@ -276,6 +276,119 @@ export type LinkAuditResult = {
   rows: LinkAuditRow[];
 };
 
+export type WebEvidenceMethod = "GET" | "HEAD";
+export type WebEvidenceAccessMode =
+  | "http_fetch"
+  | "rendered_fetch"
+  | "official_api"
+  | "operator_assisted_browser_capture";
+export type WebEvidenceState =
+  | "queued"
+  | "collecting"
+  | "ready"
+  | "stale"
+  | "operator_action_required"
+  | "blocked"
+  | "failed";
+export type WebEvidenceCacheState = "fresh" | "stale" | "revalidating" | "missing";
+export type WebEvidenceRobotsState = "allowed" | "disallowed" | "unavailable" | "not_applicable";
+export type WebEvidenceCopyrightState = "public" | "licensed" | "operator_provided" | "unknown";
+export type WebEvidenceInteractionState =
+  | "none"
+  | "captcha_required"
+  | "login_required"
+  | "consent_required"
+  | "download_confirmation"
+  | "paywall"
+  | "human_resolved";
+
+export type WebEvidenceRedirect = {
+  url: string;
+  status: number;
+};
+
+export type WebEvidenceRecord = {
+  id: string;
+  schema_version: "web_evidence.v1";
+  state: WebEvidenceState;
+  url: string;
+  method: WebEvidenceMethod;
+  access_mode: WebEvidenceAccessMode;
+  status: number | null;
+  final_url: string | null;
+  title: string | null;
+  content_type: string | null;
+  sha256: string | null;
+  retrieved_at: string | null;
+  expires_at: string | null;
+  cache_ttl: string;
+  cache_state: WebEvidenceCacheState;
+  robots_state: WebEvidenceRobotsState;
+  copyright_state: WebEvidenceCopyrightState;
+  interaction_state: WebEvidenceInteractionState;
+  human_resolved: boolean;
+  byte_count: number | null;
+  duration_ms: number | null;
+  redirect_chain: WebEvidenceRedirect[];
+  curl_command: string | null;
+  provider: string | null;
+  query: string | null;
+  artifact_name: string | null;
+  notes: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type WebEvidenceListRequest = {
+  query?: string | null;
+  states?: WebEvidenceState[];
+  access_modes?: WebEvidenceAccessMode[];
+  stale_only?: boolean;
+  limit?: number;
+  cursor?: string | null;
+};
+
+export type WebEvidenceListResult = {
+  items: WebEvidenceRecord[];
+  next_cursor: string | null;
+  total: number;
+};
+
+export type WebEvidenceFetchRequest = {
+  url: string;
+  method: WebEvidenceMethod;
+  force_revalidate: boolean;
+};
+
+export type WebEvidenceSearchRequest = {
+  query: string;
+  provider: string;
+  limit: number;
+};
+
+export type WebEvidenceSearchResult = {
+  query: string;
+  provider: string;
+  items: WebEvidenceRecord[];
+  total: number;
+};
+
+export type WebEvidenceImportRequest = {
+  url?: string | null;
+  name: string;
+  media_type: string;
+  data_base64: string;
+  notes?: string[];
+};
+
+export type WebEvidenceProgressEvent = {
+  operation: string;
+  evidence_id: string | null;
+  phase: string;
+  message: string;
+  at: string;
+};
+
 export type EditorialAgentResult = {
   name: string;
   cli: string;

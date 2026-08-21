@@ -59,6 +59,7 @@ mod session_orchestration;
 mod session_persistence;
 mod session_resume;
 mod tauri_commands;
+mod web_evidence;
 
 // Re-export the sanitization helpers so existing `use crate::sanitize_text`
 // and similar imports across all 18+ sibling modules continue to resolve
@@ -683,6 +684,11 @@ use crate::tauri_commands::{
     read_bootstrap_config, run_cli_adapter_smoke, runtime_profile, verify_ai_provider_credentials,
     write_ai_provider_config, write_bootstrap_config, write_log_event,
 };
+use crate::web_evidence::{
+    fetch_web_evidence, get_web_evidence, import_operator_evidence, list_web_evidence,
+    open_web_evidence_in_default_browser, replay_web_evidence,
+    resume_web_evidence_interaction, search_web_evidence, start_rendered_web_evidence,
+};
 
 #[cfg(test)]
 use crate::app_init::write_early_crash_record;
@@ -811,7 +817,16 @@ pub fn run() {
             stop_editorial_session,
             runtime_bootstrap_plan,
             execute_runtime_bootstrap_action,
-            runtime_bootstrap_action_control
+            runtime_bootstrap_action_control,
+            list_web_evidence,
+            fetch_web_evidence,
+            replay_web_evidence,
+            search_web_evidence,
+            start_rendered_web_evidence,
+            open_web_evidence_in_default_browser,
+            import_operator_evidence,
+            resume_web_evidence_interaction,
+            get_web_evidence
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Maestro Editorial AI");

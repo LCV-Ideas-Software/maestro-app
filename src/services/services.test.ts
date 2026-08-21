@@ -8,8 +8,23 @@ import {
   runEditorialSession,
   stopEditorialSession,
 } from "./editorial";
-import { auditLinks } from "./evidence";
-import { listenToNativeLogs, listenToRuntimeBootstrapProgress } from "./nativeEvents";
+import {
+  auditLinks,
+  fetchWebEvidence,
+  getWebEvidence,
+  importOperatorEvidence,
+  listWebEvidence,
+  openWebEvidenceInDefaultBrowser,
+  replayWebEvidence,
+  resumeWebEvidenceInteraction,
+  searchWebEvidence,
+  startRenderedWebEvidence,
+} from "./evidence";
+import {
+  listenToNativeLogs,
+  listenToRuntimeBootstrapProgress,
+  listenToWebEvidenceProgress,
+} from "./nativeEvents";
 import {
   controlRuntimeBootstrapAction,
   createRuntimeBootstrapPlan,
@@ -90,6 +105,60 @@ describe("Tauri service facades", () => {
     });
   });
 
+  it("keeps web evidence commands behind typed request envelopes", async () => {
+    const fetchRequest = {
+      url: "https://example.com/source",
+      method: "GET" as const,
+      force_revalidate: true,
+    };
+    const searchRequest = { query: "source title", provider: "crossref", limit: 10 };
+    const importRequest = {
+      url: "https://example.com/source",
+      name: "source.md",
+      media_type: "text/markdown",
+      data_base64: "IyBTb3VyY2U=",
+      notes: ["captura autorizada"],
+    };
+
+    await listWebEvidence({ states: ["stale"], limit: 50, cursor: null });
+    await fetchWebEvidence(fetchRequest);
+    await replayWebEvidence("evidence-1");
+    await searchWebEvidence(searchRequest);
+    await startRenderedWebEvidence("https://example.com/rendered");
+    await openWebEvidenceInDefaultBrowser("https://example.com/manual");
+    await importOperatorEvidence(importRequest);
+    await resumeWebEvidenceInteraction("evidence-1", true);
+    await getWebEvidence("evidence-1");
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "list_web_evidence", {
+      request: { states: ["stale"], limit: 50, cursor: null },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "fetch_web_evidence", {
+      request: fetchRequest,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "replay_web_evidence", {
+      request: { evidence_id: "evidence-1" },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(4, "search_web_evidence", {
+      request: searchRequest,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(5, "start_rendered_web_evidence", {
+      request: { url: "https://example.com/rendered" },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(6, "open_web_evidence_in_default_browser", {
+      request: { url: "https://example.com/manual" },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(7, "import_operator_evidence", {
+      request: importRequest,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(8, "resume_web_evidence_interaction", {
+      request: { evidence_id: "evidence-1", confirmed: true },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(9, "get_web_evidence", {
+      evidenceId: "evidence-1",
+    });
+  });
+
   it("keeps the native log event boundary stable", async () => {
     const payload = { category: "session.agent.started", context: { run_id: "run-1" } };
     const handler = vi.fn();
@@ -124,6 +193,29 @@ describe("Tauri service facades", () => {
     });
 
     const registeredUnlisten = await listenToRuntimeBootstrapProgress(handler);
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(handler).toHaveBeenCalledWith(payload);
+    expect(registeredUnlisten).toBe(unlisten);
+  });
+
+  it("keeps web evidence progress behind its typed event boundary", async () => {
+    const payload = {
+      operation: "fetch",
+      evidence_id: "evidence-1",
+      phase: "collecting",
+      message: "Coletando fonte",
+      at: "2026-08-21T12:00:00Z",
+    };
+    const handler = vi.fn();
+    const unlisten = vi.fn();
+    listenMock.mockImplementation(async (eventName, callback) => {
+      expect(eventName).toBe("web-evidence-progress");
+      callback({ payload } as never);
+      return unlisten;
+    });
+
+    const registeredUnlisten = await listenToWebEvidenceProgress(handler);
 
     expect(handler).toHaveBeenCalledOnce();
     expect(handler).toHaveBeenCalledWith(payload);

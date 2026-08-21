@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import type { RuntimeBootstrapProgressEvent } from "../types";
+import type { RuntimeBootstrapProgressEvent, WebEvidenceProgressEvent } from "../types";
 
 export type NativeLogPayload = {
   category?: string;
@@ -25,3 +25,6 @@ export const listenToRuntimeBootstrapProgress = (
   listen<RuntimeBootstrapProgressEvent>("runtime-bootstrap-progress", (event) =>
     handler(event.payload),
   );
+
+export const listenToWebEvidenceProgress = (handler: (payload: WebEvidenceProgressEvent) => void) =>
+  listen<WebEvidenceProgressEvent>("web-evidence-progress", (event) => handler(event.payload));

@@ -1,7 +1,7 @@
 # Web Evidence Engine
 
-Status: implementation contract with v0.3.7 partial implementation.
-Date: 2026-04-26.
+Status: implemented; Rust compilation and native tests pending GitHub Actions validation.
+Date: 2026-08-21.
 
 Maestro must compensate for the weak browsing/fetching capabilities of AI agents by collecting, checking, and packaging evidence itself.
 
@@ -12,12 +12,35 @@ Implemented in v0.3.7:
 - Private-target blocking covers localhost names, `.local`/`.localhost`, RFC1918 IPv4, CGNAT, link-local/metadata IPv4, documentation/reserved/multicast IPv4, IPv6 loopback, IPv6 link-local, IPv6 ULA, IPv6 multicast/documentation, and IPv4-mapped or IPv4-compatible IPv6 private targets.
 - The UI updates the link evidence tile and records sanitized per-link status in NDJSON diagnostics.
 
-Still pending:
+Implemented on the active release branch:
 
-- Persistent evidence cache.
-- Browser-rendered fetch.
-- Human-assisted browser capture.
-- Search-provider connectors and correction proposals.
+- Persistent evidence records and content under `./data/evidence`, with SHA-256,
+  TTL, stale-state projection, conditional revalidation, replay, pagination, and
+  sanitized provenance.
+- Public-network-only HTTP `GET`/`HEAD`, bounded bodies, proxy bypass, DNS-to-
+  connection binding, and manual per-hop redirect validation.
+- Reproducible `curl.exe` recipes that disable ambient proxies and automatic
+  redirects. Secrets are represented only as redacted environment-backed
+  headers.
+- Official Crossref and OpenAlex search plus operator-configured connectors.
+- An isolated app-owned WebView2 window under `./data/webview`, with incognito
+  mode, extensions, autofill and developer tools disabled, new windows and
+  downloads blocked, and every top-level navigation checked against the public-
+  network policy.
+- Default-browser handoff and explicit import of bounded HTML, Markdown, PDF,
+  JSON, images, or text without accepting a local path from the frontend.
+- First-class operator-action, interaction, cache, robots, copyright, and
+  progress states in the UI.
+
+Current boundaries:
+
+- The WebView2 window renders pages but does not silently extract its DOM or
+  screenshots. The operator must explicitly save/import the artifact before it
+  becomes ready evidence.
+- PDFs are detected, stored, and hashed; no PDF text extractor is bundled yet.
+- The public-network guard covers top-level WebView navigation. Page subresources
+  remain governed by WebView2 networking and browser security controls.
+- Rust compilation and native tests are intentionally deferred to GitHub Actions.
 
 The engine is for verification, citation support, and provenance. It should behave like a careful human researcher using a browser, with automation for repetitive checks and clear handoff to the operator whenever human interaction is required.
 

@@ -173,7 +173,7 @@ Prompt-to-consensus sessions export separate final text and session minutes. Int
 
 Shared chat import, Markdown/PDF support, and Cloudflare D1 integration are planned under `docs/import-export-cloudflare.md`.
 
-Web fetch, curl-compatible replay, web search, rendered collection, and human-assisted browser capture are planned under `docs/web-evidence-engine.md`.
+Web fetch, curl-compatible replay, web search, isolated WebView2 rendering, and human-assisted browser capture are implemented under `docs/web-evidence-engine.md`; native Rust validation runs in GitHub Actions.
 
 ABNT citation/reference formatting and Maestro's deterministic fourth-peer role are planned under `docs/abnt-citation-engine.md`.
 

@@ -53,6 +53,10 @@ pub(crate) fn run_link_audit(text: &str) -> LinkAuditResult {
         .timeout(Duration::from_secs(15))
         .redirect(blocked_aware_redirect_policy())
         .dns_resolver(Arc::new(PublicOnlyResolver))
+        // Proxies resolve/connect outside this process and would break the
+        // resolver-to-socket SSRF guarantee. Link audit therefore uses direct
+        // public connections only, matching the Web Evidence Engine.
+        .no_proxy()
         .user_agent(format!(
             "Maestro Editorial AI/{}",
             env!("CARGO_PKG_VERSION")
@@ -184,7 +188,7 @@ pub(crate) fn is_public_http_url(value: &str) -> bool {
     public_http_url_rejection_reason(value).is_none()
 }
 
-fn public_http_url_rejection_reason(value: &str) -> Option<String> {
+pub(crate) fn public_http_url_rejection_reason(value: &str) -> Option<String> {
     let Ok(url) = Url::parse(value) else {
         return Some("URL invalida ou incompleta".to_string());
     };
@@ -253,7 +257,7 @@ fn blocked_aware_redirect_policy() -> Policy {
 /// connection — closing the DNS-rebinding / resolver-mismatch window that a
 /// pre-flight-only check leaves open, and failing closed on resolution error
 /// (audit S1 hardening).
-struct PublicOnlyResolver;
+pub(crate) struct PublicOnlyResolver;
 
 impl Resolve for PublicOnlyResolver {
     fn resolve(&self, name: Name) -> Resolving {
