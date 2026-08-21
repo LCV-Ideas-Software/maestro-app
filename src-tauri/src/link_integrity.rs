@@ -82,7 +82,10 @@ fn record_path(link_id: &str) -> Result<PathBuf, String> {
 }
 
 fn sha256(value: impl AsRef<[u8]>) -> String {
-    format!("{:x}", Sha256::digest(value.as_ref()))
+    Sha256::digest(value.as_ref())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn load_record(link_id: &str) -> Result<LinkAuditRow, String> {
@@ -178,7 +181,13 @@ fn char_boundary_after(value: &str, mut index: usize) -> usize {
 fn surrounding_text(value: &str, start: usize, end: usize) -> String {
     let left = char_boundary_before(value, start.saturating_sub(MAX_CONTEXT_CHARS / 2));
     let right = char_boundary_after(value, (end + MAX_CONTEXT_CHARS / 2).min(value.len()));
-    sanitize_text(value[left..right].split_whitespace().collect::<Vec<_>>().join(" "), 500)
+    sanitize_text(
+        &value[left..right]
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" "),
+        500,
+    )
 }
 
 fn strip_html(value: &str) -> String {

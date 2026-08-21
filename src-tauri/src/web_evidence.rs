@@ -491,11 +491,17 @@ fn searches_dir() -> Result<PathBuf, String> {
 }
 
 fn evidence_id(value: &str) -> String {
-    format!("{:x}", Sha256::digest(value.as_bytes()))
+    Sha256::digest(value.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn sha256_bytes(value: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(value))
+    Sha256::digest(value)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn is_valid_evidence_id(value: &str) -> bool {
@@ -755,7 +761,7 @@ fn execute_public_request(
     let mut redirects = Vec::new();
 
     loop {
-        let current = validate_public_url(current.as_str())?;
+        current = validate_public_url(current.as_str())?;
         if !seen.insert(current.as_str().to_string()) {
             return Err("redirect loop detected".to_string());
         }

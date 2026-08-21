@@ -39,7 +39,6 @@ mod editorial_inputs;
 mod editorial_io;
 mod editorial_prompts;
 mod human_logs;
-#[cfg(test)]
 mod link_audit;
 mod link_integrity;
 mod logging;

@@ -74,7 +74,10 @@ fn draft_path() -> Result<PathBuf, String> {
 }
 
 fn content_sha256(content: &str) -> String {
-    format!("{:x}", Sha256::digest(content.as_bytes()))
+    Sha256::digest(content.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn char_count(value: &str) -> usize {

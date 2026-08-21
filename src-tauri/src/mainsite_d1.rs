@@ -213,7 +213,10 @@ fn default_cloudflare_token_env() -> String {
 }
 
 fn sha256_bytes(value: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(value))
+    Sha256::digest(value)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn hash_parts(parts: &[&str]) -> String {
@@ -222,7 +225,11 @@ fn hash_parts(parts: &[&str]) -> String {
         hasher.update(part.len().to_be_bytes());
         hasher.update(part.as_bytes());
     }
-    format!("{hasher:x}")
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn draft_hash(draft: &MainSiteDraft) -> Result<String, String> {

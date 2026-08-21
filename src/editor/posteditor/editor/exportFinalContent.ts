@@ -27,8 +27,7 @@ const WINDOWS_RESERVED_FILENAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
 function plainText(value: unknown, maxLength: number): string {
   if (typeof value !== "string") return "";
-  const document = new DOMParser().parseFromString(value, "text/html");
-  return (document.body.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, maxLength);
+  return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
 
 function escapeHtml(value: string): string {
@@ -41,11 +40,21 @@ function escapeHtml(value: string): string {
 }
 
 function escapeMarkdown(value: string): string {
-  return value.replace(/([\\`*_[\]{}()#+.!|>-])/g, "\\$1");
+  return value.replace(/([\\`*_[\]{}()#+.!|<>-])/g, "\\$1");
 }
 
 function markdownDestination(value: string): string {
   return value.replace(/>/g, "%3E");
+}
+
+function markdownQuotedTitle(value: string): string {
+  let escaped = "";
+  for (const character of value) {
+    if (character === "\\" || character === '"') escaped += `\\${character}`;
+    else if (character === "\r" || character === "\n") escaped += " ";
+    else escaped += character;
+  }
+  return escaped;
 }
 
 function serializeChildren(element: Element): string {
@@ -114,7 +123,7 @@ function serializeMarkdownNode(node: Node): string {
       const href = element.getAttribute("href");
       if (!href) return children;
       const title = element.getAttribute("title");
-      const suffix = title ? ` "${title.replace(/"/g, '\\"')}"` : "";
+      const suffix = title ? ` "${markdownQuotedTitle(title)}"` : "";
       return `[${children}](<${markdownDestination(href)}>${suffix})`;
     }
     case "img": {
@@ -122,7 +131,7 @@ function serializeMarkdownNode(node: Node): string {
       if (!src) return "";
       const alt = escapeMarkdown(element.getAttribute("alt") ?? "");
       const title = element.getAttribute("title");
-      const suffix = title ? ` "${title.replace(/"/g, '\\"')}"` : "";
+      const suffix = title ? ` "${markdownQuotedTitle(title)}"` : "";
       return `![${alt}](<${markdownDestination(src)}>${suffix})`;
     }
     case "br":

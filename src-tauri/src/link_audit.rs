@@ -71,7 +71,7 @@ pub(crate) fn run_link_audit(text: &str) -> LinkAuditResult {
         Err(error) => {
             return LinkAuditResult {
                 schema_version: "link_integrity_audit.v1".to_string(),
-                audit_id: format!("{:x}", Sha256::digest(text.as_bytes())),
+                audit_id: sha256_hex(text.as_bytes()),
                 source_artifact: "legacy/link-audit".to_string(),
                 checked_at: chrono::Utc::now().to_rfc3339(),
                 urls_found: candidates.len(),
@@ -112,7 +112,7 @@ pub(crate) fn run_link_audit(text: &str) -> LinkAuditResult {
 
     LinkAuditResult {
         schema_version: "link_integrity_audit.v1".to_string(),
-        audit_id: format!("{:x}", Sha256::digest(text.as_bytes())),
+        audit_id: sha256_hex(text.as_bytes()),
         source_artifact: "legacy/link-audit".to_string(),
         checked_at: chrono::Utc::now().to_rfc3339(),
         urls_found: candidates.len(),
@@ -387,7 +387,7 @@ fn link_audit_row(
     };
     LinkAuditRow {
         schema_version: "link_evidence.v1".to_string(),
-        link_id: format!("{:x}", Sha256::digest(url.as_bytes())),
+        link_id: sha256_hex(url.as_bytes()),
         source_artifact: "legacy/link-audit".to_string(),
         source_fingerprint: String::new(),
         anchor_text: None,
@@ -425,4 +425,10 @@ fn link_invalidity_summary(status: &str, tone: &str) -> String {
         return format!("resposta HTTP {code}");
     }
     status.to_string()
+}
+fn sha256_hex(value: &[u8]) -> String {
+    Sha256::digest(value)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }

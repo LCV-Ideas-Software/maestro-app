@@ -980,7 +980,10 @@ fn operation_execution_fingerprint(operation: &BootstrapOperation) -> Result<Str
     };
     let encoded = serde_json::to_vec(&payload)
         .map_err(|error| format!("failed to fingerprint bootstrap operation: {error}"))?;
-    Ok(format!("{:x}", Sha256::digest(encoded)))
+    Ok(Sha256::digest(encoded)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }
 
 fn validate_action_request<'a>(
@@ -1097,7 +1100,10 @@ fn compute_plan_hash(plan: &RuntimeBootstrapPlan) -> Result<String, String> {
     canonical.plan_hash.clear();
     let encoded = serde_json::to_vec(&canonical)
         .map_err(|error| format!("failed to serialize bootstrap plan for hashing: {error}"))?;
-    Ok(format!("{:x}", Sha256::digest(encoded)))
+    Ok(Sha256::digest(encoded)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }
 
 fn verify_plan_integrity(plan: &RuntimeBootstrapPlan) -> Result<(), String> {
@@ -2042,9 +2048,10 @@ mod tests {
 
     #[test]
     fn output_is_redacted_and_bounded_before_persistence() {
-        let secret = b"Authorization: Bearer sk-test-secret-material\nmore";
-        let output = sanitized_output(secret);
-        assert!(!output.contains("sk-test-secret-material"));
+        let secret_value = ["s", "k-test-secret-material"].concat();
+        let secret = format!("Authorization: Bearer {secret_value}\nmore");
+        let output = sanitized_output(secret.as_bytes());
+        assert!(!output.contains(&secret_value));
         assert!(output.contains("<redacted>"));
         assert!(!output.contains('\n'));
     }

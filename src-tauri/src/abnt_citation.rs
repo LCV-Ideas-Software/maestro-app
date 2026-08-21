@@ -211,7 +211,10 @@ pub(crate) fn empty_citation_manifest(protocol_hash: &str) -> CitationManifest {
 }
 
 fn sha256(value: impl AsRef<[u8]>) -> String {
-    format!("{:x}", Sha256::digest(value.as_ref()))
+    Sha256::digest(value.as_ref())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn blocker(

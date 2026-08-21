@@ -59,7 +59,7 @@ describe("buildFinalContentExport", () => {
       format: "html",
       document: {
         title: "Análise de citações",
-        author: "Leonardo alert(1)",
+        author: "Leonardo <script>alert(1)</script>",
         filename: "analise-de-citacoes.mainsite.html",
       },
       evidence: input.evidence,
@@ -80,6 +80,23 @@ describe("buildFinalContentExport", () => {
     expect(result.content.content).toContain("**fonte**");
     expect(result.content.content).toContain("[Exemplo](<https://example.com/artigo>)");
     expect(result.content.content).not.toContain("script");
+  });
+
+  it("escapes backslashes, quotes and line breaks in Markdown link titles", () => {
+    const result = buildFinalContentExport(
+      {
+        ...input,
+        html: '<p><a href="https://example.com" title="C:\\docs &quot;fonte&quot;&#10;linha">Fonte</a><img src="https://example.com/capa.png" alt="Capa" title="D:\\img &quot;capa&quot;"></p>',
+      },
+      "markdown",
+    );
+
+    expect(result.content.content).toContain(
+      '[Fonte](<https://example.com> "C:\\\\docs \\"fonte\\" linha")',
+    );
+    expect(result.content.content).toContain(
+      '![Capa](<https://example.com/capa.png> "D:\\\\img \\"capa\\"")',
+    );
   });
 
   it("never serializes unreviewed runtime properties into provenance", () => {
@@ -105,7 +122,7 @@ describe("buildPrintDocument", () => {
     const document = buildPrintDocument(input);
 
     expect(document).toContain("<title>Análise de citações</title>");
-    expect(document).toContain("Leonardo alert(1)");
+    expect(document).toContain("Leonardo &lt;script&gt;alert(1)&lt;/script&gt;");
     expect(document).not.toContain("<script");
     expect(document).not.toContain("onclick");
     expect(document).toContain('<meta name="maestro-export" content="pdf-print">');
@@ -118,9 +135,13 @@ describe("buildPrintDocument", () => {
       author: '<a href="javascript:alert(1)">Autoria</a>',
     });
 
-    expect(document).toContain("<title>Título &amp; revisão</title>");
-    expect(document).toContain("<p>Autoria: Autoria</p>");
-    expect(document).not.toContain("onerror");
-    expect(document).not.toContain("javascript:");
+    expect(document).toContain(
+      "<title>&lt;img src=x onerror=&quot;alert(1)&quot;&gt;Título &amp; revisão</title>",
+    );
+    expect(document).toContain(
+      "<p>Autoria: &lt;a href=&quot;javascript:alert(1)&quot;&gt;Autoria&lt;/a&gt;</p>",
+    );
+    expect(document).not.toContain("<img src=x");
+    expect(document).not.toContain('<a href="javascript:');
   });
 });
