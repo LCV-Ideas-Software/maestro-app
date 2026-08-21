@@ -1,0 +1,52 @@
+{
+  "schema_version": "posteditor_parity_snapshot.v1",
+  "reviewed_at": "2026-08-21",
+  "sanitizer_profile": "mainsite_post_html.v1",
+  "admin_commit": "034951b9c15307388b48154336880a5002f5fe86",
+  "mainsite_commit": "5aefab43084e2028b28757ed798e3aefecb9c797",
+  "admin_source_files": {
+    "src/modules/mainsite/PostEditor.tsx": "08c1f8507259c400dce1ada293d82bce0ea499ef1054c29f3984f0ea5cb36300",
+    "src/modules/mainsite/editor/BubbleMenu.tsx": "817cafe0c2fd8a0ef51e330d265290872e3f661899a6b326ace92803e54bd89e",
+    "src/modules/mainsite/editor/extensions.ts": "cddf7007530828436d36dee078eaea691b4858642fd4bb464c5887ea66f94e12",
+    "src/modules/mainsite/editor/FloatingMenu.tsx": "1bc55fa2b63dd819ab89d6110a83b56deaa4c4c69601b13505f8533889da24d8",
+    "src/modules/mainsite/editor/markdownImport.ts": "154b46c4e775353464e2bb5bb10bb5025a666d0296e838f8424ec816a241cc5e",
+    "src/modules/mainsite/editor/NodeViews.tsx": "3f3dcee4c43ec231f3a01e0270d31987ab8152e9880cab8e06f2b70895ca9129",
+    "src/modules/mainsite/editor/PromptModal.tsx": "2248036b0943cbf7c0d55fdc0e44c65cbc71b688f3c62eca51a79b32aeea9c36",
+    "src/modules/mainsite/editor/promptModalState.ts": "3c57a8b2b63462cdd36a049645595ccddbfc61de069bccc25fd55e542febaddc",
+    "src/modules/mainsite/editor/SearchReplace.tsx": "9464102004bfb34c2324624badcd8a186f1d5fb09e2a78fa6f1541f2173e56dd",
+    "src/modules/mainsite/editor/searchReplaceCore.ts": "2f6778f07c709c93e98386e500356612ec0f6870346707de642b3f479e50e7d1",
+    "src/modules/mainsite/editor/SlashCommands.ts": "a4a5a524dc6c8e122101333c3165fff044546ae0507820ccbbb3325dbaad9669",
+    "src/modules/mainsite/editor/utils.ts": "718815e8300b16e0a965570dcc9f0a3da1f4d6a8291b18b3f4f15005483c9e53",
+    "admin-motor/src/handlers/routes/mainsite/_lib/sanitize-post-html.ts": "8a8d30cfaf636cf01edd24446065762063ab1a7c2f959028e988e871fcb8f4b1"
+  },
+  "mainsite_renderer_files": {
+    "mainsite-frontend/src/components/PostReader.tsx": "d2034238b4cddffb092c105f4b12570549c96b99beea38c3c813697c8ff43643",
+    "mainsite-frontend/src/lib/inline-style-allowlist.ts": "08502d11108dd0efc629e90f25166b5663b0b4effb70a35bf61b5275306e7714",
+    "mainsite-worker/src/lib/sanitize.ts": "b4286d4c2009ba43390f268d51302df99f18cb2cb814e460c4a087306aca685f"
+  },
+  "maestro_files": {
+    "src/editor/posteditor/PostEditor.tsx": "723b6829447e011bf1cf476653d51f9b5edee2ce50ac442ec888a0eeacf93767",
+    "src/editor/posteditor/README.md": "bab0dc8a5c54aa431fbe6a2917172da61c4e4e31fc19f368651eec1a034df007",
+    "src/editor/posteditor/editor/BubbleMenu.tsx": "ca64d3af51bca65d6233d1a52363b67d64735059779d209bd58b3e2e9f968fb8",
+    "src/editor/posteditor/editor/extensions.ts": "a0321cd72bc753e554aaf797a6aac4af57b4a4de25a6c231c4199c0fb54e88ff",
+    "src/editor/posteditor/editor/FloatingMenu.tsx": "07a08af591d04be4b7d3d8920bbe486865e5128921e0a47f50c5297796c16da5",
+    "src/editor/posteditor/editor/markdownImport.ts": "88e0c5448c55f3e1c716f6db41ffda51466b447d1007e43a4a9e451976c0dedd",
+    "src/editor/posteditor/editor/NodeViews.tsx": "7d1890bfd70d965848a51a0e79dd1491d092f5d0d6713db01212c2fecb68c4ae",
+    "src/editor/posteditor/editor/PromptModal.tsx": "79b14621f1f8b2d4af495f2eeaca44548428cb3ce01e271d9fbeaa9249a2d817",
+    "src/editor/posteditor/editor/promptModalState.ts": "a8b6a636bb72714dd862d7089d05bcf4a7027b672c1129f470e3c1e5d328cf7c",
+    "src/editor/posteditor/editor/SearchReplace.tsx": "ef0d6d1e770455ec84ec1933688589b34f60d1dd99f75e1e9fd8eab7888ad380",
+    "src/editor/posteditor/editor/searchReplaceCore.ts": "c53d78d7418249e5ca06cfb4592b8d3cf81b1674071f91481db2e10e6656dec9",
+    "src/editor/posteditor/editor/SlashCommands.ts": "65b9edd5a787e1f0799022f0a4ba22465257d71a1b1e4558de315d4cc78debac",
+    "src/editor/posteditor/editor/utils.ts": "16cd5cbbc1aa0e26187a21958950bc87a16c96244108f0036cd4ae1165abe36a",
+    "src/editor/posteditor/editor/sanitizeFinalHtml.ts": "a346780ebf1adb7f4c03608c867af1ffa7325c5545f250203281499827c53f15",
+    "src/editor/posteditor/editor/finalHtmlFixtures.ts": "6700eac7871a1febe04fe9657ae05bac4351a11f49a051f679718ba976977670",
+    "src/editor/posteditor/editor/sharedChatImport.ts": "ef2c31b2ee2b81b030803e9acf479c9a923ef57219a490ac7a8e6e7c35e7806e",
+    "src/editor/posteditor/editor/exportFinalContent.ts": "2a18c02002bf9519da3a97e21e3998737c9f26615183699afde8cba134072ae6"
+  },
+  "intentional_divergences": [
+    "All imported or AI-produced HTML is sanitized before entering TipTap.",
+    "Link Integrity must clear every link before a durable save.",
+    "Shared-chat imports and final exports keep provenance outside the public article HTML.",
+    "Remote D1 publication requires a read-only preview, explicit confirmation, optimistic concurrency guards, independent native validation, and post-write readback."
+  ]
+}

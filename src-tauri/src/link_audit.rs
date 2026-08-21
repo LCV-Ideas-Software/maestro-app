@@ -36,8 +36,12 @@ use std::time::Duration;
 use regex::Regex;
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use reqwest::{blocking::Client, redirect::Policy, Url};
+use sha2::{Digest, Sha256};
 
-use crate::{sanitize_short, sanitize_text, LinkAuditResult, LinkAuditRow};
+use crate::{
+    sanitize_short, sanitize_text, LinkAuditResult, LinkAuditRow, LinkClassification,
+    LinkCrossReviewStatus,
+};
 
 pub(crate) const LINK_AUDIT_MAX_UNIQUE_URLS: usize = 30;
 const LINK_AUDIT_MAX_MATCHES: usize = 80;
@@ -53,6 +57,10 @@ pub(crate) fn run_link_audit(text: &str) -> LinkAuditResult {
         .timeout(Duration::from_secs(15))
         .redirect(blocked_aware_redirect_policy())
         .dns_resolver(Arc::new(PublicOnlyResolver))
+        // Proxies resolve/connect outside this process and would break the
+        // resolver-to-socket SSRF guarantee. Link audit therefore uses direct
+        // public connections only, matching the Web Evidence Engine.
+        .no_proxy()
         .user_agent(format!(
             "Maestro Editorial AI/{}",
             env!("CARGO_PKG_VERSION")
@@ -62,10 +70,16 @@ pub(crate) fn run_link_audit(text: &str) -> LinkAuditResult {
         Ok(client) => client,
         Err(error) => {
             return LinkAuditResult {
+                schema_version: "link_integrity_audit.v1".to_string(),
+                audit_id: sha256_hex(text.as_bytes()),
+                source_artifact: "legacy/link-audit".to_string(),
+                checked_at: chrono::Utc::now().to_rfc3339(),
                 urls_found: candidates.len(),
                 checked: 0,
                 ok: 0,
                 failed: candidates.len(),
+                pending_review: 0,
+                blocked: candidates.len(),
                 rows: vec![link_audit_row(
                     "http-client",
                     format!("cliente HTTP falhou: {}", error.without_url()),
@@ -97,10 +111,16 @@ pub(crate) fn run_link_audit(text: &str) -> LinkAuditResult {
         .count();
 
     LinkAuditResult {
+        schema_version: "link_integrity_audit.v1".to_string(),
+        audit_id: sha256_hex(text.as_bytes()),
+        source_artifact: "legacy/link-audit".to_string(),
+        checked_at: chrono::Utc::now().to_rfc3339(),
         urls_found: candidates.len(),
         checked: public_urls.len(),
         ok,
         failed,
+        pending_review: rows.iter().filter(|row| row.tone == "warn").count(),
+        blocked: rows.iter().filter(|row| row.tone == "blocked").count(),
         rows,
     }
 }
@@ -125,25 +145,6 @@ pub(crate) fn extract_public_urls(text: &str) -> Vec<String> {
         }
     }
     urls.into_iter().collect()
-}
-
-pub(crate) fn count_unique_url_candidates(text: &str) -> usize {
-    let Some(regex) = Regex::new(r#"https?://[^\s<>"')\]]+"#).ok() else {
-        return 0;
-    };
-
-    let mut seen = BTreeSet::new();
-    for matched in regex.find_iter(text).take(LINK_AUDIT_MAX_MATCHES) {
-        let cleaned = matched
-            .as_str()
-            .trim_end_matches(['.', ',', ';', ':'])
-            .to_string();
-        seen.insert(cleaned);
-        if seen.len() > LINK_AUDIT_MAX_UNIQUE_URLS {
-            break;
-        }
-    }
-    seen.len()
 }
 
 struct LinkCandidate {
@@ -184,7 +185,7 @@ pub(crate) fn is_public_http_url(value: &str) -> bool {
     public_http_url_rejection_reason(value).is_none()
 }
 
-fn public_http_url_rejection_reason(value: &str) -> Option<String> {
+pub(crate) fn public_http_url_rejection_reason(value: &str) -> Option<String> {
     let Ok(url) = Url::parse(value) else {
         return Some("URL invalida ou incompleta".to_string());
     };
@@ -253,7 +254,7 @@ fn blocked_aware_redirect_policy() -> Policy {
 /// connection — closing the DNS-rebinding / resolver-mismatch window that a
 /// pre-flight-only check leaves open, and failing closed on resolution error
 /// (audit S1 hardening).
-struct PublicOnlyResolver;
+pub(crate) struct PublicOnlyResolver;
 
 impl Resolve for PublicOnlyResolver {
     fn resolve(&self, name: Name) -> Resolving {
@@ -376,8 +377,40 @@ fn link_audit_row(
     let status = status.into();
     let tone = tone.into();
     let invalidity = link_invalidity_summary(&status, &tone);
+    let url = sanitize_text(&url.into(), 240);
+    let classification = if tone == "ok" {
+        LinkClassification::VerifiedButWeak
+    } else if tone == "blocked" {
+        LinkClassification::Quarantined
+    } else {
+        LinkClassification::SuspectedHallucination
+    };
     LinkAuditRow {
-        url: sanitize_text(&url.into(), 240),
+        schema_version: "link_evidence.v1".to_string(),
+        link_id: sha256_hex(url.as_bytes()),
+        source_artifact: "legacy/link-audit".to_string(),
+        source_fingerprint: String::new(),
+        anchor_text: None,
+        surrounding_text: String::new(),
+        original_url: url.clone(),
+        normalized_url: url.clone(),
+        normalization_changes: Vec::new(),
+        final_url: None,
+        redirect_chain: Vec::new(),
+        http_status: status.strip_prefix("HTTP ").and_then(|value| value.parse().ok()),
+        content_type: None,
+        sha256: None,
+        checked_at: chrono::Utc::now().to_rfc3339(),
+        claim_supported: None,
+        classification,
+        correction_candidates: Vec::new(),
+        cross_review_status: LinkCrossReviewStatus::Pending,
+        review_decision: None,
+        reviewed_by: None,
+        review_note: None,
+        reviewed_at: None,
+        web_evidence_id: None,
+        url,
         status: sanitize_text(&status, 160),
         invalidity: sanitize_text(&invalidity, 180),
         tone: sanitize_short(&tone, 16),
@@ -392,4 +425,10 @@ fn link_invalidity_summary(status: &str, tone: &str) -> String {
         return format!("resposta HTTP {code}");
     }
     status.to_string()
+}
+fn sha256_hex(value: &[u8]) -> String {
+    Sha256::digest(value)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }

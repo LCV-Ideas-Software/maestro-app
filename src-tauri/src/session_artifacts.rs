@@ -49,7 +49,8 @@ use crate::{
 };
 
 const CIRCULAR_REVIEW_STATE_FILE: &str = "circular-review-state.json";
-pub(crate) const CIRCULAR_REVIEW_STATE_SCHEMA_VERSION: u8 = 2;
+pub(crate) const CIRCULAR_REVIEW_STATE_SCHEMA_VERSION: u8 = 3;
+pub(crate) const CIRCULAR_REVIEW_ROSTER_SCHEMA_VERSION: u8 = 2;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct CircularReviewState {
@@ -66,6 +67,21 @@ pub(crate) struct CircularReviewState {
     pub(crate) valid_round_agents: Vec<String>,
     #[serde(default)]
     pub(crate) stable_serial_approval_agents: Vec<String>,
+    /// Slots de retry corretivo pago já reservados, indexados pela rodada.
+    ///
+    /// O campo integra o schema v3 e usa default vazio para que estados
+    /// anteriores sejam lidos e pausados com segurança. A reserva é persistida antes do
+    /// dispatch do provider: um crash não pode zerar e contornar o teto.
+    #[serde(default)]
+    pub(crate) paid_corrective_retries_by_round: std::collections::BTreeMap<usize, u32>,
+    /// Contadores corretivos por turno. As chaves contêm apenas posição,
+    /// agente e SHA-256 do draft — nunca o texto editorial.
+    #[serde(default)]
+    pub(crate) corrective_contract_retry_counts: std::collections::BTreeMap<String, u32>,
+    /// `true` somente quando o estado nasceu ou foi continuado com accounting
+    /// v3. Sessões antigas não recebem orçamento pago novo por default.
+    #[serde(default)]
+    pub(crate) retry_accounting_authoritative: bool,
     pub(crate) updated_at: String,
 }
 
@@ -308,10 +324,7 @@ fn load_persisted_circular_custody(
     let body = read_text_file(&state_path)?;
     let state = serde_json::from_str::<CircularReviewState>(&body)
         .map_err(|error| format!("circular review state is invalid JSON: {error}"))?;
-    if !matches!(
-        state.schema_version,
-        1 | CIRCULAR_REVIEW_STATE_SCHEMA_VERSION
-    ) {
+    if !(1..=CIRCULAR_REVIEW_STATE_SCHEMA_VERSION).contains(&state.schema_version) {
         return Err(format!(
             "unsupported circular review state schema version: {}",
             state.schema_version
@@ -383,7 +396,7 @@ fn load_persisted_circular_custody(
         .iter()
         .chain(state.stable_serial_approval_agents.iter())
         .any(|agent| {
-            state.schema_version >= CIRCULAR_REVIEW_STATE_SCHEMA_VERSION
+            state.schema_version >= CIRCULAR_REVIEW_ROSTER_SCHEMA_VERSION
                 && !state.round_roster.contains(agent)
         })
     {
@@ -610,6 +623,30 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn circular_state_defaults_missing_paid_retry_accounting_for_legacy_v2() {
+        let state: CircularReviewState = serde_json::from_str(
+            r#"{
+                "schema_version": 2,
+                "run_id": "legacy-run",
+                "current_draft_artifact": "round-001-codex-draft.md",
+                "current_draft_author_key": "codex",
+                "current_draft_sha256": "digest",
+                "round": 1,
+                "turn_index": 0,
+                "round_roster": ["claude", "codex"],
+                "valid_round_agents": [],
+                "stable_serial_approval_agents": [],
+                "updated_at": "2026-08-21T00:00:00Z"
+            }"#,
+        )
+        .expect("additive paid-retry accounting must remain compatible with v2 state");
+
+        assert!(state.paid_corrective_retries_by_round.is_empty());
+        assert!(state.corrective_contract_retry_counts.is_empty());
+        assert!(!state.retry_accounting_authoritative);
+    }
+
+    #[test]
     fn parse_agent_artifact_name_accepts_append_only_attempt_suffix() {
         let agent_dir = PathBuf::from("agent-runs");
         let artifact =
@@ -726,6 +763,15 @@ mod tests {
                     "deepseek".to_string(),
                     "grok".to_string(),
                 ],
+                paid_corrective_retries_by_round: std::collections::BTreeMap::from([(3, 2)]),
+                corrective_contract_retry_counts: std::collections::BTreeMap::from([(
+                    format!(
+                        "3:4:gemini:{}",
+                        circular_draft_sha256("Versao corrente aceita.")
+                    ),
+                    1,
+                )]),
+                retry_accounting_authoritative: true,
                 updated_at: "2026-07-25T00:00:00Z".to_string(),
             },
         )
@@ -742,6 +788,9 @@ mod tests {
             circular.stable_serial_approval_agents,
             vec!["gemini", "deepseek", "grok"]
         );
+        assert_eq!(circular.paid_corrective_retries_by_round.get(&3), Some(&2));
+        assert_eq!(circular.corrective_contract_retry_counts.len(), 1);
+        assert!(circular.retry_accounting_authoritative);
         let _ = std::fs::remove_dir_all(&session_dir);
     }
 
@@ -775,6 +824,9 @@ mod tests {
                 ],
                 valid_round_agents: vec!["gemini".to_string()],
                 stable_serial_approval_agents: vec!["gemini".to_string()],
+                paid_corrective_retries_by_round: std::collections::BTreeMap::new(),
+                corrective_contract_retry_counts: std::collections::BTreeMap::new(),
+                retry_accounting_authoritative: true,
                 updated_at: "2026-07-25T00:00:00Z".to_string(),
             },
         )

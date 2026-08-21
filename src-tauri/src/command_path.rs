@@ -11,8 +11,9 @@
 //     <command>.ps1, <command>]` so the resolver can match any common
 //     extension; on POSIX, returns the path unchanged.
 //   - `command_search_dirs` — assembles the effective PATH-like search
-//     order: process PATH first, then well-known Windows install
-//     locations (USERPROFILE\.cargo\bin, APPDATA\npm, LOCALAPPDATA\agy\bin,
+//     order: portable `data/bootstrap/npm-user` first, process PATH second,
+//     then well-known Windows install locations (USERPROFILE\.cargo\bin,
+//     APPDATA\npm, LOCALAPPDATA\agy\bin,
 //     LOCALAPPDATA\Programs\nodejs, LOCALAPPDATA\Microsoft\WinGet\Links, C:\npm-global,
 //     WinGet ripgrep package dirs, C:\Program Files\nodejs, C:\nvm4w\nodejs,
 //     C:\Program Files\GitHub CLI). Deduplicates by
@@ -34,6 +35,8 @@ use std::collections::BTreeSet;
 #[cfg(windows)]
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use crate::app_paths::data_dir;
 
 pub(crate) fn resolve_command(command: &str) -> Option<PathBuf> {
     let command_path = Path::new(command);
@@ -75,9 +78,16 @@ fn command_candidate_paths(path: &Path) -> Vec<PathBuf> {
 }
 
 pub(crate) fn command_search_dirs() -> Vec<PathBuf> {
-    let mut dirs = std::env::var_os("PATH")
-        .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
-        .unwrap_or_default();
+    // Portable bootstrap installs live with the application data instead of
+    // mutating HKCU/HKLM or the persistent Windows PATH.  Search this prefix
+    // first so a user-approved portable Claude/Codex install wins over a stale
+    // machine-wide executable.
+    let mut dirs = vec![data_dir().join("bootstrap").join("npm-user")];
+    dirs.extend(
+        std::env::var_os("PATH")
+            .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+            .unwrap_or_default(),
+    );
 
     #[cfg(windows)]
     {
@@ -116,6 +126,20 @@ pub(crate) fn command_search_dirs() -> Vec<PathBuf> {
     dirs.into_iter()
         .filter(|dir| seen.insert(dir.to_string_lossy().to_ascii_lowercase()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn portable_npm_prefix_is_first_without_persistent_path_or_registry_changes() {
+        let dirs = command_search_dirs();
+        assert_eq!(
+            dirs.first(),
+            Some(&data_dir().join("bootstrap").join("npm-user"))
+        );
+    }
 }
 
 #[cfg(windows)]

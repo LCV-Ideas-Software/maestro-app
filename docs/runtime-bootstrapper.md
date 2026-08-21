@@ -1,7 +1,7 @@
 # Runtime Bootstrapper
 
-Status: implementation contract.
-Date: 2026-04-26.
+Status: implemented on the active release branch; remote Rust validation pending.
+Updated: 2026-08-21.
 
 Maestro must be able to prepare a Windows 11+ machine for full operation on first run.
 
@@ -15,12 +15,21 @@ The bootstrapper is a guided background installer/configurator. It does not open
 4. Propose the safest install/update/configuration plan.
 5. Ask the operator for explicit authorization before changing the system.
 6. Execute approved actions in background.
-7. Stream redacted stdout/stderr and progress into Maestro UI.
+7. Stream lifecycle progress while the process runs; return bounded, redacted stdout/stderr when it exits so partial credentials are never projected before sanitization.
 8. Pause for operator input when login, browser authorization, MFA, license acceptance, or elevated OS permission is required.
 9. Re-run verification after every action.
 10. Persist a local JSON/NDJSON bootstrap report under ignored runtime data.
 
 No package, CLI, credential, login, or configuration change may be installed silently without operator approval.
+
+## Implemented Safety Boundary
+
+- The frontend can submit only `action_id`, the exact expiring `plan_hash`, and an explicit approval boolean. It cannot submit an executable, argument, package, script, or URL.
+- The backend accepts only a fixed typed operation allowlist, verifies the persisted plan hash, schema version, expiry, action/operation pair, and resolved-command fingerprint, and permits only one running action.
+- Claude Code and Codex npm installs use `data/bootstrap/npm-user` inside Maestro's portable folder. Maestro does not write the Registry or persist changes to the Windows `PATH`; its own command resolver searches this portable prefix first.
+- Vendor scripts, browser authentication, MFA, credential entry, WebView repair, and other interactive or elevated work remain explicit handoffs. Official instruction pages are opened only after per-action approval; Cloudflare and DeepSeek credentials route to the existing secure Settings surface.
+- Approved background commands emit lifecycle/heartbeat progress. Stdout and stderr are bounded and redacted before they enter the UI, JSON/NDJSON records, or the support bundle.
+- Every action is followed by a fresh inventory. Plans, controls, action results, progress records, and the support bundle remain under ignored `data/bootstrap/` storage beside the portable application.
 
 ## Dependency Classes
 

@@ -1,7 +1,8 @@
 # Integrated Text Editor Decision
 
-Status: binding architecture decision.
+Status: binding architecture decision; local persistence boundary implemented.
 Date: 2026-04-26.
+Implementation review: 2026-08-21.
 
 ## Decision
 
@@ -17,6 +18,8 @@ This is not a generic TipTap implementation. The accepted target is functional a
 - Same sanitizer and `PostReader` render compatibility before direct D1 publish is treated as stable.
 
 The compatibility copy lives in `src/editor/posteditor/`.
+
+Final HTML leaves the editor only after `mainsite_post_html.v1` sanitization and Link Integrity approval, then enters the atomic `mainsite_draft.v1` local envelope. Direct D1 insert/update is a separate MAESTRO-7 authority boundary and independently re-sanitizes and validates the envelope before constructing any remote mutation.
 
 For runtime weight, Maestro must follow the admin-app pattern: the PostEditor parity module is lazy-loaded and rendered only after the operator clicks `Criar Post`. The session dashboard must not import or mount the Tiptap-heavy editor on initial load.
 
@@ -38,3 +41,5 @@ The decisive reason is existing production compatibility: `admin-app/MainSite/Po
 ## Non-Negotiable Gate
 
 No Maestro direct write to `example_db.mainsite_posts` may be labeled stable until parity fixtures prove that Maestro-authored content and PostEditor-authored content render equivalently in `PostReader`.
+
+CI enforces the reviewed source/renderer/local hashes recorded in `src/editor/posteditor/parity-snapshot.json`; the consolidated release PR additionally carries the screenshot and remote readback canaries before stable D1 publication is enabled.

@@ -31,6 +31,8 @@ jobs:
         run: npm ci
       - name: Biome (lint + format)
         run: npm run biome
+      - name: Verify reviewed PostEditor parity snapshot
+        run: npm run parity:check
       - name: npm audit
         run: npm audit --audit-level=moderate
       - name: Frontend tests

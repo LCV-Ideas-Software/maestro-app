@@ -37,6 +37,14 @@ use crate::{
 
 const LEGACY_UNSCOPED_RUN_ID: &str = "__legacy_unscoped__";
 
+#[derive(Clone, Copy)]
+pub(crate) struct AgentCostAttribution<'a> {
+    pub(crate) attempt_kind: &'a str,
+    pub(crate) round: usize,
+    pub(crate) turn: usize,
+    pub(crate) corrective_retry_ordinal: Option<u32>,
+}
+
 pub(crate) fn session_contract_path(session_dir: &Path) -> PathBuf {
     session_dir.join("session-contract.json")
 }
@@ -112,6 +120,22 @@ pub(crate) fn append_agent_cost_to_ledger(
     cost_scope_id: &str,
     agent: &EditorialAgentResult,
 ) -> Result<(), String> {
+    append_agent_cost_to_ledger_with_attribution(
+        session_dir,
+        ledger,
+        cost_scope_id,
+        agent,
+        None,
+    )
+}
+
+pub(crate) fn append_agent_cost_to_ledger_with_attribution(
+    session_dir: &Path,
+    ledger: &mut CostLedger,
+    cost_scope_id: &str,
+    agent: &EditorialAgentResult,
+    attribution: Option<AgentCostAttribution<'_>>,
+) -> Result<(), String> {
     let Some(cost_usd) = agent.cost_usd else {
         return Ok(());
     };
@@ -129,6 +153,11 @@ pub(crate) fn append_agent_cost_to_ledger(
         output_tokens,
         cost_usd,
         estimated: agent.cost_estimated.unwrap_or(true),
+        attempt_kind: attribution.map(|value| value.attempt_kind.to_string()),
+        round: attribution.map(|value| value.round),
+        turn: attribution.map(|value| value.turn),
+        corrective_retry_ordinal: attribution
+            .and_then(|value| value.corrective_retry_ordinal),
     });
     ledger.total_observed_cost_usd = observed_cost_for_run(&ledger.entries, cost_scope_id);
     write_cost_ledger(session_dir, ledger)
@@ -159,7 +188,8 @@ mod tests {
     use std::{fs, path::PathBuf};
 
     use super::{
-        append_agent_cost_to_ledger, cost_ledger_path, load_cost_ledger, LEGACY_UNSCOPED_RUN_ID,
+        append_agent_cost_to_ledger, append_agent_cost_to_ledger_with_attribution,
+        cost_ledger_path, load_cost_ledger, AgentCostAttribution, LEGACY_UNSCOPED_RUN_ID,
     };
     use crate::app_paths::data_dir;
     use crate::EditorialAgentResult;
@@ -205,7 +235,7 @@ mod tests {
         assert_eq!(ledger.entries[0].run_id, "old-run");
         assert_eq!(ledger.total_observed_cost_usd, 0.0);
 
-        append_agent_cost_to_ledger(
+        append_agent_cost_to_ledger_with_attribution(
             &dir,
             &mut ledger,
             "new-attempt",
@@ -224,6 +254,12 @@ mod tests {
                 cost_estimated: Some(true),
                 cache: None,
             },
+            Some(AgentCostAttribution {
+                attempt_kind: "paid_corrective_retry",
+                round: 3,
+                turn: 4,
+                corrective_retry_ordinal: Some(2),
+            }),
         )
         .unwrap();
 
@@ -232,6 +268,16 @@ mod tests {
         assert_eq!(new_run_ledger.entries[0].run_id, "old-run");
         assert_eq!(new_run_ledger.entries[1].run_id, "new-attempt");
         assert_eq!(new_run_ledger.total_observed_cost_usd, 1.25);
+        assert_eq!(
+            new_run_ledger.entries[1].attempt_kind.as_deref(),
+            Some("paid_corrective_retry")
+        );
+        assert_eq!(new_run_ledger.entries[1].round, Some(3));
+        assert_eq!(new_run_ledger.entries[1].turn, Some(4));
+        assert_eq!(
+            new_run_ledger.entries[1].corrective_retry_ordinal,
+            Some(2)
+        );
 
         let old_run_ledger = load_cost_ledger(&dir, "session-run", "old-run");
         assert_eq!(old_run_ledger.total_observed_cost_usd, 9.5);

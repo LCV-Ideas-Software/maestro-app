@@ -412,6 +412,7 @@ pub(crate) fn build_serial_revision_prompt(
     evidence_block: &str,
 ) -> String {
     let block_manifest = format_block_manifest_for_prompt(current_text);
+    let provider_contract_guard = serial_provider_contract_guard(reviewer_key);
 
     format!(
         r#"# Maestro Editorial AI - Serial Review-Rewrite Turn
@@ -501,6 +502,8 @@ The answer MUST contain exactly these parts:
 Anything outside those tags may be discarded by the app.
 An incomplete tag, missing closing tag, reproduced protocol text, or truncated JSON/report is a contract violation and will not count as READY.
 
+{provider_contract_guard}
+
 ## Current Text Block Manifest
 
 Every received block is locked by default. If `<maestro_final_text>` changes, deletes, compresses, splits, moves, or replaces a received block, the corresponding received `block_id` MUST appear in `changed_blocks` with a concrete `protocol_basis`. Silent changes to approved blocks are contract violations. Extra blocks require `change_type: "split"` or `"addition"`; moved approved blocks require `change_type: "reorder"`.
@@ -539,6 +542,22 @@ Every received block is locked by default. If `<maestro_final_text>` changes, de
         previous_revision_history,
         evidence_block
     )
+}
+
+fn serial_provider_contract_guard(reviewer_key: &str) -> &'static str {
+    if reviewer_key.eq_ignore_ascii_case("gemini") {
+        return r#"## Gemini Output Reliability Guard
+
+Before returning, perform this mechanical self-check:
+
+1. Emit exactly one `MAESTRO_STATUS` first line.
+2. Emit exactly one balanced `<maestro_revision_report>...</maestro_revision_report>` block.
+3. When `custody` is `"revised"`, emit exactly one balanced `<maestro_final_text>...</maestro_final_text>` block containing the complete article; when custody is `"unchanged"`, emit none.
+4. Do not stop after analysis, a plan, or a partial draft. Verify all required closing tags before sending the answer.
+
+This guard is mandatory because incomplete output is an operational failure and may consume a paid corrective-retry slot."#;
+    }
+    ""
 }
 
 #[cfg(test)]
@@ -726,6 +745,21 @@ mod tests {
         assert!(prompt.contains("changed_blocks"));
         assert!(prompt.contains("block_id"));
         assert!(prompt.contains("protocol_basis"));
+        assert!(prompt.contains("Gemini Output Reliability Guard"));
+        assert!(prompt.contains("Verify all required closing tags"));
+
+        let codex_prompt = build_serial_revision_prompt(
+            &test_request(),
+            "run-test",
+            3,
+            "Texto atual",
+            "claude",
+            "codex",
+            false,
+            "",
+            "",
+        );
+        assert!(!codex_prompt.contains("Gemini Output Reliability Guard"));
     }
 
     #[test]

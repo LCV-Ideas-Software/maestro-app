@@ -1,6 +1,6 @@
 {
   "name": "maestro-app",
-  "version": "0.5.57",
+  "version": "0.5.58",
   "private": true,
   "description": "Portable Windows editorial workbench for protocol-driven AI drafting, source verification, and multi-agent editorial convergence.",
   "type": "module",
@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "biome": "biome check src",
     "biome:write": "biome check --write src",
+    "parity:check": "node scripts/verify-posteditor-parity.mjs",
     "format:public": "prettier --write \"**/index.html\"",
     "format:public:check": "prettier --check \"**/index.html\""
   },

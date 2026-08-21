@@ -99,13 +99,6 @@ export const contentPipelines = [
   { label: "D1 mainsite_posts", value: "sincronizar com BigData" },
 ];
 
-export const webEvidenceTools = [
-  { label: "fetch", value: "HEAD/GET, redirects, hash" },
-  { label: "curl", value: "replay com segredos ocultos" },
-  { label: "web search", value: "provedores configuraveis" },
-  { label: "navegador assistido", value: "CAPTCHA/login com humano" },
-];
-
 export const initialBootstrapChecks: BootstrapCheckRow[] = [
   { label: "WebView2", value: "verificacao pendente", tone: "pending" },
   { label: "Claude CLI", value: "verificacao pendente", tone: "pending" },

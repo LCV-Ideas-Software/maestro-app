@@ -1,11 +1,11 @@
-# Import, Export, and Cloudflare D1 Plan
+# Import, Export, and Cloudflare D1
 
-Status: implementation contract.
-Date: 2026-04-26.
+Status: public shared-chat import, Markdown/MainSite HTML/PDF export, and API-first D1 publication implemented.
+Last reviewed: 2026-08-21.
 
 ## Shared Chat Links
 
-Maestro must classify and import shared chat snapshots from the three provider web apps:
+Maestro classifies and imports public shared chat snapshots from the three provider web apps:
 
 - ChatGPT: `https://chatgpt.com/share/<conversation-id>`.
 - Gemini: `https://g.co/gemini/share/...` and canonical Gemini shared-chat URLs.
@@ -14,7 +14,7 @@ Maestro must classify and import shared chat snapshots from the three provider w
 Import is evidence-oriented, not blind scraping:
 
 1. Normalize the URL and provider.
-2. Fetch the public snapshot through a browser-capable fetch path when static HTML is insufficient.
+2. Fetch the public snapshot through the native evidence path; when login, consent, CAPTCHA, or unsupported dynamic rendering prevents trustworthy extraction, stop with an operator-action handoff.
 3. Extract prompt, response text, artifacts when visible, timestamp hints, and source URL.
 4. Convert to normalized Markdown plus a JSON provenance record.
 5. Store import evidence under ignored local session data.
@@ -24,11 +24,11 @@ If a provider changes the share page structure, the importer must fail with a di
 
 ## File Formats
 
-Required read and write paths:
+Implemented read and write paths:
 
 - Pure Markdown.
 - Markdown plus trusted HTML blocks.
-- PDF import for text extraction and PDF export for final delivery.
+- PDF evidence attachment/capture and PDF export for final delivery through the system print dialog. Automatic PDF text extraction is not inferred when no trusted extractor is configured.
 - MainSite-compatible HTML through the PostEditor parity module.
 
 Markdown and PDF conversions must preserve provenance metadata separately from the public final text.
@@ -47,16 +47,15 @@ Target:
 example_db.mainsite_posts
 ```
 
-Maestro may read, import, export, insert, and update records, but the stable write path is gated by:
+Maestro may read, preview, insert, and update records, but the write path is gated by:
 
 - Local credentials stored only in ignored runtime vault/config files.
 - Cloudflare API as the primary execution path for every D1 operation.
-- Wrangler as a fallback execution path only when the API route is unavailable, blocked by tooling drift, or explicitly selected for diagnosis by the operator.
-- Wrangler fallback must invoke `wrangler@latest`; Maestro may automatically authorize the Wrangler latest update/install once the operator has approved use of the fallback CLI path.
+- A fail-closed stop when the primary API path is unavailable. The release does not claim an unaudited Wrangler write fallback; selecting fallback permission changes the diagnostic but never improvises a remote mutation.
 - Operator confirmation before any remote write.
 - Dry-run preview containing SQL intent, affected row, and sanitized HTML diff.
 - PostEditor parity output.
 - MainSite sanitizer pass.
 - `PostReader` compatibility fixtures.
 
-For a local Windows desktop app, D1 access must use Cloudflare's API first. Wrangler is installed and managed because it is useful for fallback, diagnostics, and operator-visible parity with Cloudflare's CLI, but it is not the default D1 write/read path. When that fallback is needed, Maestro must run the latest Wrangler surface (`wrangler@latest`) rather than trusting a stale global install. API tokens, account IDs, database IDs, and Cloudflare credentials must never be committed.
+For a local Windows desktop app, D1 access uses Cloudflare's API. Wrangler remains useful for separately authorized diagnostics, but this release deliberately has no Wrangler publication fallback: an API failure is reported and no second write path is attempted. API tokens, account IDs, database IDs, and Cloudflare credentials must never be committed.

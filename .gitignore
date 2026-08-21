@@ -74,7 +74,7 @@ agent-runs/**/*.response.json
 # Local drafts/evidence unless explicitly promoted as public fixtures
 /draft.md
 drafts/
-evidence/
+/evidence/
 source-cache/
 pdf-cache/
 link-cache/

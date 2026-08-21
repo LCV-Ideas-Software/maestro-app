@@ -22,6 +22,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use tauri::{Emitter, Manager};
 
 mod ai_probes;
+mod abnt_citation;
 mod api_payloads;
 mod app_init;
 mod app_paths;
@@ -39,7 +40,10 @@ mod editorial_io;
 mod editorial_prompts;
 mod human_logs;
 mod link_audit;
+mod link_integrity;
 mod logging;
+mod mainsite_d1;
+mod mainsite_draft;
 mod provider_config;
 mod provider_deepseek;
 mod provider_grok;
@@ -47,6 +51,7 @@ mod provider_perplexity;
 mod provider_retry;
 mod provider_routing;
 mod provider_runners;
+mod runtime_bootstrap;
 mod sanitize;
 mod session_artifacts;
 mod session_cancel;
@@ -58,6 +63,7 @@ mod session_orchestration;
 mod session_persistence;
 mod session_resume;
 mod tauri_commands;
+mod web_evidence;
 
 // Re-export the sanitization helpers so existing `use crate::sanitize_text`
 // and similar imports across all 18+ sibling modules continue to resolve
@@ -177,9 +183,21 @@ pub(crate) struct BootstrapConfig {
     pub(crate) cloudflare_api_token_source: String,
     pub(crate) cloudflare_api_token_env_var: String,
     pub(crate) cloudflare_persistence_database: String,
+    #[serde(default = "default_cloudflare_publication_database")]
+    pub(crate) cloudflare_publication_database: String,
+    #[serde(default = "default_cloudflare_publication_table")]
+    pub(crate) cloudflare_publication_table: String,
     pub(crate) cloudflare_secret_store: String,
     pub(crate) windows_env_prefix: String,
     pub(crate) updated_at: String,
+}
+
+fn default_cloudflare_publication_database() -> String {
+    "example_db".to_string()
+}
+
+fn default_cloudflare_publication_table() -> String {
+    "mainsite_posts".to_string()
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -269,21 +287,162 @@ pub(crate) struct LinkAuditRequest {
     pub(crate) text: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LinkClassification {
+    VerifiedSupportsClaim,
+    VerifiedButWeak,
+    RedirectedVerified,
+    ContentTypeMismatch,
+    NotFound,
+    Forbidden,
+    AuthRequired,
+    CaptchaRequired,
+    Paywall,
+    Timeout,
+    DnsError,
+    TlsError,
+    Malformed,
+    SuspectedHallucination,
+    Quarantined,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LinkCrossReviewStatus {
+    NotNeeded,
+    Pending,
+    Accepted,
+    Rejected,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LinkReviewDecision {
+    Accept,
+    Reject,
+    Quarantine,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LinkCorrectionAction {
+    Replace,
+    Remove,
+    Reword,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub(crate) struct LinkEvidenceRedirect {
+    pub(crate) url: String,
+    pub(crate) status: u16,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct LinkCorrectionCandidate {
+    pub(crate) candidate_id: String,
+    pub(crate) action: LinkCorrectionAction,
+    pub(crate) url: Option<String>,
+    pub(crate) title: Option<String>,
+    pub(crate) provider: String,
+    pub(crate) query: Option<String>,
+    pub(crate) web_evidence_id: Option<String>,
+    pub(crate) rationale: String,
+    pub(crate) proposed_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct LinkAuditRow {
+    pub(crate) schema_version: String,
+    pub(crate) link_id: String,
+    pub(crate) source_artifact: String,
+    pub(crate) source_fingerprint: String,
+    pub(crate) anchor_text: Option<String>,
+    pub(crate) surrounding_text: String,
+    pub(crate) original_url: String,
+    pub(crate) normalized_url: String,
+    pub(crate) normalization_changes: Vec<String>,
+    pub(crate) final_url: Option<String>,
+    pub(crate) redirect_chain: Vec<LinkEvidenceRedirect>,
+    pub(crate) http_status: Option<u16>,
+    pub(crate) content_type: Option<String>,
+    pub(crate) sha256: Option<String>,
+    pub(crate) checked_at: String,
+    pub(crate) claim_supported: Option<bool>,
+    pub(crate) classification: LinkClassification,
+    pub(crate) correction_candidates: Vec<LinkCorrectionCandidate>,
+    pub(crate) cross_review_status: LinkCrossReviewStatus,
+    pub(crate) review_decision: Option<LinkReviewDecision>,
+    pub(crate) reviewed_by: Option<String>,
+    pub(crate) review_note: Option<String>,
+    pub(crate) reviewed_at: Option<String>,
+    pub(crate) web_evidence_id: Option<String>,
+    // Legacy audit_links projection. Keep these fields stable for callers that
+    // have not yet adopted the persistent Link Integrity Engine DTO.
     pub(crate) url: String,
     pub(crate) status: String,
     pub(crate) invalidity: String,
     pub(crate) tone: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct LinkAuditResult {
+    pub(crate) schema_version: String,
+    pub(crate) audit_id: String,
+    pub(crate) source_artifact: String,
+    pub(crate) checked_at: String,
     pub(crate) urls_found: usize,
     pub(crate) checked: usize,
     pub(crate) ok: usize,
     pub(crate) failed: usize,
+    pub(crate) pending_review: usize,
+    pub(crate) blocked: usize,
     pub(crate) rows: Vec<LinkAuditRow>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct LinkIntegrityListRequest {
+    #[serde(default)]
+    pub(crate) query: Option<String>,
+    #[serde(default)]
+    pub(crate) classifications: Vec<LinkClassification>,
+    #[serde(default)]
+    pub(crate) cross_review_statuses: Vec<LinkCrossReviewStatus>,
+    #[serde(default)]
+    pub(crate) source_artifact: Option<String>,
+    #[serde(default)]
+    pub(crate) needs_review_only: bool,
+    #[serde(default)]
+    pub(crate) limit: Option<usize>,
+    #[serde(default)]
+    pub(crate) cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct LinkIntegrityListResult {
+    pub(crate) items: Vec<LinkAuditRow>,
+    pub(crate) next_cursor: Option<String>,
+    pub(crate) total: usize,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct LinkIntegrityReviewRequest {
+    pub(crate) link_id: String,
+    pub(crate) decision: LinkReviewDecision,
+    pub(crate) note: String,
+    pub(crate) reviewer: String,
+    pub(crate) expected_normalized_url: String,
+    pub(crate) expected_sha256: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct LinkCorrectionProposalRequest {
+    pub(crate) link_id: String,
+    pub(crate) provider: String,
+    #[serde(default)]
+    pub(crate) query: Option<String>,
+    #[serde(default)]
+    pub(crate) limit: Option<usize>,
 }
 
 #[derive(Serialize)]
@@ -540,6 +699,14 @@ pub(crate) struct CostLedgerEntry {
     pub(crate) output_tokens: u64,
     pub(crate) cost_usd: f64,
     pub(crate) estimated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) attempt_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) round: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) turn: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) corrective_retry_ordinal: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -600,6 +767,8 @@ impl Default for BootstrapConfig {
             cloudflare_api_token_source: "prompt_each_launch".to_string(),
             cloudflare_api_token_env_var: "MAESTRO_CLOUDFLARE_API_TOKEN".to_string(),
             cloudflare_persistence_database: "maestro_db".to_string(),
+            cloudflare_publication_database: default_cloudflare_publication_database(),
+            cloudflare_publication_table: default_cloudflare_publication_table(),
             cloudflare_secret_store: "maestro".to_string(),
             windows_env_prefix: "MAESTRO_".to_string(),
             updated_at: Utc::now().to_rfc3339(),
@@ -658,6 +827,15 @@ pub(crate) struct RuntimeProfile {
 use crate::cloudflare_commands::{
     cloudflare_env_snapshot, dependency_preflight, verify_cloudflare_credentials,
 };
+use crate::abnt_citation::audit_abnt_citations;
+use crate::mainsite_d1::{
+    preview_mainsite_d1_publish, probe_mainsite_d1, publish_mainsite_d1,
+};
+use crate::mainsite_draft::{load_mainsite_draft, save_mainsite_draft};
+use crate::runtime_bootstrap::{
+    execute_runtime_bootstrap_action, runtime_bootstrap_action_control,
+    runtime_bootstrap_plan,
+};
 use crate::session_commands::{
     list_resumable_sessions, resume_editorial_session, run_editorial_session,
     stop_editorial_session,
@@ -666,9 +844,16 @@ pub(crate) use crate::session_orchestration::{
     run_editorial_session_core, run_editorial_session_inner,
 };
 use crate::tauri_commands::{
-    audit_links, diagnostics_snapshot, open_data_file, read_ai_provider_config,
-    read_bootstrap_config, run_cli_adapter_smoke, runtime_profile, verify_ai_provider_credentials,
-    write_ai_provider_config, write_bootstrap_config, write_log_event,
+    audit_links, diagnostics_snapshot, list_link_integrity_records, open_data_file,
+    propose_link_corrections, read_ai_provider_config, read_bootstrap_config,
+    review_link_integrity, run_cli_adapter_smoke, runtime_profile,
+    verify_ai_provider_credentials, write_ai_provider_config, write_bootstrap_config,
+    write_log_event,
+};
+use crate::web_evidence::{
+    fetch_web_evidence, get_web_evidence, import_operator_evidence, import_shared_chat,
+    list_web_evidence, open_web_evidence_in_default_browser, replay_web_evidence,
+    resume_web_evidence_interaction, search_web_evidence, start_rendered_web_evidence,
 };
 
 #[cfg(test)]
@@ -787,6 +972,15 @@ pub fn run() {
             write_ai_provider_config,
             verify_ai_provider_credentials,
             audit_links,
+            audit_abnt_citations,
+            list_link_integrity_records,
+            review_link_integrity,
+            propose_link_corrections,
+            load_mainsite_draft,
+            save_mainsite_draft,
+            probe_mainsite_d1,
+            preview_mainsite_d1_publish,
+            publish_mainsite_d1,
             open_data_file,
             cloudflare_env_snapshot,
             dependency_preflight,
@@ -795,7 +989,20 @@ pub fn run() {
             list_resumable_sessions,
             resume_editorial_session,
             run_editorial_session,
-            stop_editorial_session
+            stop_editorial_session,
+            runtime_bootstrap_plan,
+            execute_runtime_bootstrap_action,
+            runtime_bootstrap_action_control,
+            list_web_evidence,
+            fetch_web_evidence,
+            replay_web_evidence,
+            search_web_evidence,
+            start_rendered_web_evidence,
+            open_web_evidence_in_default_browser,
+            import_operator_evidence,
+            import_shared_chat,
+            resume_web_evidence_interaction,
+            get_web_evidence
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Maestro Editorial AI");

@@ -33,6 +33,10 @@ use std::path::{Path, PathBuf};
 use crate::app_paths::{
     checked_data_child_path, human_log_path_for, sanitize_path_segment, sessions_dir,
 };
+use crate::abnt_citation::{
+    audit_abnt_citations_inner, citation_manifests_from_attachments,
+    empty_citation_manifest, maestro_peer_blocks_release, AbntAuditRequest, CitationManifest,
+};
 use crate::editorial_agent_runners::run_editorial_agent_for_spec;
 use crate::editorial_content_lock::validate_revision_content_lock;
 use crate::editorial_helpers::{
@@ -51,14 +55,18 @@ use crate::editorial_prompts::is_operational_agent_result;
 use crate::editorial_prompts::{
     build_draft_prompt, build_revision_history_block, build_serial_revision_prompt,
 };
-use crate::link_audit::{count_unique_url_candidates, run_link_audit, LINK_AUDIT_MAX_UNIQUE_URLS};
+use crate::link_integrity::{
+    audit_requires_editorial_resolution, count_link_occurrences, run_link_integrity_audit,
+    LINK_INTEGRITY_MAX_OCCURRENCES,
+};
 use crate::logging::{write_log_record, LogEventInput, LogSession};
 use crate::provider_config::{
     api_provider_for_agent, provider_cost_rates_from_config, should_run_agent_via_api,
 };
 use crate::session_artifacts::{
     circular_draft_sha256, parse_agent_artifact_name, write_circular_review_state,
-    CircularReviewState, CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+    CircularReviewState, CIRCULAR_REVIEW_ROSTER_SCHEMA_VERSION,
+    CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
 };
 use crate::session_controls::{
     api_role_max_tokens, effective_draft_lead, estimate_provider_cost_from_input_chars,
@@ -68,7 +76,8 @@ use crate::session_controls::{
 use crate::session_evidence::process_session_evidence;
 use crate::session_minutes::build_session_minutes;
 use crate::session_persistence::{
-    append_agent_cost_to_ledger, load_cost_ledger, load_session_contract, write_session_contract,
+    append_agent_cost_to_ledger, append_agent_cost_to_ledger_with_attribution, load_cost_ledger,
+    load_session_contract, write_session_contract, AgentCostAttribution,
 };
 use crate::session_resume::{parse_created_at, remaining_session_duration, session_time_exhausted};
 use crate::tauri_commands::read_ai_provider_config;
@@ -79,6 +88,7 @@ use crate::{
 };
 
 const MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN: u32 = 3;
+const MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND: u32 = 3;
 
 pub(crate) fn run_editorial_session_inner(
     request: &EditorialSessionRequest,
@@ -319,12 +329,36 @@ pub(crate) fn run_editorial_session_core(
             }
         }
     }
-    let evidence = process_session_evidence(
+    let mut evidence = process_session_evidence(
         &session_dir,
         request.links.as_ref(),
         request.attachments.as_ref(),
         saved_contract.as_ref(),
     )?;
+    let citation_protocol_hash = if request.protocol_hash.trim().is_empty() {
+        None
+    } else {
+        Some(request.protocol_hash.trim().to_string())
+    };
+    let mut citation_manifests = citation_manifests_from_attachments(&evidence.attachments)?;
+    let citation_manifest_is_implicit = citation_manifests.current.is_none();
+    if citation_manifest_is_implicit {
+        citation_manifests.current = Some(empty_citation_manifest(
+            citation_protocol_hash.as_deref().unwrap_or_default(),
+        ));
+    }
+    if let Some(manifest) = citation_manifests.current.as_ref() {
+        evidence.block.push_str(&format!(
+            "\n## Manifesto deterministico de citacoes\n\nA sessao usa um `citation_manifest.v1` {} com {} citacao(oes) e {} fonte(s). Ele e a fonte de verdade mecanica para chaves de autoria, acesso, verificacao e formatacao. O texto final deve conter exatamente as citacoes e referencias normalizadas correspondentes. Nao invente metadados para satisfazer o gate; quando a evidencia fornecida for insuficiente, remova, restrinja ou coloque a afirmacao/fonte em quarentena e registre a necessidade do operador.\n",
+            if citation_manifest_is_implicit {
+                "vazio inicializado pelo Maestro porque nenhum manifesto foi anexado"
+            } else {
+                "anexado pelo operador"
+            },
+            manifest.citations.len(),
+            manifest.sources.len()
+        ));
+    }
     let contract = SessionContract {
         schema_version: 1,
         run_id: run_id.clone(),
@@ -370,6 +404,8 @@ pub(crate) fn run_editorial_session_core(
     let mut round_turn_index = 0usize;
     let mut valid_round_agents = BTreeSet::<String>::new();
     let mut corrective_contract_retry_counts = BTreeMap::<String, u32>::new();
+    let mut paid_corrective_retries_by_round = BTreeMap::<usize, u32>::new();
+    let mut retry_accounting_authoritative = !is_resume;
     let mut resumed_circular_state = None::<CircularReviewState>;
     const ALL_ERROR_ESCALATION_THRESHOLD: u32 = 3;
 
@@ -550,6 +586,10 @@ pub(crate) fn run_editorial_session_core(
                 current_draft = draft_text.trim().to_string();
                 current_draft_path = Some(output_path);
                 current_draft_author_key = Some(spec.key.to_string());
+                // Without an accepted draft there cannot have been a serial
+                // corrective review retry. Once this call creates the first
+                // custody artifact, v3 accounting starts authoritatively.
+                retry_accounting_authoritative = true;
                 break;
             }
 
@@ -665,6 +705,9 @@ pub(crate) fn run_editorial_session_core(
             round_turn_index = progress.turn_index;
             valid_round_agents = progress.valid_agents;
             stable_serial_approval_agents = progress.stable_approvals;
+            paid_corrective_retries_by_round = progress.paid_corrective_retries_by_round;
+            corrective_contract_retry_counts = progress.corrective_contract_retry_counts;
+            retry_accounting_authoritative = progress.retry_accounting_authoritative;
             (
                 "persisted_atomic_state",
                 progress.had_substantive_change,
@@ -709,6 +752,56 @@ pub(crate) fn run_editorial_session_core(
                 })),
             },
         );
+    }
+    if should_pause_legacy_paid_retry_resume(
+        is_resume,
+        !current_draft.trim().is_empty(),
+        retry_accounting_authoritative,
+        !api_agent_keys.is_empty(),
+    ) {
+        let _ = write_log_record(
+            log_session,
+            LogEventInput {
+                level: "warn".to_string(),
+                category: "session.resume.paid_retry_accounting_unknown".to_string(),
+                message: "legacy session paused before API continuation because prior paid retry usage is not authoritative"
+                    .to_string(),
+                context: Some(json!({
+                    "run_id": &run_id,
+                    "round": round,
+                    "next_turn": round_turn_index + 1,
+                    "api_agents": api_agent_keys.iter().cloned().collect::<Vec<_>>(),
+                    "policy": "legacy_resume_must_not_replenish_unknown_paid_retry_budget"
+                })),
+            },
+        );
+        let minutes_path = session_dir.join("ata-da-sessao.md");
+        write_text_file(
+            &minutes_path,
+            &build_session_minutes(request, &run_id, &agents, false, None),
+        )?;
+        let context = SessionResultContext {
+            run_id: &run_id,
+            session_dir: &session_dir,
+            prompt_path: &prompt_path,
+            protocol_path: &protocol_path,
+            active_agents: &active_agent_keys,
+            max_session_cost_usd,
+            max_session_minutes,
+            observed_cost_usd: cost_ledger.total_observed_cost_usd,
+            links_path: evidence.links_path.as_ref(),
+            attachments_manifest_path: evidence.attachments_manifest_path.as_ref(),
+            human_log_path: &human_log_path,
+        };
+        return Ok(editorial_session_result(
+            &context,
+            None,
+            &minutes_path,
+            current_draft_path,
+            agents,
+            false,
+            "PAUSED_LEGACY_RETRY_ACCOUNTING_UNKNOWN",
+        ));
     }
 
     let final_path: PathBuf;
@@ -771,6 +864,9 @@ pub(crate) fn run_editorial_session_core(
                 round_roster: &round_turn_specs,
                 valid_round_agents: &valid_round_agents,
                 stable_serial_approval_agents: &stable_serial_approval_agents,
+                paid_corrective_retries_by_round: &paid_corrective_retries_by_round,
+                corrective_contract_retry_counts: &corrective_contract_retry_counts,
+                retry_accounting_authoritative,
             })?
         };
     }
@@ -854,13 +950,26 @@ pub(crate) fn run_editorial_session_core(
                 "TIME_LIMIT_REACHED",
             ));
         }
+        if let Some((reason, audit_context)) = citation_operator_evidence_failure(
+            &current_draft,
+            citation_protocol_hash.as_deref(),
+            citation_manifests.current.as_ref(),
+            citation_manifests.previous.as_ref(),
+        ) {
+            pause_final_reference_audit!(reason, audit_context);
+        }
         if current_version_has_all_independent_approvals(
             &round_turn_specs,
             current_draft_author_key.as_deref(),
             &stable_serial_approval_agents,
         ) {
             let final_text = strip_leading_maestro_status(&current_draft);
-            if let Some((reason, audit_context)) = final_release_audit_failure(&final_text) {
+            if let Some((reason, audit_context)) = final_release_audit_failure_with_citations(
+                &final_text,
+                citation_protocol_hash.as_deref(),
+                citation_manifests.current.as_ref(),
+                citation_manifests.previous.as_ref(),
+            ) {
                 pause_final_reference_audit!(reason, audit_context);
             }
             let path = session_dir.join("texto-final.md");
@@ -931,7 +1040,12 @@ pub(crate) fn run_editorial_session_core(
             selection_seed,
         ) else {
             let final_text = strip_leading_maestro_status(&current_draft);
-            if let Some((reason, audit_context)) = final_release_audit_failure(&final_text) {
+            if let Some((reason, audit_context)) = final_release_audit_failure_with_citations(
+                &final_text,
+                citation_protocol_hash.as_deref(),
+                citation_manifests.current.as_ref(),
+                citation_manifests.previous.as_ref(),
+            ) {
                 pause_final_reference_audit!(reason, audit_context);
             }
             let path = session_dir.join("texto-final.md");
@@ -1114,6 +1228,7 @@ pub(crate) fn run_editorial_session_core(
             .get(&retry_key)
             .copied()
             .unwrap_or(0);
+        let use_api_agent = api_agent_keys.contains(spec.key);
         let mut review_prompt = build_serial_revision_prompt(
             request,
             &run_id,
@@ -1131,6 +1246,20 @@ pub(crate) fn run_editorial_session_core(
                 corrective_retry_count,
                 MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN
             ));
+            if let Some((reason, audit_context)) = final_release_audit_failure_with_citations(
+                &current_draft,
+                citation_protocol_hash.as_deref(),
+                citation_manifests.current.as_ref(),
+                citation_manifests.previous.as_ref(),
+            ) {
+                let packet = serde_json::to_string_pretty(&audit_context)
+                    .unwrap_or_else(|_| "{\"error\":\"audit packet unavailable\"}".to_string());
+                review_prompt.push_str(&format!(
+                    "\n## Current Deterministic Editorial Gate Packet\n\nReason: {}\n\n```json\n{}\n```\n\nTreat this packet as deterministic gate evidence, not as permission to invent bibliographic metadata or replacement links. Correct, format, verify, remove, narrow, or quarantine every unresolved item. When the gate requires operator-provided evidence or an updated citation_manifest.v1, state that requirement explicitly instead of fabricating it.\n",
+                    sanitize_text(&reason, 300),
+                    packet
+                ));
+            }
         }
         let _ = write_log_record(
             log_session,
@@ -1152,7 +1281,7 @@ pub(crate) fn run_editorial_session_core(
             },
         );
         if let Some(max_cost_usd) = max_session_cost_usd {
-            let projected_round_cost_usd = if api_agent_keys.contains(spec.key) {
+            let projected_round_cost_usd = if use_api_agent {
                 api_provider_for_agent(spec.key)
                     .and_then(|provider| {
                         let rates = provider_cost_rates.get(spec.key).copied()?;
@@ -1220,9 +1349,99 @@ pub(crate) fn run_editorial_session_core(
                 ));
             }
         }
+        let paid_corrective_retry_ordinal = match paid_corrective_retry_admission(
+            use_api_agent,
+            corrective_retry_count,
+            paid_corrective_retries_by_round
+                .get(&round)
+                .copied()
+                .unwrap_or(0),
+        ) {
+            PaidCorrectiveRetryAdmission::NotApplicable => None,
+            PaidCorrectiveRetryAdmission::Admitted { ordinal } => {
+                paid_corrective_retries_by_round.insert(round, ordinal);
+                // Reserve before dispatch. If the process stops between here and
+                // the provider response, resume must fail closed instead of
+                // silently granting a fresh paid-retry allowance.
+                persist_circular_progress!();
+                let _ = write_log_record(
+                    log_session,
+                    LogEventInput {
+                        level: "info".to_string(),
+                        category: "session.cost.paid_corrective_retry_reserved".to_string(),
+                        message: "paid corrective retry slot reserved before provider dispatch"
+                            .to_string(),
+                        context: Some(json!({
+                            "run_id": &run_id,
+                            "round": round,
+                            "turn": round_turn_index + 1,
+                            "review_agent": spec.key,
+                            "provider": api_provider_for_agent(spec.key).unwrap_or("unknown"),
+                            "paid_corrective_retry_ordinal": ordinal,
+                            "max_paid_corrective_retries_per_round": MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND,
+                            "policy": "reserve_persisted_paid_retry_slot_before_dispatch"
+                        })),
+                    },
+                );
+                Some(ordinal)
+            }
+            PaidCorrectiveRetryAdmission::RoundLimitReached { used } => {
+                consecutive_reviewer_outage_rounds += 1;
+                let _ = write_log_record(
+                    log_session,
+                    LogEventInput {
+                        level: "warn".to_string(),
+                        category: "session.cost.paid_corrective_retry_round_cap".to_string(),
+                        message: "paid corrective retry not started because the round cap is exhausted"
+                            .to_string(),
+                        context: Some(json!({
+                            "run_id": &run_id,
+                            "round": round,
+                            "turn": round_turn_index + 1,
+                            "review_agent": spec.key,
+                            "provider": api_provider_for_agent(spec.key).unwrap_or("unknown"),
+                            "paid_corrective_retries_used": used,
+                            "max_paid_corrective_retries_per_round": MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND,
+                            "policy": "skip_paid_reviewer_after_round_retry_cap_preserve_current_custody"
+                        })),
+                    },
+                );
+                round_turn_index += 1;
+                persist_circular_progress!();
+                if round_turn_index >= round_turn_count {
+                    let minutes_path = session_dir.join("ata-da-sessao.md");
+                    write_text_file(
+                        &minutes_path,
+                        &build_session_minutes(request, &run_id, &agents, false, None),
+                    )?;
+                    let context = SessionResultContext {
+                        run_id: &run_id,
+                        session_dir: &session_dir,
+                        prompt_path: &prompt_path,
+                        protocol_path: &protocol_path,
+                        active_agents: &active_agent_keys,
+                        max_session_cost_usd,
+                        max_session_minutes,
+                        observed_cost_usd: cost_ledger.total_observed_cost_usd,
+                        links_path: evidence.links_path.as_ref(),
+                        attachments_manifest_path: evidence.attachments_manifest_path.as_ref(),
+                        human_log_path: &human_log_path,
+                    };
+                    return Ok(editorial_session_result(
+                        &context,
+                        None,
+                        &minutes_path,
+                        current_draft_path,
+                        agents,
+                        false,
+                        "PAUSED_ROUND_INCOMPLETE",
+                    ));
+                }
+                continue;
+            }
+        };
         let output_path = agent_attempt_output_path(&agent_dir, round, spec.key, "revision");
         let timeout = remaining_session_duration(time_budget_anchor, max_session_minutes);
-        let use_api_agent = api_agent_keys.contains(spec.key);
         let cost_guard = if use_api_agent {
             provider_cost_guard_for(
                 max_session_cost_usd,
@@ -1246,7 +1465,46 @@ pub(crate) fn run_editorial_session_core(
             use_api_agent,
             cancel_token,
         );
-        append_agent_cost_to_ledger(&session_dir, &mut cost_ledger, &cost_scope_id, &result)?;
+        append_agent_cost_to_ledger_with_attribution(
+            &session_dir,
+            &mut cost_ledger,
+            &cost_scope_id,
+            &result,
+            Some(AgentCostAttribution {
+                attempt_kind: if paid_corrective_retry_ordinal.is_some() {
+                    "paid_corrective_retry"
+                } else {
+                    "review"
+                },
+                round,
+                turn: round_turn_index + 1,
+                corrective_retry_ordinal: paid_corrective_retry_ordinal,
+            }),
+        )?;
+        if let Some(ordinal) = paid_corrective_retry_ordinal {
+            let _ = write_log_record(
+                log_session,
+                LogEventInput {
+                    level: "info".to_string(),
+                    category: "session.cost.paid_corrective_retry_attempt_finished".to_string(),
+                    message: "paid-provider corrective retry attempt finished with sanitized accounting"
+                        .to_string(),
+                    context: Some(json!({
+                        "run_id": &run_id,
+                        "round": round,
+                        "turn": round_turn_index + 1,
+                        "review_agent": spec.key,
+                        "provider": api_provider_for_agent(spec.key).unwrap_or("unknown"),
+                        "paid_corrective_retry_ordinal": ordinal,
+                        "status": &result.status,
+                        "cost_usd": result.cost_usd,
+                        "cost_estimated": result.cost_estimated,
+                        "billable_cost_observed": result.cost_usd.is_some(),
+                        "policy": "account_paid_corrective_retry_without_prompt_or_output_content"
+                    })),
+                },
+            );
+        }
         agents.push(result.clone());
 
         if result.status == "COST_LIMIT_REACHED" {
@@ -1393,10 +1651,14 @@ pub(crate) fn run_editorial_session_core(
                     &mut stable_serial_approval_agents,
                     StableApprovalTransition::RejectedAttempt,
                 );
-                let retry_count = corrective_contract_retry_counts
-                    .entry(retry_key.clone())
-                    .or_insert(0);
-                *retry_count += 1;
+                let retry_count = {
+                    let count = corrective_contract_retry_counts
+                        .entry(retry_key.clone())
+                        .or_insert(0);
+                    *count += 1;
+                    *count
+                };
+                persist_circular_progress!();
                 let _ = write_log_record(
                     log_session,
                     LogEventInput {
@@ -1412,13 +1674,13 @@ pub(crate) fn run_editorial_session_core(
                             "agent": spec.key,
                             "status": result.status,
                             "reason": reason,
-                            "retry_count": *retry_count,
+                            "retry_count": retry_count,
                             "max_retries": MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
                             "policy": "strict_output_contract_required_for_serial_custody_or_approval"
                         })),
                     },
                 );
-                if *retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
+                if retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
                     continue;
                 }
                 consecutive_reviewer_outage_rounds += 1;
@@ -1433,7 +1695,7 @@ pub(crate) fn run_editorial_session_core(
                             "round": round,
                             "turn": round_turn_index + 1,
                             "agent": spec.key,
-                            "retry_count": *retry_count,
+                            "retry_count": retry_count,
                             "policy": "bounded_same_reviewer_contract_retry_exhausted"
                         })),
                     },
@@ -1476,14 +1738,31 @@ pub(crate) fn run_editorial_session_core(
             .get(&retry_key)
             .copied()
             .unwrap_or(0);
-        let unrevised_runtime_action = unrevised_serial_turn_runtime_action(
+        let current_release_audit_failure = if serial_output.final_text.is_none() {
+            final_release_audit_failure_with_citations(
+                &current_draft,
+                citation_protocol_hash.as_deref(),
+                citation_manifests.current.as_ref(),
+                citation_manifests.previous.as_ref(),
+            )
+        } else {
+            None
+        };
+        let unrevised_runtime_action = unrevised_serial_turn_runtime_action_with_release_failure(
             &result.status,
             &serial_output,
-            &current_draft,
             prior_retry_count,
+            current_release_audit_failure.clone(),
         );
-        let counts_as_valid_round_agent =
-            serial_turn_counts_as_valid_round_agent(&result.status, &serial_output, &current_draft);
+        let counts_as_valid_round_agent = if serial_output.final_text.is_none() {
+            result.status == "READY" && current_release_audit_failure.is_none()
+        } else {
+            serial_turn_counts_as_valid_round_agent(
+                &result.status,
+                &serial_output,
+                &current_draft,
+            )
+        };
         let Some(revised_text) = serial_output.final_text.as_ref() else {
             if let Some((action, reason, audit_context)) = unrevised_runtime_action {
                 match action {
@@ -1534,6 +1813,7 @@ pub(crate) fn run_editorial_session_core(
                             StableApprovalTransition::RejectedAttempt,
                         );
                         corrective_contract_retry_counts.insert(retry_key.clone(), retry_count);
+                        persist_circular_progress!();
                         let _ = write_log_record(
                             log_session,
                             LogEventInput {
@@ -1655,7 +1935,12 @@ pub(crate) fn run_editorial_session_core(
                     &stable_serial_approval_agents,
                 ) {
                     let final_text = strip_leading_maestro_status(&current_draft);
-                    if let Some((reason, audit_context)) = final_release_audit_failure(&final_text)
+                    if let Some((reason, audit_context)) = final_release_audit_failure_with_citations(
+                        &final_text,
+                        citation_protocol_hash.as_deref(),
+                        citation_manifests.current.as_ref(),
+                        citation_manifests.previous.as_ref(),
+                    )
                     {
                         pause_final_reference_audit!(reason, audit_context);
                     }
@@ -1684,10 +1969,14 @@ pub(crate) fn run_editorial_session_core(
                 &mut stable_serial_approval_agents,
                 StableApprovalTransition::RejectedAttempt,
             );
-            let retry_count = corrective_contract_retry_counts
-                .entry(retry_key.clone())
-                .or_insert(0);
-            *retry_count += 1;
+            let retry_count = {
+                let count = corrective_contract_retry_counts
+                    .entry(retry_key.clone())
+                    .or_insert(0);
+                *count += 1;
+                *count
+            };
+            persist_circular_progress!();
             let _ = write_log_record(
                 log_session,
                 LogEventInput {
@@ -1700,13 +1989,13 @@ pub(crate) fn run_editorial_session_core(
                         "turn": round_turn_index + 1,
                         "agent": spec.key,
                         "reason": reason,
-                        "retry_count": *retry_count,
+                        "retry_count": retry_count,
                         "max_retries": MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
                         "policy": "approved_content_lock_is_enforced_before_text_custody_transfer"
                     })),
                 },
             );
-            if *retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
+            if retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
                 continue;
             }
             consecutive_reviewer_outage_rounds += 1;
@@ -1721,7 +2010,7 @@ pub(crate) fn run_editorial_session_core(
                         "round": round,
                         "turn": round_turn_index + 1,
                         "agent": spec.key,
-                        "retry_count": *retry_count,
+                        "retry_count": retry_count,
                         "policy": "noncompliant_content_lock_turn_becomes_operational_failure_after_bounded_retries"
                     })),
                 },
@@ -1785,10 +2074,14 @@ pub(crate) fn run_editorial_session_core(
                 &mut stable_serial_approval_agents,
                 StableApprovalTransition::RejectedAttempt,
             );
-            let retry_count = corrective_contract_retry_counts
-                .entry(retry_key.clone())
-                .or_insert(0);
-            *retry_count += 1;
+            let retry_count = {
+                let count = corrective_contract_retry_counts
+                    .entry(retry_key.clone())
+                    .or_insert(0);
+                *count += 1;
+                *count
+            };
+            persist_circular_progress!();
             let _ = write_log_record(
                 log_session,
                 LogEventInput {
@@ -1803,13 +2096,13 @@ pub(crate) fn run_editorial_session_core(
                         "current_author": current_draft_author_key.clone(),
                         "current_chars": current_draft.chars().count(),
                         "revised_chars": revised_text.chars().count(),
-                        "retry_count": *retry_count,
+                        "retry_count": retry_count,
                         "max_retries": MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
                         "policy": "anti_impoverishment_quality_ratchet_same_reviewer_retry"
                     })),
                 },
             );
-            if *retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
+            if retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
                 continue;
             }
             consecutive_reviewer_outage_rounds += 1;
@@ -1890,7 +2183,12 @@ pub(crate) fn run_editorial_session_core(
                 &stable_serial_approval_agents,
             ) {
                 let final_text = strip_leading_maestro_status(&current_draft);
-                if let Some((reason, audit_context)) = final_release_audit_failure(&final_text) {
+                if let Some((reason, audit_context)) = final_release_audit_failure_with_citations(
+                    &final_text,
+                    citation_protocol_hash.as_deref(),
+                    citation_manifests.current.as_ref(),
+                    citation_manifests.previous.as_ref(),
+                ) {
                     pause_final_reference_audit!(reason, audit_context);
                 }
                 let path = session_dir.join("texto-final.md");
@@ -1946,6 +2244,9 @@ struct CircularProgressPersistence<'a> {
     round_roster: &'a [crate::EditorialAgentSpec],
     valid_round_agents: &'a BTreeSet<String>,
     stable_serial_approval_agents: &'a BTreeSet<String>,
+    paid_corrective_retries_by_round: &'a BTreeMap<usize, u32>,
+    corrective_contract_retry_counts: &'a BTreeMap<String, u32>,
+    retry_accounting_authoritative: bool,
 }
 
 fn persist_circular_review_progress(input: CircularProgressPersistence<'_>) -> Result<(), String> {
@@ -1991,6 +2292,9 @@ fn persist_circular_review_progress(input: CircularProgressPersistence<'_>) -> R
                 .iter()
                 .cloned()
                 .collect(),
+            paid_corrective_retries_by_round: input.paid_corrective_retries_by_round.clone(),
+            corrective_contract_retry_counts: input.corrective_contract_retry_counts.clone(),
+            retry_accounting_authoritative: input.retry_accounting_authoritative,
             updated_at: Utc::now().to_rfc3339(),
         },
     )
@@ -2041,6 +2345,9 @@ struct CircularResumeProgress {
     turn_index: usize,
     valid_agents: BTreeSet<String>,
     stable_approvals: BTreeSet<String>,
+    paid_corrective_retries_by_round: BTreeMap<usize, u32>,
+    corrective_contract_retry_counts: BTreeMap<String, u32>,
+    retry_accounting_authoritative: bool,
     had_substantive_change: bool,
     had_editorial_divergence: bool,
 }
@@ -2059,8 +2366,11 @@ fn restore_persisted_circular_progress(
         .iter()
         .map(String::as_str)
         .collect::<Vec<_>>();
-    let roster_matches = state.schema_version >= CIRCULAR_REVIEW_STATE_SCHEMA_VERSION
+    let roster_matches = state.schema_version >= CIRCULAR_REVIEW_ROSTER_SCHEMA_VERSION
         && persisted_roster == current_roster;
+    let retry_accounting_authoritative = state.schema_version
+        >= CIRCULAR_REVIEW_STATE_SCHEMA_VERSION
+        && state.retry_accounting_authoritative;
 
     let mut round = state.round.max(1);
     let mut turn_index = state.turn_index;
@@ -2097,6 +2407,9 @@ fn restore_persisted_circular_progress(
         turn_index,
         valid_agents,
         stable_approvals,
+        paid_corrective_retries_by_round: state.paid_corrective_retries_by_round,
+        corrective_contract_retry_counts: state.corrective_contract_retry_counts,
+        retry_accounting_authoritative,
         had_substantive_change: false,
         had_editorial_divergence: false,
     }
@@ -2115,6 +2428,9 @@ fn restore_circular_resume_progress(
         turn_index: 0,
         valid_agents: BTreeSet::new(),
         stable_approvals: BTreeSet::new(),
+        paid_corrective_retries_by_round: BTreeMap::new(),
+        corrective_contract_retry_counts: BTreeMap::new(),
+        retry_accounting_authoritative: false,
         had_substantive_change: false,
         had_editorial_divergence: false,
     };
@@ -2340,18 +2656,47 @@ fn unrevised_serial_turn_audit_decision(
     serial_output: &SerialTurnOutput,
     current_draft: &str,
 ) -> Option<(UnrevisedSerialTurnAuditDecision, String, serde_json::Value)> {
-    if let Some((reason, audit_context)) =
-        ready_unchanged_release_audit_failure(status, serial_output, current_draft)
-    {
-        return Some((
-            UnrevisedSerialTurnAuditDecision::ReadyRejected,
-            reason,
-            audit_context,
-        ));
+    let release_failure = if serial_output.final_text.is_none() {
+        final_release_audit_failure(current_draft)
+    } else {
+        None
+    };
+    unrevised_serial_turn_audit_decision_with_release_failure(
+        status,
+        serial_output,
+        release_failure,
+    )
+}
+
+fn unrevised_serial_turn_audit_decision_with_release_failure(
+    status: &str,
+    serial_output: &SerialTurnOutput,
+    release_failure: Option<(String, serde_json::Value)>,
+) -> Option<(UnrevisedSerialTurnAuditDecision, String, serde_json::Value)> {
+    if serial_output.final_text.is_some() {
+        return None;
     }
-    if let Some((reason, audit_context)) =
-        not_ready_unchanged_release_audit_failure(status, serial_output, current_draft)
-    {
+    if status == "READY" {
+        return release_failure.map(|(reason, audit_context)| {
+            (
+                UnrevisedSerialTurnAuditDecision::ReadyRejected,
+                reason,
+                audit_context,
+            )
+        });
+    }
+    if status == "NOT_READY" {
+        let (reason, audit_context) = release_failure.unwrap_or_else(|| {
+            (
+                "NOT_READY unchanged is not a valid serial-review outcome: the reviewer must either return READY unchanged when no blocker remains, or return a revised complete text that resolves the concrete blocker.".to_string(),
+                json!({
+                    "kind": "not_ready_unchanged_without_corrective_text",
+                    "status": status,
+                    "has_operator_evidence_required": serial_output.operator_evidence_required,
+                    "policy": "detector_must_correct_or_approve_current_version"
+                }),
+            )
+        });
         return Some((
             UnrevisedSerialTurnAuditDecision::CorrectiveRetryRequired,
             reason,
@@ -2367,8 +2712,31 @@ fn unrevised_serial_turn_runtime_action(
     current_draft: &str,
     prior_retry_count: u32,
 ) -> Option<(UnrevisedSerialTurnRuntimeAction, String, serde_json::Value)> {
+    let release_failure = if serial_output.final_text.is_none() {
+        final_release_audit_failure(current_draft)
+    } else {
+        None
+    };
+    unrevised_serial_turn_runtime_action_with_release_failure(
+        status,
+        serial_output,
+        prior_retry_count,
+        release_failure,
+    )
+}
+
+fn unrevised_serial_turn_runtime_action_with_release_failure(
+    status: &str,
+    serial_output: &SerialTurnOutput,
+    prior_retry_count: u32,
+    release_failure: Option<(String, serde_json::Value)>,
+) -> Option<(UnrevisedSerialTurnRuntimeAction, String, serde_json::Value)> {
     let (decision, reason, audit_context) =
-        unrevised_serial_turn_audit_decision(status, serial_output, current_draft)?;
+        unrevised_serial_turn_audit_decision_with_release_failure(
+            status,
+            serial_output,
+            release_failure,
+        )?;
     let action = match decision {
         UnrevisedSerialTurnAuditDecision::ReadyRejected => {
             UnrevisedSerialTurnRuntimeAction::ReadyRejected
@@ -2400,7 +2768,47 @@ fn serial_turn_retry_key(
     agent: &str,
     current_draft: &str,
 ) -> String {
-    format!("{round}:{round_turn_index}:{agent}:{current_draft}")
+    format!(
+        "{round}:{round_turn_index}:{agent}:{}",
+        circular_draft_sha256(current_draft)
+    )
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum PaidCorrectiveRetryAdmission {
+    NotApplicable,
+    Admitted { ordinal: u32 },
+    RoundLimitReached { used: u32 },
+}
+
+fn paid_corrective_retry_admission(
+    use_api_agent: bool,
+    corrective_retry_count: u32,
+    paid_corrective_retries_in_round: u32,
+) -> PaidCorrectiveRetryAdmission {
+    if !use_api_agent || corrective_retry_count == 0 {
+        return PaidCorrectiveRetryAdmission::NotApplicable;
+    }
+    if paid_corrective_retries_in_round >= MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND {
+        return PaidCorrectiveRetryAdmission::RoundLimitReached {
+            used: paid_corrective_retries_in_round,
+        };
+    }
+    PaidCorrectiveRetryAdmission::Admitted {
+        ordinal: paid_corrective_retries_in_round + 1,
+    }
+}
+
+fn should_pause_legacy_paid_retry_resume(
+    is_resume: bool,
+    has_accepted_draft: bool,
+    retry_accounting_authoritative: bool,
+    has_api_agents: bool,
+) -> bool {
+    is_resume
+        && has_accepted_draft
+        && !retry_accounting_authoritative
+        && has_api_agents
 }
 
 fn contains_final_release_blocker(text: &str) -> bool {
@@ -2514,6 +2922,71 @@ fn ascii_folded_alnum(character: char) -> Option<char> {
 }
 
 fn final_release_audit_failure(text: &str) -> Option<(String, serde_json::Value)> {
+    final_release_audit_failure_with_citations(text, None, None, None)
+}
+
+fn citation_operator_evidence_failure(
+    text: &str,
+    protocol_hash: Option<&str>,
+    manifest: Option<&CitationManifest>,
+    previous_manifest: Option<&CitationManifest>,
+) -> Option<(String, serde_json::Value)> {
+    let audit = audit_abnt_citations_inner(AbntAuditRequest {
+        text: text.to_string(),
+        protocol_hash: protocol_hash.map(str::to_string),
+        manifest: manifest.cloned(),
+        previous_manifest: previous_manifest.cloned(),
+    })
+    .ok()?;
+    let manifest_update_codes = [
+        "manifest_schema_invalid",
+        "manifest_protocol_hash_missing",
+        "protocol_hash_mismatch",
+        "manifest_capacity_exceeded",
+        "source_id_missing",
+        "source_id_duplicate",
+        "claim_id_missing",
+        "claim_id_duplicate",
+        "citation_schema_invalid",
+        "citation_source_missing",
+        "citation_canonical_author_mismatch",
+        "canonical_author_mismatch",
+        "canonical_author_key_malformed",
+        "canonical_author_display_mismatch",
+        "source_quarantined",
+        "prohibited_source",
+        "reference_without_body_use",
+        "reference_not_in_manifest",
+    ];
+    let needs_operator_evidence = audit.blockers.iter().any(|item| {
+        item.needs_evidence || manifest_update_codes.contains(&item.code.as_str())
+    });
+    if !needs_operator_evidence {
+        return None;
+    }
+    Some((
+        "citation gate requires operator evidence or an updated citation manifest".to_string(),
+        json!({
+            "gate": "abnt_citation_operator_evidence",
+            "audit_id": audit.audit_id,
+            "protocol_hash": audit.protocol_hash,
+            "maestro_peer_status": audit.maestro_peer_status,
+            "blockers": audit.blockers,
+            "normalized_references": audit.normalized_references,
+            "audit_table_markdown": audit.audit_table_markdown,
+            "semantic_diff": audit.semantic_diff,
+            "required_action": "attach_or_replace_citation_manifest_then_resume; do_not_spend_additional_peer_turns",
+            "policy": "operator_evidence_blockers_pause_before_the_next_paid_reviewer"
+        }),
+    ))
+}
+
+fn final_release_audit_failure_with_citations(
+    text: &str,
+    protocol_hash: Option<&str>,
+    manifest: Option<&CitationManifest>,
+    previous_manifest: Option<&CitationManifest>,
+) -> Option<(String, serde_json::Value)> {
     if let Err(reason) = validate_final_release_candidate(text) {
         return Some((
             reason,
@@ -2524,31 +2997,85 @@ fn final_release_audit_failure(text: &str) -> Option<(String, serde_json::Value)
         ));
     }
 
-    let url_count = count_unique_url_candidates(text);
-    if url_count > LINK_AUDIT_MAX_UNIQUE_URLS {
+    let citation_audit = match audit_abnt_citations_inner(AbntAuditRequest {
+        text: text.to_string(),
+        protocol_hash: protocol_hash.map(str::to_string),
+        manifest: manifest.cloned(),
+        previous_manifest: previous_manifest.cloned(),
+    }) {
+        Ok(audit) => audit,
+        Err(error) => {
+            return Some((
+                "final candidate ABNT citation engine failed closed".to_string(),
+                json!({
+                    "gate": "abnt_citation_engine",
+                    "error": sanitize_text(&error, 500),
+                    "policy": "maestro_peer_must_be_observable_before_release"
+                }),
+            ));
+        }
+    };
+    if maestro_peer_blocks_release(&citation_audit) {
+        return Some((
+            "final candidate has unresolved deterministic citation evidence".to_string(),
+            json!({
+                "gate": "abnt_citation",
+                "audit_id": citation_audit.audit_id,
+                "protocol_hash": citation_audit.protocol_hash,
+                "maestro_peer_status": citation_audit.maestro_peer_status,
+                "citations": citation_audit.citations,
+                "normalized_references": citation_audit.normalized_references,
+                "markdown_references": citation_audit.markdown_references,
+                "html_references": citation_audit.html_references,
+                "blockers": citation_audit.blockers,
+                "audit_table_markdown": citation_audit.audit_table_markdown,
+                "semantic_diff": citation_audit.semantic_diff,
+                "required_action": "correct_format_verify_quarantine_or_supply_citation_manifest_then_revalidate",
+                "policy": "all_active_ai_peers_and_maestro_peer_must_be_ready"
+            }),
+        ));
+    }
+
+    let link_count = count_link_occurrences(text);
+    if link_count > LINK_INTEGRITY_MAX_OCCURRENCES {
         return Some((
             "final candidate exceeds link audit capacity".to_string(),
             json!({
                 "gate": "link_audit_capacity",
-                "urls_found": url_count,
-                "max_urls": LINK_AUDIT_MAX_UNIQUE_URLS,
+                "link_occurrences_found": link_count,
+                "max_link_occurrences": LINK_INTEGRITY_MAX_OCCURRENCES,
                 "policy": "final_text_must_not_contain_unaudited_public_links"
             }),
         ));
     }
 
-    let link_audit = run_link_audit(text);
-    if link_audit.failed > 0 {
+    let link_audit = match run_link_integrity_audit(text) {
+        Ok(audit) => audit,
+        Err(error) => {
+            return Some((
+                "final candidate link-integrity engine failed closed".to_string(),
+                json!({
+                    "gate": "link_integrity_engine",
+                    "error": sanitize_text(&error, 500),
+                    "policy": "link_integrity_must_be_observable_before_release"
+                }),
+            ));
+        }
+    };
+    if audit_requires_editorial_resolution(&link_audit) {
         return Some((
-            "final candidate failed link audit".to_string(),
+            "final candidate has unresolved link-integrity evidence".to_string(),
             json!({
-                "gate": "link_audit",
+                "gate": "link_integrity",
                 "urls_found": link_audit.urls_found,
                 "checked": link_audit.checked,
                 "ok": link_audit.ok,
                 "failed": link_audit.failed,
+                "pending_review": link_audit.pending_review,
+                "blocked": link_audit.blocked,
                 "rows": link_audit.rows,
-                "policy": "all_final_public_links_must_be_valid_before_release"
+                "required_action": "correct_remove_reword_quarantine_or_record_explicit_review_then_revalidate",
+                "policy": "only_reviewed_current_url_and_hash_links_may_be_released"
             }),
         ));
     }
@@ -2987,7 +3514,7 @@ fn agent_attempt_output_path(agent_dir: &Path, round: usize, agent: &str, role: 
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::path::PathBuf;
 
     use super::{
@@ -2995,15 +3522,18 @@ mod tests {
         current_draft_author_from_path, current_version_has_all_independent_approvals,
         final_release_audit_failure, is_operational_only_review_round,
         is_substantive_editorial_change, not_ready_unchanged_release_audit_failure,
+        paid_corrective_retry_admission,
         quality_guard_blocks_revision, ready_unchanged_release_audit_failure,
         report_declares_custody_value, report_declares_nonempty_changes,
         report_declares_nonempty_operator_evidence_required, restore_circular_resume_progress,
         restore_persisted_circular_progress, select_serial_reviewer_index,
         serial_turn_counts_as_valid_round_agent, serial_turn_retry_key,
+        should_pause_legacy_paid_retry_resume,
         unrevised_serial_turn_audit_decision, unrevised_serial_turn_runtime_action,
         validate_final_release_candidate, validate_serial_revised_content_lock,
-        validate_serial_turn_output, StableApprovalTransition, UnrevisedSerialTurnAuditDecision,
-        UnrevisedSerialTurnRuntimeAction, MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
+        validate_serial_turn_output, PaidCorrectiveRetryAdmission, StableApprovalTransition,
+        UnrevisedSerialTurnAuditDecision, UnrevisedSerialTurnRuntimeAction,
+        MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN, MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND,
     };
     use crate::session_artifacts::{CircularReviewState, CIRCULAR_REVIEW_STATE_SCHEMA_VERSION};
     use crate::EditorialAgentResult;
@@ -3367,6 +3897,12 @@ mod tests {
                     "perplexity".to_string(),
                 ],
                 stable_serial_approval_agents: vec!["codex".to_string()],
+                paid_corrective_retries_by_round: BTreeMap::from([(4, 3)]),
+                corrective_contract_retry_counts: BTreeMap::from([(
+                    serial_turn_retry_key(4, 0, "codex", "draft"),
+                    2,
+                )]),
+                retry_accounting_authoritative: true,
                 updated_at: "2026-07-25T00:00:00Z".to_string(),
             },
             &specs,
@@ -3376,6 +3912,11 @@ mod tests {
         assert_eq!(progress.round, 5);
         assert_eq!(progress.turn_index, 0);
         assert!(progress.valid_agents.is_empty());
+        assert_eq!(
+            progress.paid_corrective_retries_by_round.get(&5),
+            None,
+            "the next round starts with a fresh paid corrective retry budget"
+        );
         assert_eq!(
             progress.stable_approvals,
             BTreeSet::from(["codex".to_string()])
@@ -3415,6 +3956,15 @@ mod tests {
                 ],
                 valid_round_agents: vec!["codex".to_string(), "gemini".to_string()],
                 stable_serial_approval_agents: vec!["codex".to_string(), "gemini".to_string()],
+                paid_corrective_retries_by_round: BTreeMap::from([(
+                    4,
+                    MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND,
+                )]),
+                corrective_contract_retry_counts: BTreeMap::from([(
+                    serial_turn_retry_key(4, 3, "grok", "draft"),
+                    2,
+                )]),
+                retry_accounting_authoritative: true,
                 updated_at: "2026-07-25T00:00:00Z".to_string(),
             },
             &specs,
@@ -3423,6 +3973,31 @@ mod tests {
 
         assert_eq!(progress.round, 4);
         assert_eq!(progress.turn_index, 0);
+        assert_eq!(
+            progress.paid_corrective_retries_by_round.get(&4),
+            Some(&MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND),
+            "a roster redraw in the same round must not replenish paid retries"
+        );
+        assert_eq!(
+            paid_corrective_retry_admission(
+                true,
+                2,
+                *progress
+                    .paid_corrective_retries_by_round
+                    .get(&4)
+                    .expect("persisted round cap")
+            ),
+            PaidCorrectiveRetryAdmission::RoundLimitReached {
+                used: MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND
+            }
+        );
+        assert_eq!(
+            progress
+                .corrective_contract_retry_counts
+                .get(&serial_turn_retry_key(4, 3, "grok", "draft")),
+            Some(&2),
+            "resume must preserve the fact that the next API attempt is corrective"
+        );
         assert!(progress.valid_agents.is_empty());
         assert_eq!(
             progress.stable_approvals,
@@ -3924,6 +4499,56 @@ Referencia removida.
     }
 
     #[test]
+    fn paid_corrective_retry_round_cap_counts_only_api_retries() {
+        assert_eq!(
+            paid_corrective_retry_admission(true, 0, 0),
+            PaidCorrectiveRetryAdmission::NotApplicable,
+            "an initial API attempt is not a corrective retry"
+        );
+        assert_eq!(
+            paid_corrective_retry_admission(false, 2, 0),
+            PaidCorrectiveRetryAdmission::NotApplicable,
+            "CLI retries do not consume the paid retry budget"
+        );
+
+        for used in 0..MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND {
+            assert_eq!(
+                paid_corrective_retry_admission(true, 1, used),
+                PaidCorrectiveRetryAdmission::Admitted { ordinal: used + 1 }
+            );
+        }
+        assert_eq!(
+            paid_corrective_retry_admission(
+                true,
+                1,
+                MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND
+            ),
+            PaidCorrectiveRetryAdmission::RoundLimitReached {
+                used: MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND
+            }
+        );
+    }
+
+    #[test]
+    fn legacy_resume_pauses_only_before_api_review_with_an_accepted_draft() {
+        assert!(should_pause_legacy_paid_retry_resume(
+            true, true, false, true
+        ));
+        assert!(!should_pause_legacy_paid_retry_resume(
+            true, true, false, false
+        ));
+        assert!(!should_pause_legacy_paid_retry_resume(
+            true, false, false, true
+        ));
+        assert!(!should_pause_legacy_paid_retry_resume(
+            true, true, true, true
+        ));
+        assert!(!should_pause_legacy_paid_retry_resume(
+            false, true, false, true
+        ));
+    }
+
+    #[test]
     fn unrevised_not_ready_without_actionable_blocker_requires_corrective_retry() {
         let stdout = r#"MAESTRO_STATUS: NOT_READY
 <maestro_revision_report>
@@ -4150,6 +4775,8 @@ operator_evidence_required: [{ "issue": "missing source" }]"#
             first,
             serial_turn_retry_key(2, 3, "grok", "Draft with [EVIDENCIA_PENDENTE].")
         );
+        assert!(!first.contains("Draft with"));
+        assert_eq!(first.split(':').last().map(str::len), Some(64));
     }
 
     #[test]
@@ -4255,8 +4882,8 @@ Este texto ainda contem [EVIDENCIA_PENDENTE] para que o proximo revisor resolva 
         let failure = final_release_audit_failure("Referencia: http://localhost:8787/test")
             .expect("local link should be blocked before any network probe");
 
-        assert!(failure.0.contains("link audit"));
-        assert_eq!(failure.1["gate"], "link_audit");
+        assert!(failure.0.contains("link-integrity"));
+        assert_eq!(failure.1["gate"], "link_integrity");
     }
 
     #[test]

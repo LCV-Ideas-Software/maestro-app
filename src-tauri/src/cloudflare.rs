@@ -405,7 +405,7 @@ pub(crate) fn cloudflare_get(client: &Client, token: &str, path: &str) -> Result
     }
 }
 
-fn cloudflare_get_paginated_results(
+pub(crate) fn cloudflare_get_paginated_results(
     client: &Client,
     token: &str,
     path: &str,

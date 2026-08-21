@@ -1,41 +1,16 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import {
-  Activity,
-  AlertTriangle,
-  Bot,
-  CheckCircle2,
-  Clock3,
-  Database,
-  EyeOff,
-  FilePlus2,
-  FileText,
-  Globe2,
-  HardDriveDownload,
-  KeyRound,
-  Link2,
-  ListChecks,
-  Play,
-  RefreshCw,
-  Search,
-  ShieldCheck,
-  Square,
-  Upload,
-} from "lucide-react";
 import type { ChangeEvent } from "react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import packageJson from "../package.json";
+import { AppSidebar } from "./app/AppSidebar";
+import { AppTopbar } from "./app/AppTopbar";
 import {
   aiProviderRows,
   attachmentLimits,
-  contentPipelines,
-  credentialStorageModes,
   defaultActiveAgents,
   finalArtifacts,
   idleActivityFeed,
   idleOperation,
   idlePhases,
-  importChannels,
   initialAgentOptions,
   initialAgents,
   initialAiProviderChecks,
@@ -44,20 +19,21 @@ import {
   initialDiscussionRounds,
   initialEvidenceRows,
   initialProtocolReadingGates,
-  navGroups,
   navItems,
-  providerRateRows,
-  settingsTabs,
-  storageModeSummaries,
-  verbosityOptions,
-  webEvidenceTools,
 } from "./constants";
 import { logEvent } from "./diagnostics";
+import { AgentsScreen } from "./features/agents/AgentsScreen";
+import { EvidenceScreen } from "./features/evidence/EvidenceScreen";
+import { ProtocolsScreen } from "./features/protocols/ProtocolsScreen";
+import { ResumeDialog } from "./features/session/ResumeDialog";
+import { SessionScreen } from "./features/session/SessionScreen";
+import { AiProviderSettingsPanel } from "./features/settings/AiProviderSettingsPanel";
+import { CloudflareSettingsPanel } from "./features/settings/CloudflareSettingsPanel";
+import { SettingsScreen } from "./features/settings/SettingsScreen";
+import { SetupScreen } from "./features/setup/SetupScreen";
 import {
-  attachmentDeliveryHint,
   attachmentDeliveryPlan,
   formatBrazilDateTime,
-  formatBytes,
   formatElapsedTime,
   humanizeAgentStatus,
   humanizeRunStatus,
@@ -65,11 +41,44 @@ import {
   latestProtocolGateItems,
   operationMeterLabel,
   sha256,
-  stateIcon,
-  stateLabel,
   summarizeAgentResults,
 } from "./helpers";
 import { useEscapeKey } from "./hooks/useEscapeKey";
+import {
+  importSharedChat,
+  listResumableSessions,
+  loadMainSiteDraft,
+  MAIN_SITE_SANITIZER_PROFILE,
+  previewMainSiteD1Publish,
+  probeMainSiteD1,
+  publishMainSiteD1,
+  resumeEditorialSession,
+  runEditorialSession,
+  saveMainSiteDraft,
+  stopEditorialSession,
+} from "./services/editorial";
+import { auditAbntCitations, auditLinks } from "./services/evidence";
+import {
+  listenToNativeLogs,
+  listenToRuntimeBootstrapProgress,
+  type NativeLogTone,
+} from "./services/nativeEvents";
+import {
+  controlRuntimeBootstrapAction,
+  createRuntimeBootstrapPlan,
+  dependencyPreflight,
+  executeRuntimeBootstrapAction,
+  openDataFile,
+  readBootstrapConfig,
+  readCloudflareEnvSnapshot,
+  writeBootstrapConfig,
+} from "./services/runtime";
+import {
+  probeAiProviderCredentials,
+  probeCloudflareCredentials,
+  readAiProviderConfig,
+  writeAiProviderConfig,
+} from "./services/settings";
 import type {
   ActiveSection,
   ActivityItem,
@@ -77,22 +86,24 @@ import type {
   AgentState,
   AiCredentialKey,
   AiProviderConfig,
-  AiProviderProbeResult,
   AiProviderProbeRow,
   BootstrapCheckRow,
   BootstrapConfig,
+  CitationAuditResult,
+  CitationManifest,
   CloudflareEnvSnapshot,
   CloudflarePermissionRow,
-  CloudflareProbeResult,
   CloudflareProviderStorageRequest,
   CloudflareTokenSource,
   CredentialStorageMode,
-  DependencyPreflight,
   DiscussionRound,
-  EditorialSessionResult,
   EvidenceRow,
   InitialAgentKey,
   LinkAuditResult,
+  MainSiteD1PublishPlan,
+  MainSiteD1PublishResult,
+  MainSiteD1Target,
+  MainSiteDraft,
   OperationSnapshot,
   PhaseItem,
   PromptAttachmentPayload,
@@ -101,12 +112,14 @@ import type {
   ProviderMode,
   ProviderRateKey,
   ResumableSessionInfo,
+  RuntimeBootstrapActionResult,
+  RuntimeBootstrapDisposition,
+  RuntimeBootstrapPlan,
+  RuntimeBootstrapProgressEvent,
   SessionRunOptions,
   SettingsTab,
   VerbosityMode,
 } from "./types";
-
-const PostEditor = lazy(() => import("./editor/posteditor/PostEditor"));
 
 const APP_VERSION = `v${packageJson.version}`;
 
@@ -117,23 +130,56 @@ type ActiveAgentNow = {
   state: "idle" | "running" | "finished";
 };
 
-type NativeLogPayload = {
-  category?: string;
-  context?: {
-    run_id?: string;
-    agent?: string;
-    role?: string;
-    cli?: string;
-    status?: string;
-    tone?: "ok" | "warn" | "blocked" | "error";
-    elapsed_seconds?: number;
-  };
-};
-
-type NativeLogTone = NonNullable<NativeLogPayload["context"]>["tone"];
-
 const agentIsApiOnly = (agent: InitialAgentKey) =>
   agent === "deepseek" || agent === "grok" || agent === "perplexity";
+
+function citationManifestsFromAttachments(attachments: PromptAttachmentPayload[]) {
+  let current: CitationManifest | null = null;
+  let previous: CitationManifest | null = null;
+  for (const attachment of attachments) {
+    const name = attachment.name.toLocaleLowerCase("pt-BR");
+    const mediaType = attachment.media_type?.toLocaleLowerCase("pt-BR") ?? "";
+    const explicitlyNamed =
+      name.includes("citation-manifest") ||
+      name.includes("citation_manifest") ||
+      name.includes("manifesto-citacoes") ||
+      name.includes("manifesto_citacoes");
+    if (!name.endsWith(".json") && mediaType !== "application/json" && !explicitlyNamed) {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      const binary = atob(attachment.data_base64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      parsed = JSON.parse(new TextDecoder().decode(bytes));
+    } catch (error) {
+      if (explicitlyNamed) {
+        throw new Error(`Manifesto de citacoes invalido: ${String(error)}`);
+      }
+      continue;
+    }
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      !("schema_version" in parsed) ||
+      parsed.schema_version !== "citation_manifest.v1"
+    ) {
+      if (explicitlyNamed) {
+        throw new Error("O manifesto de citacoes deve usar citation_manifest.v1.");
+      }
+      continue;
+    }
+    const isPrevious = name.includes("previous") || name.includes("anterior");
+    if (isPrevious) {
+      if (previous) throw new Error("Mais de um manifesto de citacoes anterior foi anexado.");
+      previous = parsed as CitationManifest;
+    } else {
+      if (current) throw new Error("Mais de um manifesto de citacoes atual foi anexado.");
+      current = parsed as CitationManifest;
+    }
+  }
+  return { current, previous };
+}
 
 export function App() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -153,6 +199,20 @@ export function App() {
   const [mainSiteHtml, setMainSiteHtml] = useState(
     '<h1>Artigo em preparacao</h1><p style="text-align: justify">Texto inicial para edicao com o mesmo PostEditor usado pelo MainSite.</p>',
   );
+  const [mainSiteAuthor, setMainSiteAuthor] = useState("Leonardo Cardozo Vargas");
+  const [mainSiteIsPublished, setMainSiteIsPublished] = useState(false);
+  const [mainSiteIsAboutSite, setMainSiteIsAboutSite] = useState(false);
+  const [mainSitePostId, setMainSitePostId] = useState<number | null>(null);
+  const [mainSiteDraftStatus, setMainSiteDraftStatus] = useState("Rascunho ainda nao persistido");
+  const [mainSiteDraft, setMainSiteDraft] = useState<MainSiteDraft | null>(null);
+  const [isSavingPostEditor, setIsSavingPostEditor] = useState(false);
+  const [mainSitePublishPlan, setMainSitePublishPlan] = useState<MainSiteD1PublishPlan | null>(
+    null,
+  );
+  const [mainSitePublishResult, setMainSitePublishResult] =
+    useState<MainSiteD1PublishResult | null>(null);
+  const [mainSitePublishError, setMainSitePublishError] = useState<string | null>(null);
+  const [mainSitePublishBusy, setMainSitePublishBusy] = useState(false);
   const [providerMode, setProviderMode] = useState<ProviderMode>("hybrid");
   const [initialAgent, setInitialAgent] = useState<InitialAgentKey>("claude");
   const [activeAgents, setActiveAgents] = useState<InitialAgentKey[]>(defaultActiveAgents);
@@ -171,6 +231,8 @@ export function App() {
   const [cloudflareTokenEnvVar, setCloudflareTokenEnvVar] = useState(
     "MAESTRO_CLOUDFLARE_API_TOKEN",
   );
+  const [cloudflarePublicationDatabase, setCloudflarePublicationDatabase] = useState("example_db");
+  const [cloudflarePublicationTable, setCloudflarePublicationTable] = useState("mainsite_posts");
   const [cloudflareEnvSnapshot, setCloudflareEnvSnapshot] = useState<CloudflareEnvSnapshot | null>(
     null,
   );
@@ -217,6 +279,7 @@ export function App() {
   const [activeAgentNow, setActiveAgentNow] = useState<ActiveAgentNow | null>(null);
   const [evidenceRows, setEvidenceRows] = useState<EvidenceRow[]>(initialEvidenceRows);
   const [linkAuditRows, setLinkAuditRows] = useState<LinkAuditResult["rows"]>([]);
+  const [citationAuditResult, setCitationAuditResult] = useState<CitationAuditResult | null>(null);
   const [protocolGateItems, setProtocolGateItems] = useState<ProtocolReadingGate[]>(
     initialProtocolReadingGates,
   );
@@ -226,6 +289,18 @@ export function App() {
   const [aiProviderRowsState, setAiProviderRowsState] =
     useState<AiProviderProbeRow[]>(initialAiProviderChecks);
   const [bootstrapRows, setBootstrapRows] = useState<BootstrapCheckRow[]>(initialBootstrapChecks);
+  const [runtimeBootstrapPlan, setRuntimeBootstrapPlan] = useState<RuntimeBootstrapPlan | null>(
+    null,
+  );
+  const [runtimeBootstrapResult, setRuntimeBootstrapResult] =
+    useState<RuntimeBootstrapActionResult | null>(null);
+  const [runtimeBootstrapProgress, setRuntimeBootstrapProgress] = useState<
+    RuntimeBootstrapProgressEvent[]
+  >([]);
+  const [isPlanningRuntimeBootstrap, setIsPlanningRuntimeBootstrap] = useState(false);
+  const [activeRuntimeBootstrapActionId, setActiveRuntimeBootstrapActionId] = useState<
+    string | null
+  >(null);
   const [bootstrapConfigStatus, setBootstrapConfigStatus] = useState(
     "bootstrap.json ainda nao carregado",
   );
@@ -239,6 +314,47 @@ export function App() {
   const [isResumeLoading, setIsResumeLoading] = useState(false);
   const [useLoadedProtocolForResume, setUseLoadedProtocolForResume] = useState(false);
   const sessionRunIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    void loadMainSiteDraft()
+      .then((draft) => {
+        if (disposed || !draft) return;
+        setMainSiteDraft(draft);
+        setSessionName(draft.title);
+        setMainSiteHtml(draft.content);
+        setMainSiteAuthor(draft.author);
+        setMainSiteIsPublished(draft.is_published);
+        setMainSiteIsAboutSite(draft.is_about_site);
+        setMainSitePostId(draft.requested_post_id);
+        setMainSiteDraftStatus(
+          `Rascunho recuperado em ${formatBrazilDateTime(new Date(draft.updated_at))}`,
+        );
+        void logEvent({
+          level: "info",
+          category: "editor.posteditor.draft_loaded",
+          message: "persisted MainSite draft restored",
+          context: {
+            content_sha256: draft.content_sha256,
+            sanitizer_profile: draft.sanitizer_profile,
+            updated_at: draft.updated_at,
+          },
+        });
+      })
+      .catch((error) => {
+        if (disposed) return;
+        setMainSiteDraftStatus("Falha fechada ao ler o rascunho persistido");
+        void logEvent({
+          level: "error",
+          category: "editor.posteditor.draft_load_failed",
+          message: "persisted MainSite draft failed validation",
+          context: { error },
+        });
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   // v0.3.14 / audit closure (MEDIUM): ESC dismissal on the ResumeDialog at
   // line 2574. Mirrors the existing Close button (line 2582) — no new
@@ -273,8 +389,8 @@ export function App() {
       return "evidence";
     };
 
-    void listen<NativeLogPayload>("maestro-log-event", (event) => {
-      const { category, context } = event.payload;
+    void listenToNativeLogs((payload) => {
+      const { category, context } = payload;
       if (!context?.run_id || context.run_id !== sessionRunIdRef.current) return;
 
       if (category === "session.agent.started") {
@@ -340,6 +456,26 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let unsubscribe: (() => void) | null = null;
+    let disposed = false;
+
+    void listenToRuntimeBootstrapProgress((payload) => {
+      setRuntimeBootstrapProgress((current) => [payload, ...current].slice(0, 40));
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        unsubscribe = unlisten;
+      }
+    });
+
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, []);
+
   const readyCount = useMemo(
     () => agentCards.filter((agent) => agent.state === "ready").length,
     [agentCards],
@@ -360,13 +496,6 @@ export function App() {
   const formalState = humanizeRunStatus(operation.status);
   const linkEvidenceState =
     evidenceRows.find((item) => item.label === "Links")?.value ?? "nao iniciado";
-  const invalidLinkRows = useMemo(
-    () =>
-      linkAuditRows.filter(
-        (row) => row.tone === "error" || row.tone === "blocked" || row.tone === "warn",
-      ),
-    [linkAuditRows],
-  );
   const activeNavItem = navItems.find((item) => item.section === activeSection) ?? navItems[0];
   const cloudflareTokenAvailable =
     cloudflareApiToken.length > 0 || Boolean(cloudflareEnvSnapshot?.api_token_present);
@@ -458,6 +587,7 @@ export function App() {
   useEffect(() => {
     void loadBootstrapConfig();
     void loadAiProviderConfig();
+    void refreshRuntimeBootstrapPlan();
   }, []);
 
   function activityTimestamp() {
@@ -473,9 +603,143 @@ export function App() {
     setActivityItems((current) => [{ ...item, time: activityTimestamp() }, ...current].slice(0, 8));
   }
 
+  async function refreshRuntimeBootstrapPlan() {
+    setIsPlanningRuntimeBootstrap(true);
+    try {
+      const plan = await createRuntimeBootstrapPlan();
+      setRuntimeBootstrapPlan(plan);
+      setBootstrapRows(
+        plan.dependencies.map((dependency) => ({
+          label: dependency.label,
+          value: dependency.detail,
+          tone:
+            dependency.state === "ready"
+              ? "ok"
+              : dependency.required && dependency.state === "missing"
+                ? "blocked"
+                : dependency.state === "outdated" || dependency.state === "misconfigured"
+                  ? "warn"
+                  : "pending",
+        })),
+      );
+      appendActivity({
+        level: "detail",
+        title: "Plano de setup atualizado",
+        detail: `${plan.dependencies.length.toLocaleString("pt-BR")} dependencias; ${plan.actions.length.toLocaleString("pt-BR")} acoes propostas.`,
+      });
+      void logEvent({
+        level: "info",
+        category: "runtime.bootstrap.plan_loaded",
+        message: "runtime bootstrap plan loaded",
+        context: {
+          plan_hash: plan.plan_hash,
+          dependencies: plan.dependencies.length,
+          actions: plan.actions.length,
+          required_ready: plan.required_ready,
+        },
+      });
+    } catch (error) {
+      appendActivity({
+        level: "diagnostic",
+        title: "Falha ao planejar setup",
+        detail: "Nenhuma alteracao foi executada. Consulte o log desta execucao.",
+      });
+      void logEvent({
+        level: "error",
+        category: "runtime.bootstrap.plan_failed",
+        message: "failed to build runtime bootstrap plan",
+        context: { error },
+      });
+    } finally {
+      setIsPlanningRuntimeBootstrap(false);
+    }
+  }
+
+  async function authorizeRuntimeBootstrapAction(actionId: string) {
+    const plan = runtimeBootstrapPlan;
+    const action = plan?.actions.find((candidate) => candidate.action_id === actionId);
+    if (!plan || !action) return;
+
+    const preview = action.command_preview ?? "intervencao manual; nenhum comando automatico";
+    const approved = window.confirm(
+      [
+        `Autorizar esta acao de setup?\n\n${action.title}`,
+        `Fonte: ${action.source}`,
+        `Escopo: ${action.install_scope}`,
+        `Comando/acao: ${preview}`,
+        action.requires_elevation
+          ? "Esta acao exige uma fronteira UAC separada."
+          : "Nenhuma elevacao permanente sera mantida.",
+      ].join("\n"),
+    );
+    if (!approved) return;
+
+    setActiveRuntimeBootstrapActionId(actionId);
+    setRuntimeBootstrapResult(null);
+    try {
+      const result = await executeRuntimeBootstrapAction(actionId, plan.plan_hash, true);
+      setRuntimeBootstrapResult(result);
+      setRuntimeBootstrapPlan(result.refreshed_plan);
+      appendActivity({
+        level: result.status === "completed" ? "detail" : "diagnostic",
+        title: `Setup: ${action.title}`,
+        detail: result.message,
+      });
+      void logEvent({
+        level: result.status === "completed" ? "info" : "warn",
+        category: "runtime.bootstrap.action_finished",
+        message: "runtime bootstrap action finished",
+        context: {
+          action_id: actionId,
+          plan_hash: plan.plan_hash,
+          status: result.status,
+          exit_code: result.exit_code,
+        },
+      });
+    } catch (error) {
+      appendActivity({
+        level: "diagnostic",
+        title: `Falha no setup: ${action.title}`,
+        detail: "A acao falhou fechada; gere um novo plano antes de tentar novamente.",
+      });
+      void logEvent({
+        level: "error",
+        category: "runtime.bootstrap.action_failed",
+        message: "runtime bootstrap action failed",
+        context: { action_id: actionId, plan_hash: plan.plan_hash, error },
+      });
+    } finally {
+      setActiveRuntimeBootstrapActionId(null);
+    }
+  }
+
+  async function controlRuntimeBootstrap(
+    actionId: string,
+    disposition: RuntimeBootstrapDisposition,
+  ) {
+    const plan = runtimeBootstrapPlan;
+    if (!plan) return;
+    try {
+      const result = await controlRuntimeBootstrapAction(actionId, plan.plan_hash, disposition);
+      appendActivity({
+        level: "detail",
+        title: `Acao de setup: ${result.status}`,
+        detail: `${actionId} registrado como ${result.disposition}.`,
+      });
+      if (disposition !== "cancel") await refreshRuntimeBootstrapPlan();
+    } catch (error) {
+      void logEvent({
+        level: "error",
+        category: "runtime.bootstrap.control_failed",
+        message: "runtime bootstrap action control failed",
+        context: { action_id: actionId, plan_hash: plan.plan_hash, disposition, error },
+      });
+    }
+  }
+
   async function verifyAgentsNow() {
     try {
-      const preflight = await invoke<DependencyPreflight>("dependency_preflight");
+      const preflight = await dependencyPreflight();
       setBootstrapRows(preflight.checks);
       const byLabel = new Map(preflight.checks.map((check) => [check.label, check]));
       setAgentCards((current) =>
@@ -526,7 +790,12 @@ export function App() {
       title: "Revalidacao iniciada",
       detail: "Conferindo dependencias, configuracoes locais e chaves carregadas.",
     });
-    await Promise.all([loadBootstrapConfig(), loadAiProviderConfig(), verifyAgentsNow()]);
+    await Promise.all([
+      loadBootstrapConfig(),
+      loadAiProviderConfig(),
+      verifyAgentsNow(),
+      refreshRuntimeBootstrapPlan(),
+    ]);
   }
 
   async function openSessionLedger() {
@@ -540,7 +809,7 @@ export function App() {
     }
 
     try {
-      const openedPath = await invoke<string>("open_data_file", { path: lastSessionMinutesPath });
+      const openedPath = await openDataFile(lastSessionMinutesPath);
       appendActivity({
         level: "detail",
         title: "Ata aberta",
@@ -569,22 +838,54 @@ export function App() {
 
   async function auditEvidenceNow() {
     const sourceText = [editorialPrompt, protocolText, mainSiteHtml].join("\n\n");
+    const citationSourceText = mainSiteHtml.trim() || editorialPrompt.trim();
+    const pinnedProtocolHash = /^[a-f0-9]{64}$/i.test(protocol.hash) ? protocol.hash : null;
     setIsAuditingEvidence(true);
     setLinkAuditRows([]);
+    setCitationAuditResult(null);
     setEvidenceRows((current) =>
       current.map((row) =>
-        row.label === "Links" ? { ...row, value: "verificando links", tone: "info" } : row,
+        row.label === "Links"
+          ? { ...row, value: "verificando links", tone: "info" }
+          : row.label === "ABNT"
+            ? { ...row, value: "auditando citacoes", tone: "info" }
+            : row,
       ),
     );
 
+    let citationAuditPromise: Promise<CitationAuditResult>;
     try {
-      const result = await invoke<LinkAuditResult>("audit_links", {
-        request: { text: sourceText },
+      const citationManifests = citationManifestsFromAttachments(promptAttachments);
+      citationAuditPromise = auditAbntCitations({
+        text: citationSourceText,
+        protocol_hash: pinnedProtocolHash,
+        manifest: citationManifests.current,
+        previous_manifest: citationManifests.previous,
       });
+    } catch (error) {
+      citationAuditPromise = Promise.reject(error);
+      void logEvent({
+        level: "error",
+        category: "citation.manifest.invalid",
+        message: "citation manifest attachment could not be parsed",
+        context: { error },
+      });
+    }
+    const [linkOutcome, citationOutcome] = await Promise.allSettled([
+      auditLinks(sourceText),
+      citationAuditPromise,
+    ]);
+
+    if (linkOutcome.status === "fulfilled") {
+      const result = linkOutcome.value;
       const failedLinkLabel =
         result.failed === 1
           ? "1 link com problema"
           : `${result.failed.toLocaleString("pt-BR")} links com problema`;
+      const pendingReviewLabel =
+        result.pending_review === 1
+          ? "1 link aguardando revisao editorial"
+          : `${result.pending_review.toLocaleString("pt-BR")} links aguardando revisao editorial`;
       setLinkAuditRows(result.rows);
       setEvidenceRows((current) =>
         current.map((row) => {
@@ -596,6 +897,13 @@ export function App() {
             return {
               ...row,
               value: failedLinkLabel,
+              tone: "warn",
+            };
+          }
+          if (result.pending_review > 0) {
+            return {
+              ...row,
+              value: pendingReviewLabel,
               tone: "warn",
             };
           }
@@ -612,10 +920,10 @@ export function App() {
         detail:
           result.urls_found === 0
             ? "Nenhum link foi encontrado no prompt, protocolo ou texto em edicao."
-            : `${result.ok.toLocaleString("pt-BR")} acessiveis; ${failedLinkLabel}.`,
+            : `${result.ok.toLocaleString("pt-BR")} aceitos; ${pendingReviewLabel}; ${failedLinkLabel}.`,
       });
       void logEvent({
-        level: result.failed > 0 ? "warn" : "info",
+        level: result.failed > 0 || result.pending_review > 0 ? "warn" : "info",
         category: "evidence.audit.completed",
         message: "link evidence audit completed",
         context: {
@@ -623,6 +931,8 @@ export function App() {
           checked: result.checked,
           ok: result.ok,
           failed: result.failed,
+          pending_review: result.pending_review,
+          blocked: result.blocked,
           rows: result.rows.map((row) => ({
             url: row.url,
             tone: row.tone,
@@ -631,7 +941,7 @@ export function App() {
           })),
         },
       });
-    } catch (error) {
+    } else {
       setLinkAuditRows([]);
       setEvidenceRows((current) =>
         current.map((row) =>
@@ -642,11 +952,72 @@ export function App() {
         level: "error",
         category: "evidence.audit.failed",
         message: "link evidence audit failed",
-        context: { error },
+        context: { error: linkOutcome.reason },
       });
-    } finally {
-      setIsAuditingEvidence(false);
     }
+
+    if (citationOutcome.status === "fulfilled") {
+      const result = citationOutcome.value;
+      const needsEvidence = result.blockers.filter((blocker) => blocker.needs_evidence).length;
+      setCitationAuditResult(result);
+      setEvidenceRows((current) =>
+        current.map((row) => {
+          if (row.label !== "ABNT") return row;
+          if (result.maestro_peer_status === "ready" && result.blockers.length === 0) {
+            return { ...row, value: "auditoria mecanica sem blocker", tone: "ok" };
+          }
+          if (result.maestro_peer_status === "ready") {
+            return { ...row, value: "READY inconsistente com blockers", tone: "danger" };
+          }
+          if (result.maestro_peer_status === "needs_evidence") {
+            return {
+              ...row,
+              value: `${needsEvidence.toLocaleString("pt-BR")} pendencia(s) de evidencia`,
+              tone: "warn",
+            };
+          }
+          return {
+            ...row,
+            value: `${result.blockers.length.toLocaleString("pt-BR")} blocker(s) mecanico(s)`,
+            tone: "danger",
+          };
+        }),
+      );
+      appendActivity({
+        level: result.maestro_peer_status === "ready" ? "detail" : "diagnostic",
+        title: `MaestroPeer: ${result.maestro_peer_status.toUpperCase()}`,
+        detail: `${result.citations.length.toLocaleString("pt-BR")} citacao(oes), ${result.normalized_references.length.toLocaleString("pt-BR")} referencia(s) normalizada(s), ${result.blockers.length.toLocaleString("pt-BR")} blocker(s). Veredito mecanico; nao equivale a aprovacao por consenso de IA.`,
+      });
+      void logEvent({
+        level: result.maestro_peer_status === "ready" ? "info" : "warn",
+        category: "citation.audit.completed",
+        message: "deterministic ABNT citation audit completed",
+        context: {
+          audit_id: result.audit_id,
+          protocol_hash: result.protocol_hash,
+          maestro_peer_status: result.maestro_peer_status,
+          citations: result.citations.length,
+          normalized_references: result.normalized_references.length,
+          blockers: result.blockers.length,
+          needs_evidence: needsEvidence,
+        },
+      });
+    } else {
+      setCitationAuditResult(null);
+      setEvidenceRows((current) =>
+        current.map((row) =>
+          row.label === "ABNT" ? { ...row, value: "falha na auditoria", tone: "danger" } : row,
+        ),
+      );
+      void logEvent({
+        level: "error",
+        category: "citation.audit.failed",
+        message: "deterministic ABNT citation audit failed",
+        context: { error: citationOutcome.reason },
+      });
+    }
+
+    setIsAuditingEvidence(false);
   }
 
   function createRunId() {
@@ -662,6 +1033,8 @@ export function App() {
       cloudflare_api_token_source: cloudflareTokenSource,
       cloudflare_api_token_env_var: cloudflareTokenEnvVar.trim() || "MAESTRO_CLOUDFLARE_API_TOKEN",
       cloudflare_persistence_database: "maestro_db",
+      cloudflare_publication_database: cloudflarePublicationDatabase.trim() || "example_db",
+      cloudflare_publication_table: cloudflarePublicationTable.trim() || "mainsite_posts",
       cloudflare_secret_store: "maestro",
       windows_env_prefix: "MAESTRO_",
       updated_at: new Date().toISOString(),
@@ -671,8 +1044,8 @@ export function App() {
   async function loadBootstrapConfig() {
     try {
       const [config, envSnapshot] = await Promise.all([
-        invoke<BootstrapConfig>("read_bootstrap_config"),
-        invoke<CloudflareEnvSnapshot>("cloudflare_env_snapshot"),
+        readBootstrapConfig(),
+        readCloudflareEnvSnapshot(),
       ]);
 
       setBootstrapRows(
@@ -690,6 +1063,8 @@ export function App() {
         envSnapshot.api_token_env_var ?? config.cloudflare_api_token_env_var,
       );
       setCloudflareEnvSnapshot(envSnapshot);
+      setCloudflarePublicationDatabase(config.cloudflare_publication_database || "example_db");
+      setCloudflarePublicationTable(config.cloudflare_publication_table || "mainsite_posts");
       if (!cloudflareAccountId.trim() && (envSnapshot.account_id || config.cloudflare_account_id)) {
         setCloudflareAccountId(envSnapshot.account_id ?? config.cloudflare_account_id ?? "");
       }
@@ -721,7 +1096,7 @@ export function App() {
           cloudflare_api_token_present: envSnapshot.api_token_present,
         },
       });
-      void invoke<DependencyPreflight>("dependency_preflight")
+      void dependencyPreflight()
         .then((preflight) => {
           setBootstrapRows(preflight.checks);
           void logEvent({
@@ -764,9 +1139,7 @@ export function App() {
 
   async function persistBootstrapConfig(nextMode = credentialStorageMode) {
     try {
-      const saved = await invoke<BootstrapConfig>("write_bootstrap_config", {
-        config: buildBootstrapConfig(nextMode),
-      });
+      const saved = await writeBootstrapConfig(buildBootstrapConfig(nextMode));
       setBootstrapConfigStatus(`bootstrap.json salvo em ${saved.updated_at}`);
       void logEvent({
         level: "info",
@@ -894,7 +1267,7 @@ export function App() {
 
   async function loadAiProviderConfig() {
     try {
-      const config = await invoke<AiProviderConfig>("read_ai_provider_config");
+      const config = await readAiProviderConfig();
       setProviderMode(config.provider_mode);
       setAiCredentials({
         openai: config.openai_api_key ?? "",
@@ -967,11 +1340,10 @@ export function App() {
   async function saveAiProviderConfig(nextProviderMode = providerMode) {
     setIsSavingAiConfig(true);
     try {
-      const saved = await invoke<AiProviderConfig>("write_ai_provider_config", {
-        config: buildAiProviderConfig(nextProviderMode),
-        cloudflare:
-          credentialStorageMode === "cloudflare" ? buildCloudflareProviderStorageRequest() : null,
-      });
+      const saved = await writeAiProviderConfig(
+        buildAiProviderConfig(nextProviderMode),
+        credentialStorageMode === "cloudflare" ? buildCloudflareProviderStorageRequest() : null,
+      );
       setProviderMode(saved.provider_mode);
       setAiCredentials({
         openai: saved.openai_api_key ?? "",
@@ -1124,7 +1496,7 @@ export function App() {
     });
 
     try {
-      const sessions = await invoke<ResumableSessionInfo[]>("list_resumable_sessions");
+      const sessions = await listResumableSessions();
       setResumeCandidates(sessions);
       setUseLoadedProtocolForResume(hasLoadedProtocolForResume);
 
@@ -1777,35 +2149,34 @@ export function App() {
 
     try {
       const result = resumeOptions
-        ? await invoke<EditorialSessionResult>("resume_editorial_session", {
-            request: {
-              run_id: runId,
-              protocol_name: resumeOptions.protocolName ?? null,
-              protocol_text: resumeOptions.protocolText ?? null,
-              protocol_hash: resumeOptions.protocolHash ?? null,
-              initial_agent: selectedInitialAgent,
-              active_agents: runOptions?.activeAgents ?? null,
-              max_session_cost_usd: runOptions?.maxSessionCostUsd ?? null,
-              max_session_minutes: runOptions?.maxSessionMinutes ?? null,
-              attachments: runOptions?.attachments ?? [],
-              links: runOptions?.links ?? null,
-            },
+        ? await resumeEditorialSession({
+            run_id: runId,
+            protocol_name: resumeOptions.protocolName ?? null,
+            protocol_text: resumeOptions.protocolText ?? null,
+            protocol_hash: resumeOptions.protocolHash ?? null,
+            initial_agent: selectedInitialAgent,
+            active_agents: runOptions?.activeAgents ?? null,
+            max_session_cost_usd: runOptions?.maxSessionCostUsd ?? null,
+            max_session_minutes: runOptions?.maxSessionMinutes ?? null,
+            attachments:
+              runOptions?.attachments && runOptions.attachments.length > 0
+                ? runOptions.attachments
+                : null,
+            links: runOptions?.links ?? null,
           })
-        : await invoke<EditorialSessionResult>("run_editorial_session", {
-            request: {
-              run_id: runId,
-              session_name: sessionName,
-              prompt: promptText,
-              protocol_name: protocol.name,
-              protocol_text: protocolText,
-              protocol_hash: protocol.hash,
-              initial_agent: selectedInitialAgent,
-              active_agents: runOptions?.activeAgents ?? null,
-              max_session_cost_usd: runOptions?.maxSessionCostUsd ?? null,
-              max_session_minutes: runOptions?.maxSessionMinutes ?? null,
-              attachments: runOptions?.attachments ?? [],
-              links: runOptions?.links ?? [],
-            },
+        : await runEditorialSession({
+            run_id: runId,
+            session_name: sessionName,
+            prompt: promptText,
+            protocol_name: protocol.name,
+            protocol_text: protocolText,
+            protocol_hash: protocol.hash,
+            initial_agent: selectedInitialAgent,
+            active_agents: runOptions?.activeAgents ?? null,
+            max_session_cost_usd: runOptions?.maxSessionCostUsd ?? null,
+            max_session_minutes: runOptions?.maxSessionMinutes ?? null,
+            attachments: runOptions?.attachments ?? [],
+            links: runOptions?.links ?? [],
           });
       window.clearInterval(heartbeat);
       setLastSessionMinutesPath(result.session_minutes_path);
@@ -1828,15 +2199,19 @@ export function App() {
           value: "revisado pelos agentes",
           tone: result.consensus_ready ? "ok" : "warn",
         },
-        { label: "Links", value: "exige motor mecanico dedicado", tone: "warn" },
+        {
+          label: "Links",
+          value: result.consensus_ready ? "gate mecanico aprovado" : "gate nao liberado",
+          tone: result.consensus_ready ? "ok" : "warn",
+        },
         {
           label: "ABNT",
-          value: "revisado pelos agentes",
+          value: result.consensus_ready ? "MaestroPeer READY" : "MaestroPeer nao liberado",
           tone: result.consensus_ready ? "ok" : "warn",
         },
         {
           label: "Quarentena",
-          value: result.consensus_ready ? "liberado por unanimidade" : "texto bloqueado",
+          value: result.consensus_ready ? "sem blocker deterministico" : "texto bloqueado",
           tone: result.consensus_ready ? "ok" : "danger",
         },
       ]);
@@ -1908,11 +2283,13 @@ export function App() {
                         ? "Nao ha revisor independente disponivel para o rascunho atual. Selecione pelo menos dois agentes ativos e retome a sessao."
                         : result.status === "PAUSED_REVIEWER_OPERATIONAL_OUTAGE"
                           ? "Os revisores independentes disponiveis falharam operacionalmente em rodadas consecutivas. A sessao foi pausada sem alterar o texto; ajuste CLI/API, inclua outro revisor independente ou troque o modo e retome."
-                          : result.status === "PAUSED_FINAL_REFERENCE_AUDIT"
-                            ? "A sessao foi pausada porque o texto ainda depende de evidencia externa ou decisao do operador. Anexe/verifique a evidencia indicada na ata antes de retomar."
-                            : result.status === "ALL_PEERS_FAILING"
-                              ? "Todos os peers ativos retornaram erro em 3 rodadas consecutivas. Sessao pausada para nao queimar quota e tempo. Verifique conectividade, chaves de API e quotas; depois retome."
-                              : "A sessao nao entregou texto final nesta chamada. Divergencias exigem novas rodadas ate unanimidade.",
+                          : result.status === "PAUSED_LEGACY_RETRY_ACCOUNTING_UNKNOWN"
+                            ? "Esta sessao foi criada antes do accounting persistente de retries pagos. Para nao renovar silenciosamente um orçamento já consumido, a continuacao via API foi pausada. Inicie uma nova sessao ou retome somente com peers CLI."
+                            : result.status === "PAUSED_FINAL_REFERENCE_AUDIT"
+                              ? "A sessao foi pausada porque o texto ainda depende de evidencia externa ou decisao do operador. Anexe/verifique a evidencia indicada na ata antes de retomar."
+                              : result.status === "ALL_PEERS_FAILING"
+                                ? "Todos os peers ativos retornaram erro em 3 rodadas consecutivas. Sessao pausada para nao queimar quota e tempo. Verifique conectividade, chaves de API e quotas; depois retome."
+                                : "A sessao nao entregou texto final nesta chamada. Divergencias exigem novas rodadas ate unanimidade.",
           eta: `Ata: ${result.session_minutes_path}`,
           status: "paused",
         });
@@ -2036,7 +2413,7 @@ export function App() {
     if (!confirmed) return;
     setIsStopRequested(true);
     try {
-      await invoke<boolean>("stop_editorial_session", { runId: sessionRunId });
+      await stopEditorialSession(sessionRunId);
       void logEvent({
         level: "info",
         category: "session.user.stop_requested",
@@ -2187,8 +2564,8 @@ export function App() {
           ? "windows_env"
           : cloudflareTokenSource,
         token_env_var: tokenEnvVar,
-        target_database: "bigdata_db",
-        target_table: "mainsite_posts",
+        target_database: cloudflarePublicationDatabase.trim() || "example_db",
+        target_table: cloudflarePublicationTable.trim() || "mainsite_posts",
         persistence_database: "maestro_db",
         persistence_secret_store: "maestro",
         credential_storage_mode: credentialStorageMode,
@@ -2196,15 +2573,14 @@ export function App() {
     });
 
     try {
-      const result = await invoke<CloudflareProbeResult>("verify_cloudflare_credentials", {
-        request: {
-          account_id: accountId,
-          api_token: cloudflareApiToken.trim() || null,
-          api_token_env_var: tokenEnvVar,
-          persistence_database: "maestro_db",
-          publication_database: "bigdata_db",
-          secret_store: "maestro",
-        },
+      const result = await probeCloudflareCredentials({
+        account_id: accountId,
+        api_token: cloudflareApiToken.trim() || null,
+        api_token_env_var: tokenEnvVar,
+        persistence_database: "maestro_db",
+        publication_database: cloudflarePublicationDatabase.trim() || "example_db",
+        publication_table: cloudflarePublicationTable.trim() || "mainsite_posts",
+        secret_store: "maestro",
       });
       setCloudflarePermissionRows(result.rows);
       appendActivity({
@@ -2281,9 +2657,7 @@ export function App() {
     }
 
     try {
-      const result = await invoke<AiProviderProbeResult>("verify_ai_provider_credentials", {
-        config: saved,
-      });
+      const result = await probeAiProviderCredentials(saved);
       setAiProviderRowsState(result.rows);
       setAiConfigStatus(`Verificado em ${formatBrazilDateTime(new Date(result.checked_at))}`);
       appendActivity({
@@ -2329,24 +2703,290 @@ export function App() {
     confirmedAboutAction?: boolean,
     requestedPostId?: number,
   ) {
-    setSessionName(title || sessionName);
-    setMainSiteHtml(htmlContent);
-    void logEvent({
-      level: "info",
-      category: "editor.posteditor.save",
-      message: "operator saved PostEditor-compatible draft",
-      context: {
+    setIsSavingPostEditor(true);
+    setMainSiteDraftStatus("Auditando links antes de persistir");
+    try {
+      const linkAudit = await auditLinks(htmlContent);
+      setLinkAuditRows(linkAudit.rows);
+      setEvidenceRows((current) =>
+        current.map((row) =>
+          row.label === "Links"
+            ? {
+                ...row,
+                value:
+                  linkAudit.urls_found === 0
+                    ? "nenhum link encontrado"
+                    : linkAudit.failed > 0
+                      ? `${linkAudit.failed.toLocaleString("pt-BR")} link(s) com falha mecanica`
+                      : linkAudit.blocked > 0
+                        ? `${linkAudit.blocked.toLocaleString("pt-BR")} link(s) bloqueado(s)`
+                        : linkAudit.pending_review > 0
+                          ? `${linkAudit.pending_review.toLocaleString("pt-BR")} link(s) aguardando decisao editorial`
+                          : `${linkAudit.ok.toLocaleString("pt-BR")} link(s) liberado(s) para persistencia`,
+                tone:
+                  linkAudit.failed > 0 || linkAudit.blocked > 0 || linkAudit.pending_review > 0
+                    ? "warn"
+                    : "ok",
+              }
+            : row,
+        ),
+      );
+      if (linkAudit.failed > 0 || linkAudit.blocked > 0 || linkAudit.pending_review > 0) {
+        setMainSiteDraftStatus("Save bloqueado pelo Link Integrity Engine");
+        appendActivity({
+          level: "diagnostic",
+          title: "Rascunho MainSite nao persistido",
+          detail:
+            "Revise os links pendentes na area Evidencias; o HTML anterior permanece intacto.",
+        });
+        void logEvent({
+          level: "warn",
+          category: "editor.posteditor.save_blocked",
+          message: "MainSite draft save blocked by link integrity",
+          context: {
+            audit_id: linkAudit.audit_id,
+            failed: linkAudit.failed,
+            blocked: linkAudit.blocked,
+            pending_review: linkAudit.pending_review,
+          },
+        });
+        return false;
+      }
+
+      const draft = await saveMainSiteDraft({
+        requested_post_id: requestedPostId ?? mainSitePostId,
         title,
         author,
-        chars: htmlContent.length,
+        content: htmlContent,
         is_published: isPublished,
         is_about_site: isAboutSite,
-        confirmed_about_action: confirmedAboutAction ?? false,
-        requested_post_id: requestedPostId ?? null,
-        compatibility_target: "admin-app/MainSite/PostEditor",
+        sanitizer_profile: MAIN_SITE_SANITIZER_PROFILE,
+      });
+      setMainSiteDraft(draft);
+      setMainSitePublishPlan(null);
+      setMainSitePublishResult(null);
+      setMainSitePublishError(null);
+      setSessionName(draft.title);
+      setMainSiteHtml(draft.content);
+      setMainSiteAuthor(draft.author);
+      setMainSiteIsPublished(draft.is_published);
+      setMainSiteIsAboutSite(draft.is_about_site);
+      setMainSitePostId(draft.requested_post_id);
+      setMainSiteDraftStatus(
+        `Rascunho persistido em ${formatBrazilDateTime(new Date(draft.updated_at))}`,
+      );
+      appendActivity({
+        level: "detail",
+        title: "Rascunho MainSite persistido",
+        detail: "HTML sanitizado e verificado foi salvo atomicamente na pasta data do Maestro.",
+      });
+      void logEvent({
+        level: "info",
+        category: "editor.posteditor.save",
+        message: "operator saved PostEditor-compatible draft",
+        context: {
+          title: draft.title,
+          author: draft.author,
+          chars: draft.content.length,
+          content_sha256: draft.content_sha256,
+          sanitizer_profile: draft.sanitizer_profile,
+          is_published: draft.is_published,
+          is_about_site: draft.is_about_site,
+          confirmed_about_action: confirmedAboutAction ?? false,
+          requested_post_id: draft.requested_post_id,
+          compatibility_target: "admin-app/MainSite/PostEditor",
+        },
+      });
+      return true;
+    } catch (error) {
+      setMainSiteDraftStatus("Falha ao persistir; rascunho anterior preservado");
+      void logEvent({
+        level: "error",
+        category: "editor.posteditor.save_failed",
+        message: "PostEditor-compatible draft was not persisted",
+        context: { error },
+      });
+      return false;
+    } finally {
+      setIsSavingPostEditor(false);
+    }
+  }
+
+  function buildMainSiteD1Target(): MainSiteD1Target {
+    return {
+      account_id: cloudflareAccountId.trim() || cloudflareEnvSnapshot?.account_id || "",
+      api_token: cloudflareApiToken.trim() || null,
+      api_token_env_var:
+        cloudflareTokenEnvVar.trim() ||
+        cloudflareEnvSnapshot?.api_token_env_var ||
+        "MAESTRO_CLOUDFLARE_API_TOKEN",
+      database: cloudflarePublicationDatabase.trim(),
+      table: cloudflarePublicationTable.trim(),
+      allow_wrangler_fallback: false,
+    };
+  }
+
+  async function previewMainSitePublish() {
+    if (!mainSiteDraft) {
+      setMainSitePublishError("Salve primeiro um rascunho MainSite validado.");
+      return;
+    }
+
+    setMainSitePublishBusy(true);
+    setMainSitePublishError(null);
+    setMainSitePublishResult(null);
+    try {
+      await persistBootstrapConfig();
+      const target = buildMainSiteD1Target();
+      await probeMainSiteD1(target);
+      const plan = await previewMainSiteD1Publish(target, mainSiteDraft);
+      setMainSitePublishPlan(plan);
+      void logEvent({
+        level: "info",
+        category: "editor.mainsite_d1.preview_ready",
+        message: "read-only MainSite D1 publication preview prepared",
+        context: {
+          plan_id: plan.plan_id,
+          action: plan.action,
+          draft_hash: plan.draft_hash,
+          remote_hash_present: Boolean(plan.remote_hash),
+          read_only: plan.read_only,
+        },
+      });
+    } catch (error) {
+      setMainSitePublishPlan(null);
+      setMainSitePublishError(error instanceof Error ? error.message : String(error));
+      void logEvent({
+        level: "warn",
+        category: "editor.mainsite_d1.preview_blocked",
+        message: "MainSite D1 publication preview failed closed",
+        context: { error },
+      });
+    } finally {
+      setMainSitePublishBusy(false);
+    }
+  }
+
+  async function publishMainSiteDraft() {
+    if (!mainSiteDraft || !mainSitePublishPlan) {
+      setMainSitePublishError("Gere um novo preview somente leitura antes de publicar.");
+      return;
+    }
+
+    setMainSitePublishBusy(true);
+    setMainSitePublishError(null);
+    try {
+      const result = await publishMainSiteD1(
+        buildMainSiteD1Target(),
+        mainSiteDraft,
+        mainSitePublishPlan,
+      );
+      let linkedDraft: MainSiteDraft;
+      try {
+        linkedDraft = await saveMainSiteDraft({
+          requested_post_id: result.post_id,
+          title: mainSiteDraft.title,
+          author: mainSiteDraft.author,
+          content: mainSiteDraft.content,
+          is_published: mainSiteDraft.is_published,
+          is_about_site: mainSiteDraft.is_about_site,
+          sanitizer_profile: mainSiteDraft.sanitizer_profile,
+        });
+      } catch (persistenceError) {
+        const recoveryMessage =
+          `O post remoto #${result.post_id} foi publicado e relido, mas o vínculo local não pôde ser persistido. ` +
+          "A publicação foi bloqueada nesta sessão: não tente novamente até recuperar o rascunho com esse ID.";
+        setMainSitePostId(result.post_id);
+        setMainSiteDraft(null);
+        setMainSitePublishPlan(null);
+        setMainSitePublishResult(null);
+        setMainSitePublishError(recoveryMessage);
+        setMainSiteDraftStatus(recoveryMessage);
+        void logEvent({
+          level: "error",
+          category: "editor.mainsite_d1.local_linkage_failed",
+          message: "remote MainSite D1 write succeeded but local post linkage failed",
+          context: {
+            plan_id: result.plan_id,
+            post_id: result.post_id,
+            error: persistenceError,
+          },
+        });
+        return;
+      }
+      setMainSiteDraft(linkedDraft);
+      setMainSitePublishResult(result);
+      setMainSitePublishPlan(null);
+      setMainSitePostId(linkedDraft.requested_post_id);
+      setMainSiteDraftStatus(
+        `Publicado e relido em ${formatBrazilDateTime(new Date(result.published_at))}`,
+      );
+      void logEvent({
+        level: "info",
+        category: "editor.mainsite_d1.publish_verified",
+        message: "MainSite D1 publication verified by readback",
+        context: {
+          plan_id: result.plan_id,
+          action: result.action,
+          post_id: result.post_id,
+          draft_hash: result.draft_hash,
+          readback_hash: result.readback_hash,
+          content_version: result.content_version,
+          fields_verified: result.fields_verified,
+          transport: result.transport,
+        },
+      });
+    } catch (error) {
+      setMainSitePublishError(error instanceof Error ? error.message : String(error));
+      void logEvent({
+        level: "error",
+        category: "editor.mainsite_d1.publish_failed",
+        message: "MainSite D1 publication failed or readback did not match",
+        context: { error, plan_id: mainSitePublishPlan.plan_id },
+      });
+    } finally {
+      setMainSitePublishBusy(false);
+    }
+  }
+
+  function resetMainSitePublish() {
+    setMainSitePublishPlan(null);
+    setMainSitePublishResult(null);
+    setMainSitePublishError(null);
+  }
+
+  async function importSharedChatIntoEditor(url: string) {
+    const result = await importSharedChat(url);
+    if (result.state === "operator_action_required") {
+      void logEvent({
+        level: "warn",
+        category: "editor.shared_chat.operator_action_required",
+        message: "shared chat import requires explicit operator assistance",
+        context: {
+          provider: result.provider,
+          action_kind: result.action.kind,
+          evidence_id: result.evidence.id,
+        },
+      });
+      throw new Error(`${result.action.reason} ${result.action.next_step}`.trim());
+    }
+
+    void logEvent({
+      level: "info",
+      category: "editor.shared_chat.imported",
+      message: "shared chat imported with separate provenance",
+      context: {
+        provider: result.provider,
+        evidence_id: result.evidence.id,
+        provenance_id: result.provenance_id,
       },
     });
-    return true;
+    return {
+      title: result.title,
+      html: result.html,
+      provider: result.provider,
+      evidence: result.evidence,
+    };
   }
 
   function openPostEditor() {
@@ -2369,1245 +3009,208 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">M</div>
-          <div>
-            <div className="brand-name">Maestro Editorial AI</div>
-            <div className="brand-meta">{APP_VERSION}</div>
-          </div>
-        </div>
-
-        <nav className="nav-list" aria-label="Principal">
-          {navGroups.map((group) => (
-            <div className="nav-group" key={group.label}>
-              <div className="nav-group-label">{group.label}</div>
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    className={activeSection === item.section ? "nav-item active" : "nav-item"}
-                    type="button"
-                    key={item.section}
-                    aria-current={activeSection === item.section ? "page" : undefined}
-                    onClick={() => chooseSection(item.section)}
-                  >
-                    <Icon size={18} />
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-
-        <div className="storage-strip">
-          <Database size={18} />
-          <div>
-            <strong>{storageModeSummaries[credentialStorageMode].title}</strong>
-            <span>{storageModeSummaries[credentialStorageMode].detail}</span>
-          </div>
-        </div>
-      </aside>
+      <AppSidebar
+        activeSection={activeSection}
+        appVersion={APP_VERSION}
+        credentialStorageMode={credentialStorageMode}
+        onChooseSection={chooseSection}
+      />
 
       <main className="workspace">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">{activeNavItem?.label ?? "Workspace"}</p>
-            <input
-              className="session-title"
-              value={sessionName}
-              onChange={(event) => setSessionName(event.target.value)}
-              aria-label="Nome da sessao"
-            />
-          </div>
-          <div className="toolbar">
-            <button
-              className="icon-button"
-              type="button"
-              title="Revalidar"
-              onClick={() => void revalidateRuntime()}
-            >
-              <RefreshCw size={18} />
-            </button>
-            <button
-              className={isResumeLoading ? "secondary-button busy" : "secondary-button"}
-              type="button"
-              onClick={() => void requestResumeSession()}
-              aria-busy={isResumeLoading}
-              disabled={isRunPreparing || isResumeLoading}
-            >
-              <Clock3 size={18} />
-              {isResumeLoading ? "Buscando" : "Retomar"}
-            </button>
-            <button
-              className={isRunPreparing ? "primary-button busy" : "primary-button"}
-              type="button"
-              onClick={startEditorialSession}
-              aria-busy={isRunPreparing}
-              disabled={isRunPreparing}
-            >
-              <Play size={18} />
-              {isRunPreparing ? "Preparando" : runActionLabel}
-            </button>
-            {isRunPreparing && sessionRunId && (
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={handleStopSession}
-                disabled={isStopRequested}
-                aria-busy={isStopRequested}
-                title="Para a sessao em andamento (CLI peer cancela em ~250ms; API peer cancela em <2s)."
-              >
-                <Square size={18} />
-                {isStopRequested ? "Parando…" : "Parar sessao"}
-              </button>
-            )}
-          </div>
-        </header>
+        <AppTopbar
+          activeLabel={activeNavItem?.label ?? "Workspace"}
+          sessionName={sessionName}
+          isResumeLoading={isResumeLoading}
+          isRunPreparing={isRunPreparing}
+          isStopRequested={isStopRequested}
+          runActionLabel={runActionLabel}
+          sessionRunId={sessionRunId}
+          onSessionNameChange={setSessionName}
+          onRevalidate={() => void revalidateRuntime()}
+          onRequestResume={() => void requestResumeSession()}
+          onStart={startEditorialSession}
+          onStop={() => void handleStopSession()}
+        />
 
         {showResumePicker && (
-          <div className="modal-backdrop" role="presentation">
-            <section
-              className="resume-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Retomar sessao"
-            >
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Retomar</p>
-                  <h2>Escolha uma sessao</h2>
-                </div>
-                <button
-                  className="icon-button"
-                  type="button"
-                  onClick={() => setShowResumePicker(false)}
-                  title="Fechar"
-                >
-                  <EyeOff size={18} />
-                </button>
-              </div>
-
-              <label
-                className={
-                  hasLoadedProtocolForResume
-                    ? "resume-protocol-option"
-                    : "resume-protocol-option disabled"
-                }
-              >
-                <input
-                  type="checkbox"
-                  checked={useLoadedProtocolForResume && hasLoadedProtocolForResume}
-                  disabled={!hasLoadedProtocolForResume}
-                  onChange={(event) => setUseLoadedProtocolForResume(event.target.checked)}
-                />
-                <span>
-                  {hasLoadedProtocolForResume
-                    ? `Usar protocolo carregado agora: ${protocol.name}`
-                    : "Usar o protocolo salvo dentro de cada sessao"}
-                </span>
-              </label>
-
-              <div className="resume-list">
-                {resumeCandidates.map((session) => (
-                  <button
-                    className="resume-session-row"
-                    type="button"
-                    key={session.run_id}
-                    onClick={() => void startResumeSession(session, useLoadedProtocolForResume)}
-                  >
-                    <div>
-                      <strong>{session.session_name}</strong>
-                      <span>{session.run_id}</span>
-                    </div>
-                    <div>
-                      <strong>Rodada {session.next_round.toLocaleString("pt-BR")}</strong>
-                      <span>{formatSessionActivity(session)}</span>
-                    </div>
-                    <div>
-                      <strong>{session.status}</strong>
-                      <span>
-                        {session.artifact_count.toLocaleString("pt-BR")} arquivos;{" "}
-                        {session.protocol_lines.toLocaleString("pt-BR")} linhas
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-          </div>
+          <ResumeDialog
+            candidates={resumeCandidates}
+            hasLoadedProtocol={hasLoadedProtocolForResume}
+            protocol={protocol}
+            useLoadedProtocol={useLoadedProtocolForResume}
+            formatActivity={formatSessionActivity}
+            onClose={() => setShowResumePicker(false)}
+            onChoose={(session, useLoadedProtocol) =>
+              void startResumeSession(session, useLoadedProtocol)
+            }
+            onUseLoadedProtocolChange={setUseLoadedProtocolForResume}
+          />
         )}
 
         {activeSection === "session" && (
-          <>
-            <section className="status-grid" aria-label="Resumo">
-              <div className="metric-panel">
-                <ShieldCheck size={20} />
-                <div>
-                  <span>Estado formal</span>
-                  <strong>{formalState}</strong>
-                </div>
-              </div>
-              <div className="metric-panel">
-                <Bot size={20} />
-                <div>
-                  <span>Consenso</span>
-                  <strong>
-                    {readyCount}/{agentCards.length} aprovados
-                  </strong>
-                </div>
-              </div>
-              <div className="metric-panel">
-                <Link2 size={20} />
-                <div>
-                  <span>Links</span>
-                  <strong>{linkEvidenceState}</strong>
-                </div>
-              </div>
-              <div className="metric-panel">
-                <FileText size={20} />
-                <div>
-                  <span>Protocolo</span>
-                  <strong>{protocol.lines} linhas</strong>
-                </div>
-              </div>
-            </section>
-
-            <section className="prompt-grid" aria-label="Prompt editorial">
-              <div className="panel prompt-panel">
-                <div className="panel-heading">
-                  <div>
-                    <p className="eyebrow">Geracao</p>
-                    <h2>Prompt da sessao</h2>
-                  </div>
-                  <div className="panel-actions">
-                    <button
-                      className={isResumeLoading ? "secondary-button busy" : "secondary-button"}
-                      type="button"
-                      onClick={() => void requestResumeSession()}
-                      aria-busy={isResumeLoading}
-                      disabled={isRunPreparing || isResumeLoading}
-                    >
-                      <Clock3 size={18} />
-                      Retomar
-                    </button>
-                    <button
-                      className={isRunPreparing ? "primary-button busy" : "primary-button"}
-                      type="button"
-                      onClick={startEditorialSession}
-                      aria-busy={isRunPreparing}
-                      disabled={isRunPreparing}
-                    >
-                      <Play size={18} />
-                      {isRunPreparing ? "Preparando" : "Submeter"}
-                    </button>
-                  </div>
-                </div>
-                <div className="initial-agent-picker" aria-label="Agente redator inicial">
-                  <div>
-                    <span>Primeira versao</span>
-                    <strong>{initialAgentLabel}</strong>
-                  </div>
-                  <div className="initial-agent-buttons">
-                    {initialAgentOptions.map((option) => {
-                      const cliBlocksApiOnlyAgent =
-                        providerMode === "cli" && agentIsApiOnly(option.key);
-                      return (
-                        <button
-                          className={initialAgent === option.key ? "active" : ""}
-                          type="button"
-                          key={option.key}
-                          onClick={() => setInitialAgent(option.key)}
-                          aria-pressed={initialAgent === option.key}
-                          disabled={isRunPreparing || cliBlocksApiOnlyAgent}
-                          title={
-                            cliBlocksApiOnlyAgent
-                              ? `${option.label} so roda via API. Troque para Hibrido ou API para incluir.`
-                              : option.detail
-                          }
-                        >
-                          {option.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="session-controls" aria-label="Controles da sessao">
-                  <div className="control-row">
-                    <div>
-                      <span>Peers ativos</span>
-                      <strong>{activeAgentLabels}</strong>
-                    </div>
-                    <div className="initial-agent-buttons">
-                      {initialAgentOptions.map((option) => {
-                        const cliBlocksApiOnlyAgent =
-                          providerMode === "cli" && agentIsApiOnly(option.key);
-                        const isLastSelected =
-                          activeAgents.length === 1 && activeAgents.includes(option.key);
-                        return (
-                          <button
-                            className={activeAgents.includes(option.key) ? "active" : ""}
-                            type="button"
-                            key={option.key}
-                            onClick={() => toggleActiveAgent(option.key)}
-                            aria-pressed={activeAgents.includes(option.key)}
-                            disabled={isRunPreparing || cliBlocksApiOnlyAgent || isLastSelected}
-                            title={
-                              cliBlocksApiOnlyAgent
-                                ? `${option.label} so roda via API. Troque para Hibrido ou API para incluir.`
-                                : option.detail
-                            }
-                          >
-                            {option.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  {costRatesRequired && (
-                    <div className="session-warning" role="status">
-                      <AlertTriangle size={16} />
-                      <span>
-                        Tarifas obrigatorias para API pendentes:{" "}
-                        {agentsMissingCostRates
-                          .map(
-                            (agent) =>
-                              initialAgentOptions.find((option) => option.key === agent)?.label ??
-                              agent,
-                          )
-                          .join(", ")}
-                        .
-                      </span>
-                    </div>
-                  )}
-                  {apiCostLimitRequired && (
-                    <div className="session-warning" role="status">
-                      <AlertTriangle size={16} />
-                      <span>
-                        Defina um limite de custo em USD para peers via API:{" "}
-                        {apiAgentsSelected
-                          .map(
-                            (agent) =>
-                              initialAgentOptions.find((option) => option.key === agent)?.label ??
-                              agent,
-                          )
-                          .join(", ")}
-                        .
-                      </span>
-                    </div>
-                  )}
-                  <div className="limit-grid">
-                    <label title="Verificado entre rodadas e como timeout por chamada. Em branco = sem teto.">
-                      <Clock3 size={16} />
-                      <span>Tempo max. min</span>
-                      <input
-                        value={maxSessionMinutes}
-                        onChange={(event) => setMaxSessionMinutes(event.target.value)}
-                        inputMode="numeric"
-                        placeholder="60 (em branco = sem teto)"
-                        disabled={isRunPreparing}
-                      />
-                    </label>
-                    <label title="Aplica-se apenas a peers em modo API. Chamadas pagas exigem teto definido pelo usuario.">
-                      <Database size={16} />
-                      <span>Custo max. USD</span>
-                      <input
-                        value={maxSessionCostUsd}
-                        onChange={(event) => setMaxSessionCostUsd(event.target.value)}
-                        inputMode="decimal"
-                        placeholder="5.00"
-                        disabled={isRunPreparing}
-                      />
-                    </label>
-                  </div>
-                  <div className="attachments-row">
-                    <label className="secondary-button attachment-button">
-                      <Upload size={16} />
-                      Anexos
-                      <input
-                        type="file"
-                        multiple
-                        onChange={(event) => void handlePromptAttachments(event)}
-                        disabled={isRunPreparing}
-                      />
-                    </label>
-                    <span>
-                      {promptAttachments.length.toLocaleString("pt-BR")} arquivo(s),{" "}
-                      {formatBytes(attachmentTotalBytes)}
-                    </span>
-                  </div>
-                  {promptAttachments.length > 0 && (
-                    <div className="attachment-list">
-                      {attachmentDeliveryPlans.map((plan) => {
-                        const hint = attachmentDeliveryHint(plan);
-                        return (
-                          <button
-                            type="button"
-                            key={`${plan.attachment.name}-${plan.attachment.size_bytes}`}
-                            onClick={() =>
-                              removePromptAttachment(
-                                plan.attachment.name,
-                                plan.attachment.size_bytes,
-                              )
-                            }
-                            disabled={isRunPreparing}
-                            title={`Remover anexo; previsao de entrega: ${hint}. A decisao final acontece no envio.`}
-                          >
-                            <span>
-                              {plan.attachment.name} · {formatBytes(plan.attachment.size_bytes)}
-                            </span>
-                            <small>{hint}</small>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <label className="links-control">
-                    <span>
-                      <Globe2 size={16} />
-                      Links da sessao
-                    </span>
-                    <textarea
-                      value={sessionLinks}
-                      onChange={(event) => setSessionLinks(event.target.value)}
-                      placeholder="https://..."
-                      disabled={isRunPreparing}
-                    />
-                  </label>
-                </div>
-                <textarea
-                  className="prompt-input"
-                  value={editorialPrompt}
-                  onChange={(event) => setEditorialPrompt(event.target.value)}
-                  aria-label="Prompt de geracao editorial"
-                />
-                <div className="prompt-footer">
-                  <span>{editorialPrompt.length.toLocaleString("pt-BR")} caracteres</span>
-                  <span>entrega: unanimidade dos agentes</span>
-                  <span>run: {sessionRunId ?? "sem sessao"}</span>
-                  <span>{protocol.lines} linhas de protocolo</span>
-                </div>
-              </div>
-
-              <div className="panel reading-panel">
-                <div className="panel-heading">
-                  <div>
-                    <p className="eyebrow">Regra obrigatoria</p>
-                    <h2>Leitura integral</h2>
-                  </div>
-                  <ShieldCheck size={20} />
-                </div>
-                <div className="reading-list">
-                  {protocolGateItems.map((gate) => (
-                    <div className="reading-row" key={gate.agent}>
-                      <div>
-                        <strong>{gate.agent}</strong>
-                        <span>{gate.status}</span>
-                      </div>
-                      <div className="mini-progress" aria-label={`${gate.progress}%`}>
-                        <div style={{ width: `${gate.progress}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="panel operation-panel" aria-label="Sessao editorial">
-              <div className="operation-head">
-                <div>
-                  <p className="eyebrow">Sessao</p>
-                  <h2>{operation.title}</h2>
-                  <span className={`run-state-badge ${operation.status}`}>
-                    {humanizeRunStatus(operation.status)}
-                  </span>
-                </div>
-                <div className="verbosity-control" aria-label="Verbosidade da interface">
-                  {verbosityOptions.map((option) => {
-                    const Icon = option.icon;
-                    return (
-                      <button
-                        className={verbosity === option.mode ? "active" : ""}
-                        type="button"
-                        key={option.mode}
-                        aria-pressed={verbosity === option.mode}
-                        onClick={() => chooseVerbosity(option.mode)}
-                      >
-                        <Icon size={16} />
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="operation-body">
-                <div className="operation-summary">
-                  <div className={`pulse-icon ${operation.status}`}>
-                    <Activity size={22} />
-                  </div>
-                  <div>
-                    <strong>{operation.current}</strong>
-                    <span>{operation.eta}</span>
-                  </div>
-                </div>
-                <div className="progress-stack" aria-label={operationProgressLabel}>
-                  <div
-                    className={`progress-track ${operationIndeterminate ? "indeterminate" : ""}`}
-                  >
-                    <div
-                      className={`progress-fill ${operation.status} ${operationIndeterminate ? "indeterminate" : ""}`}
-                      style={
-                        operationIndeterminate ? undefined : { width: `${operation.progress}%` }
-                      }
-                    />
-                  </div>
-                  <span>{operationProgressLabel}</span>
-                </div>
-                <div
-                  className={`active-agent-now ${activeAgentNow?.state ?? "idle"}`}
-                  aria-live="polite"
-                >
-                  <div className="agent-icon">
-                    <Bot size={16} />
-                  </div>
-                  <div>
-                    <span>Agente em turno</span>
-                    <strong>
-                      {activeAgentNow?.name ??
-                        (isRunPreparing ? "Aguardando primeiro turno" : "Nenhum")}
-                    </strong>
-                    <em>
-                      {activeAgentNow?.detail ??
-                        "O indicador atualiza automaticamente quando o backend inicia cada peer."}
-                    </em>
-                  </div>
-                </div>
-              </div>
-
-              <div className="phase-list" aria-label="Fases da rodada">
-                {phaseItems.map((phase) => (
-                  <div className={`phase-item ${phase.state}`} key={phase.label}>
-                    <div className="phase-marker" />
-                    <strong>{phase.label}</strong>
-                    <span>{phase.detail}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="activity-feed" aria-label="Atividade">
-                {visibleActivity.map((item) => (
-                  <div className={`activity-row ${item.level}`} key={`${item.time}-${item.title}`}>
-                    <span>{item.time}</span>
-                    <div>
-                      <strong>{item.title}</strong>
-                      <p>{item.detail}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="panel session-ledger-panel" aria-label="Discussao editorial">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Ata viva</p>
-                  <h2>Discussao e entrega</h2>
-                </div>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => void openSessionLedger()}
-                >
-                  <FileText size={18} />
-                  Ver ata
-                </button>
-              </div>
-              <div className="ledger-grid">
-                <div className="round-list">
-                  {discussionItems.map((item) => (
-                    <div className="round-row" key={`${item.round}-${item.status}`}>
-                      <span>{item.round}</span>
-                      <div>
-                        <strong>{item.status}</strong>
-                        <p>{item.note}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="artifact-list">
-                  {finalArtifacts.map((artifact) => (
-                    <div className="artifact-card" key={artifact.name}>
-                      <FileText size={18} />
-                      <div>
-                        <strong>{artifact.name}</strong>
-                        <span>{artifact.detail}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="panel posteditor-parity-panel" aria-label="Editor integrado">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Editor integrado</p>
-                  <h2>PostEditor parity</h2>
-                </div>
-                {showPostEditor ? (
-                  <span className="parity-badge">HTML MainSite</span>
-                ) : (
-                  <button className="primary-button" type="button" onClick={openPostEditor}>
-                    <FilePlus2 size={18} />
-                    Criar Post
-                  </button>
-                )}
-              </div>
-              {showPostEditor && (
-                <Suspense
-                  fallback={
-                    <div className="posteditor-loading" role="status">
-                      Carregando editor...
-                    </div>
-                  }
-                >
-                  <PostEditor
-                    editingPostId={null}
-                    initialTitle={sessionName}
-                    initialAuthor="Leonardo Cardozo Vargas"
-                    initialContent={mainSiteHtml}
-                    initialIsPublished={false}
-                    initialIsAboutSite={false}
-                    savingPost={false}
-                    showNotification={(message, type) =>
-                      void logEvent({
-                        level: type === "error" ? "error" : "info",
-                        category: "editor.posteditor.notification",
-                        message,
-                        context: { type },
-                      })
-                    }
-                    onSave={savePostEditorDraft}
-                    onClose={closePostEditor}
-                  />
-                </Suspense>
-              )}
-            </section>
-          </>
+          <SessionScreen
+            activeAgentLabels={activeAgentLabels}
+            activeAgentNow={activeAgentNow}
+            activeAgents={activeAgents}
+            agentCards={agentCards}
+            agentsMissingCostRates={agentsMissingCostRates}
+            apiAgentsSelected={apiAgentsSelected}
+            apiCostLimitRequired={apiCostLimitRequired}
+            attachmentDeliveryPlans={attachmentDeliveryPlans}
+            attachmentTotalBytes={attachmentTotalBytes}
+            closePostEditor={closePostEditor}
+            costRatesRequired={costRatesRequired}
+            discussionItems={discussionItems}
+            editorialPrompt={editorialPrompt}
+            formalState={formalState}
+            handlePromptAttachments={handlePromptAttachments}
+            importSharedChat={importSharedChatIntoEditor}
+            initialAgent={initialAgent}
+            initialAgentLabel={initialAgentLabel}
+            isResumeLoading={isResumeLoading}
+            isRunPreparing={isRunPreparing}
+            linkEvidenceState={linkEvidenceState}
+            isSavingPostEditor={isSavingPostEditor}
+            mainSiteAuthor={mainSiteAuthor}
+            mainSiteDraftStatus={mainSiteDraftStatus}
+            mainSiteHtml={mainSiteHtml}
+            mainSiteIsAboutSite={mainSiteIsAboutSite}
+            mainSiteIsPublished={mainSiteIsPublished}
+            mainSitePostId={mainSitePostId}
+            mainSitePublishBusy={mainSitePublishBusy}
+            mainSitePublishError={mainSitePublishError}
+            mainSitePublishPlan={mainSitePublishPlan}
+            mainSitePublishResult={mainSitePublishResult}
+            mainSitePublishTargetConfigured={
+              Boolean(mainSiteDraft) &&
+              Boolean(cloudflareAccountId.trim() || cloudflareEnvSnapshot?.account_id) &&
+              cloudflareTokenAvailable &&
+              Boolean(cloudflarePublicationDatabase.trim()) &&
+              Boolean(cloudflarePublicationTable.trim())
+            }
+            maxSessionCostUsd={maxSessionCostUsd}
+            maxSessionMinutes={maxSessionMinutes}
+            openPostEditor={openPostEditor}
+            openSessionLedger={openSessionLedger}
+            previewMainSitePublish={() => void previewMainSitePublish()}
+            operation={operation}
+            operationIndeterminate={operationIndeterminate}
+            operationProgressLabel={operationProgressLabel}
+            phaseItems={phaseItems}
+            promptAttachments={promptAttachments}
+            protocol={protocol}
+            protocolGateItems={protocolGateItems}
+            providerMode={providerMode}
+            readyCount={readyCount}
+            removePromptAttachment={removePromptAttachment}
+            requestResumeSession={() => void requestResumeSession()}
+            publishMainSiteDraft={() => void publishMainSiteDraft()}
+            resetMainSitePublish={resetMainSitePublish}
+            savePostEditorDraft={savePostEditorDraft}
+            sessionLinks={sessionLinks}
+            sessionName={sessionName}
+            sessionRunId={sessionRunId}
+            setEditorialPrompt={setEditorialPrompt}
+            setInitialAgent={setInitialAgent}
+            setMaxSessionCostUsd={setMaxSessionCostUsd}
+            setMaxSessionMinutes={setMaxSessionMinutes}
+            setSessionLinks={setSessionLinks}
+            showPostEditor={showPostEditor}
+            startEditorialSession={startEditorialSession}
+            toggleActiveAgent={toggleActiveAgent}
+            verbosity={verbosity}
+            chooseVerbosity={chooseVerbosity}
+            visibleActivity={visibleActivity}
+          />
         )}
 
         {activeSection === "protocols" && (
-          <section className="main-grid" aria-label="Protocolos">
-            <div className="panel protocol-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Biblioteca</p>
-                  <h2>Protocolo ativo</h2>
-                </div>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => inputRef.current?.click()}
-                >
-                  <Upload size={18} />
-                  Importar
-                </button>
-                <input
-                  ref={inputRef}
-                  className="hidden-input"
-                  type="file"
-                  accept=".md,text/markdown,text/plain"
-                  onChange={importProtocol}
-                />
-              </div>
-
-              <div className="protocol-record">
-                <div className="file-badge">
-                  <FileText size={26} />
-                </div>
-                <div>
-                  <strong>{protocol.name}</strong>
-                  <span>
-                    {protocol.size
-                      ? `${protocol.size.toLocaleString("pt-BR")} bytes`
-                      : "artefato fonte local"}
-                  </span>
-                </div>
-              </div>
-
-              <dl className="detail-list">
-                <div>
-                  <dt>Hash</dt>
-                  <dd>{protocol.hash}</dd>
-                </div>
-                <div>
-                  <dt>Linhas</dt>
-                  <dd>{protocol.lines.toLocaleString("pt-BR")}</dd>
-                </div>
-                <div>
-                  <dt>Publicacao</dt>
-                  <dd>bloqueada ate unanimidade</dd>
-                </div>
-              </dl>
-            </div>
-
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Chats compartilhados</p>
-                  <h2>Entrada externa</h2>
-                </div>
-                <Link2 size={20} />
-              </div>
-              <div className="connector-list">
-                {importChannels.map((channel) => (
-                  <div className="connector-row" key={channel.provider}>
-                    <strong>{channel.provider}</strong>
-                    <span>{channel.pattern}</span>
-                    <em>{channel.status}</em>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Arquivos</p>
-                  <h2>Importar e exportar</h2>
-                </div>
-                <FileText size={20} />
-              </div>
-              <div className="pipeline-list">
-                {contentPipelines.map((pipeline) => (
-                  <div className="pipeline-row" key={pipeline.label}>
-                    <span>{pipeline.label}</span>
-                    <strong>{pipeline.value}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
+          <ProtocolsScreen inputRef={inputRef} protocol={protocol} onImport={importProtocol} />
         )}
 
         {activeSection === "evidence" && (
-          <section className="main-grid" aria-label="Evidencias">
-            <div className="panel evidence-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Motor mecanico</p>
-                  <h2>Evidencias</h2>
-                </div>
-                <button
-                  className={isAuditingEvidence ? "secondary-button busy" : "secondary-button"}
-                  type="button"
-                  onClick={() => void auditEvidenceNow()}
-                  disabled={isAuditingEvidence}
-                  aria-busy={isAuditingEvidence}
-                >
-                  {isAuditingEvidence ? <RefreshCw size={18} /> : <Link2 size={18} />}
-                  {isAuditingEvidence ? "Auditando" : "Auditar links"}
-                </button>
-              </div>
-
-              <div className="evidence-grid">
-                {evidenceRows.map((item) => (
-                  <div className={`evidence-tile ${item.tone}`} key={item.label}>
-                    <span>{item.label}</span>
-                    <strong>{item.value}</strong>
-                  </div>
-                ))}
-              </div>
-              {invalidLinkRows.length > 0 && (
-                <div className="link-audit-list" aria-label="Links com problema">
-                  {invalidLinkRows.map((row) => (
-                    <div className={`link-audit-row ${row.tone}`} key={`${row.url}-${row.status}`}>
-                      <div>
-                        <strong>{row.url}</strong>
-                        <span>{row.invalidity || row.status}</span>
-                      </div>
-                      <small>{row.status}</small>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Web evidence</p>
-                  <h2>Coleta assistida</h2>
-                </div>
-                <Globe2 size={20} />
-              </div>
-              <div className="pipeline-list">
-                {webEvidenceTools.map((tool) => (
-                  <div className="pipeline-row" key={tool.label}>
-                    <span>{tool.label}</span>
-                    <strong>{tool.value}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Cloudflare D1</p>
-                  <h2>mainsite_posts</h2>
-                </div>
-                <Database size={20} />
-              </div>
-              <dl className="detail-list compact">
-                <div>
-                  <dt>Banco</dt>
-                  <dd>bigdata_db</dd>
-                </div>
-                <div>
-                  <dt>Campos</dt>
-                  <dd>id, title, content, author, is_published</dd>
-                </div>
-                <div>
-                  <dt>Regra</dt>
-                  <dd>API principal; wrangler@latest fallback</dd>
-                </div>
-              </dl>
-            </div>
-          </section>
+          <EvidenceScreen
+            evidenceRows={evidenceRows}
+            linkAuditRows={linkAuditRows}
+            citationAuditResult={citationAuditResult}
+            isAuditing={isAuditingEvidence}
+            onAudit={() => void auditEvidenceNow()}
+          />
         )}
 
         {activeSection === "agents" && (
-          <section className="main-grid" aria-label="Agentes">
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">{sessionRunId ?? "sem run"}</p>
-                  <h2>Agentes</h2>
-                </div>
-                <button
-                  className="icon-button"
-                  type="button"
-                  title="Verificar agentes"
-                  onClick={() => void verifyAgentsNow()}
-                >
-                  <Search size={18} />
-                </button>
-              </div>
-
-              <div className="agent-list">
-                {agentCards.map((agent) => (
-                  <div className={`agent-row ${agent.state}`} key={agent.name}>
-                    <div className="agent-main">
-                      <div className="agent-icon">{stateIcon(agent.state)}</div>
-                      <div>
-                        <strong>{agent.name}</strong>
-                        <span>{agent.cli}</span>
-                      </div>
-                    </div>
-                    <div className="agent-status">
-                      <strong>{stateLabel(agent.state)}</strong>
-                      <span>{agent.note}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="panel reading-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Regra obrigatoria</p>
-                  <h2>Leitura integral</h2>
-                </div>
-                <ShieldCheck size={20} />
-              </div>
-              <div className="reading-list">
-                {protocolGateItems.map((gate) => (
-                  <div className="reading-row" key={gate.agent}>
-                    <div>
-                      <strong>{gate.agent}</strong>
-                      <span>{gate.status}</span>
-                    </div>
-                    <div className="mini-progress" aria-label={`${gate.progress}%`}>
-                      <div style={{ width: `${gate.progress}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
+          <AgentsScreen
+            agentCards={agentCards}
+            protocolGateItems={protocolGateItems}
+            sessionRunId={sessionRunId}
+            onVerify={() => void verifyAgentsNow()}
+          />
         )}
 
         {activeSection === "settings" && (
-          <section className="settings-layout" aria-label="Configuracoes operacionais">
-            <aside className="panel settings-nav-panel" aria-label="Areas de configuracao">
-              <div>
-                <p className="eyebrow">Configuracoes</p>
-                <h2>Ajustes do Maestro</h2>
-              </div>
-              <div className="settings-tabs">
-                {settingsTabs.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      className={activeSettingsTab === item.tab ? "active" : ""}
-                      key={item.tab}
-                      type="button"
-                      aria-pressed={activeSettingsTab === item.tab}
-                      onClick={() => chooseSettingsTab(item.tab)}
-                    >
-                      <Icon size={18} />
-                      <span>
-                        <strong>{item.label}</strong>
-                        <em>{item.detail}</em>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </aside>
-
-            <div className="settings-content">
-              {activeSettingsTab === "cloudflare" && (
-                <div className="panel settings-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <p className="eyebrow">Ajustes</p>
-                      <h2>Cloudflare</h2>
-                    </div>
-                    <Database size={20} />
-                  </div>
-
-                  <div className="storage-mode-list" aria-label="Armazenamento de credenciais">
-                    {credentialStorageModes.map((item) => (
-                      <button
-                        key={item.mode}
-                        className={credentialStorageMode === item.mode ? "active" : ""}
-                        type="button"
-                        aria-pressed={credentialStorageMode === item.mode}
-                        onClick={() => chooseCredentialStorage(item.mode)}
-                      >
-                        <strong>{item.label}</strong>
-                        <span>{item.detail}</span>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="credential-form">
-                    <div className="storage-note">
-                      <strong>{storageModeSummaries[credentialStorageMode].title}</strong>
-                      <span>{storageModeSummaries[credentialStorageMode].detail}</span>
-                    </div>
-                    <div className="storage-note">
-                      <strong>Bootstrap local sem segredos</strong>
-                      <span>{bootstrapConfigStatus}</span>
-                    </div>
-                    <div className="storage-note">
-                      <strong>Token Cloudflare inicial</strong>
-                      <span>
-                        {cloudflareTokenAvailable
-                          ? `detectado via ${cloudflareEnvSnapshot?.api_token_env_var ?? cloudflareTokenEnvVar}${
-                              cloudflareEnvSnapshot?.api_token_env_scope
-                                ? ` (${cloudflareEnvSnapshot.api_token_env_scope})`
-                                : ""
-                            }`
-                          : "nao salvo no bootstrap; informe no campo, env var ou futura cripta local"}
-                      </span>
-                    </div>
-                    <div className="field-group">
-                      <label htmlFor="cloudflare-account-id">Account ID</label>
-                      <input
-                        id="cloudflare-account-id"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={cloudflareAccountId}
-                        onChange={(event) => setCloudflareAccountId(event.target.value)}
-                        placeholder="informar no app local"
-                      />
-                    </div>
-                    <div className="field-group">
-                      <label htmlFor="cloudflare-api-token">API token</label>
-                      <input
-                        id="cloudflare-api-token"
-                        type="password"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={cloudflareApiToken}
-                        onChange={(event) => setCloudflareApiToken(event.target.value)}
-                        placeholder="nunca gravar em logs ou artefatos"
-                      />
-                    </div>
-                    <div className="target-grid">
-                      <div>
-                        <span>Persistencia</span>
-                        <strong>maestro_db</strong>
-                      </div>
-                      <div>
-                        <span>Secrets</span>
-                        <strong>Cloudflare Secrets Store</strong>
-                      </div>
-                      <div>
-                        <span>Publicacao</span>
-                        <strong>bigdata_db</strong>
-                      </div>
-                      <div>
-                        <span>Tabela</span>
-                        <strong>mainsite_posts</strong>
-                      </div>
-                    </div>
-                    <button
-                      className={isVerifyingCloudflare ? "primary-button busy" : "primary-button"}
-                      type="button"
-                      onClick={() => void verifyCloudflareCredentials()}
-                      disabled={isVerifyingCloudflare}
-                    >
-                      {isVerifyingCloudflare ? <RefreshCw size={18} /> : <ShieldCheck size={18} />}
-                      {isVerifyingCloudflare ? "Verificando e preparando" : "Verificar e preparar"}
-                    </button>
-                  </div>
-
-                  <div className="status-checklist" aria-label="Permissoes Cloudflare">
-                    {cloudflarePermissionRows.map((item) => (
-                      <div className={`check-row ${item.tone}`} key={item.label}>
-                        {item.tone === "ok" ? (
-                          <CheckCircle2 size={15} />
-                        ) : item.tone === "blocked" ||
-                          item.tone === "error" ||
-                          item.tone === "warn" ? (
-                          <AlertTriangle size={15} />
-                        ) : (
-                          <Clock3 size={15} />
-                        )}
-                        <span>{item.label}</span>
-                        <strong>{item.value}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {activeSettingsTab === "providers" && (
-                <div className="panel settings-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <p className="eyebrow">Ajustes</p>
-                      <h2>Agentes via API</h2>
-                    </div>
-                    <KeyRound size={20} />
-                  </div>
-
-                  <div className="provider-mode" aria-label="Modo dos provedores">
-                    {(["hybrid", "cli", "api"] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        className={providerMode === mode ? "active" : ""}
-                        type="button"
-                        aria-pressed={providerMode === mode}
-                        onClick={() => chooseProviderMode(mode)}
-                      >
-                        {mode === "hybrid" ? "Hibrido" : mode.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="provider-mode-note">
-                    <strong>Execucao API real por peer</strong>
-                    <span>
-                      <strong>API</strong> roda os 6 peers via provedores oficiais.{" "}
-                      <strong>Hibrido</strong> reserva DeepSeek, Grok e Perplexity para API (nao tem
-                      CLI) e Claude, Codex, Gemini via Antigravity CLI (agy), sempre,
-                      independentemente das chaves. <strong>CLI</strong> roda os 3 peers com CLI;
-                      DeepSeek, Grok e Perplexity ficam desabilitados porque nao possuem integracao
-                      CLI. Tarifas continuam obrigatorias para qualquer chamada de API.
-                    </span>
-                  </div>
-
-                  <div className="ai-credential-list">
-                    {aiProviderRows.map((provider) => (
-                      <div className="credential-row" key={provider.key}>
-                        <div>
-                          <strong>{provider.name}</strong>
-                          <span>CLI: {provider.cli}</span>
-                        </div>
-                        <label>
-                          {provider.secretLabel}
-                          <input
-                            type="password"
-                            autoComplete="off"
-                            spellCheck={false}
-                            value={aiCredentials[provider.key]}
-                            onChange={(event) =>
-                              updateAiCredential(provider.key, event.target.value)
-                            }
-                            placeholder="informar no app local"
-                          />
-                        </label>
-                        <em>{provider.meta}</em>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="rate-card-panel" aria-label="Tabela de tarifas dos provedores">
-                    <div>
-                      <strong>Tabela de tarifas</strong>
-                      <span>
-                        Valores em USD por 1M tokens. O limite de custo continua sendo unico por
-                        sessao; esta tabela apenas calcula e audita consumo observado. Sem fallback
-                        por env var.
-                      </span>
-                    </div>
-                    <div className="rate-card-table">
-                      <div className="rate-card-head" aria-hidden="true">
-                        <span>Provedor</span>
-                        <span>Entrada</span>
-                        <span>Saida</span>
-                      </div>
-                      {providerRateRows.map((provider) => (
-                        <div className="rate-card-row" key={provider.key}>
-                          <div>
-                            <strong>{provider.name}</strong>
-                            <span>{provider.hint}</span>
-                          </div>
-                          <label>
-                            <span>Entrada USD / 1M</span>
-                            <input
-                              inputMode="decimal"
-                              value={providerInputUsdPerMillion[provider.key]}
-                              onChange={(event) =>
-                                updateProviderInputRate(provider.key, event.target.value)
-                              }
-                              placeholder="ex.: 0.55"
-                            />
-                          </label>
-                          <label>
-                            <span>Saida USD / 1M</span>
-                            <input
-                              inputMode="decimal"
-                              value={providerOutputUsdPerMillion[provider.key]}
-                              onChange={(event) =>
-                                updateProviderOutputRate(provider.key, event.target.value)
-                              }
-                              placeholder="ex.: 2.19"
-                            />
-                          </label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="settings-status" role="status" aria-live="polite">
-                    {aiConfigStatus}
-                  </div>
-
-                  <div className="button-row">
-                    <button
-                      className={isSavingAiConfig ? "secondary-button busy" : "secondary-button"}
-                      type="button"
-                      onClick={() => void saveAiProviderConfig()}
-                      disabled={isSavingAiConfig || isVerifyingAiProviders}
-                      aria-busy={isSavingAiConfig}
-                    >
-                      <KeyRound size={18} />
-                      {isSavingAiConfig ? "Salvando" : "Salvar APIs"}
-                    </button>
-                    <button
-                      className={
-                        isVerifyingAiProviders ? "secondary-button busy" : "secondary-button"
-                      }
-                      type="button"
-                      onClick={() => void verifyAiProviderCredentials()}
-                      disabled={isSavingAiConfig || isVerifyingAiProviders}
-                      aria-busy={isVerifyingAiProviders}
-                    >
-                      <ListChecks size={18} />
-                      {isVerifyingAiProviders ? "Verificando" : "Verificar APIs"}
-                    </button>
-                  </div>
-
-                  <div
-                    className="check-list compact-checks"
-                    aria-label="Resultado da verificacao das APIs"
-                  >
-                    {aiProviderRowsState.map((item) => (
-                      <div className={`check-row ${item.tone}`} key={item.label}>
-                        {item.tone === "ok" ? (
-                          <CheckCircle2 size={15} />
-                        ) : item.tone === "blocked" ||
-                          item.tone === "error" ||
-                          item.tone === "warn" ? (
-                          <AlertTriangle size={15} />
-                        ) : (
-                          <Clock3 size={15} />
-                        )}
-                        <span>{item.label}</span>
-                        <strong>{item.value}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
+          <SettingsScreen
+            activeTab={activeSettingsTab}
+            onChooseTab={chooseSettingsTab}
+            cloudflarePanel={
+              <CloudflareSettingsPanel
+                bootstrapConfigStatus={bootstrapConfigStatus}
+                cloudflareAccountId={cloudflareAccountId}
+                cloudflareApiToken={cloudflareApiToken}
+                cloudflareEnvSnapshot={cloudflareEnvSnapshot}
+                cloudflarePermissionRows={cloudflarePermissionRows}
+                cloudflarePublicationDatabase={cloudflarePublicationDatabase}
+                cloudflarePublicationTable={cloudflarePublicationTable}
+                cloudflareTokenAvailable={cloudflareTokenAvailable}
+                cloudflareTokenEnvVar={cloudflareTokenEnvVar}
+                credentialStorageMode={credentialStorageMode}
+                isVerifying={isVerifyingCloudflare}
+                onAccountIdChange={setCloudflareAccountId}
+                onApiTokenChange={setCloudflareApiToken}
+                onChooseCredentialStorage={chooseCredentialStorage}
+                onPublicationDatabaseChange={setCloudflarePublicationDatabase}
+                onPublicationTableChange={setCloudflarePublicationTable}
+                onVerify={() => void verifyCloudflareCredentials()}
+              />
+            }
+            providersPanel={
+              <AiProviderSettingsPanel
+                aiConfigStatus={aiConfigStatus}
+                aiCredentials={aiCredentials}
+                isSaving={isSavingAiConfig}
+                isVerifying={isVerifyingAiProviders}
+                probeRows={aiProviderRowsState}
+                providerInputRates={providerInputUsdPerMillion}
+                providerMode={providerMode}
+                providerOutputRates={providerOutputUsdPerMillion}
+                onChooseProviderMode={chooseProviderMode}
+                onCredentialChange={updateAiCredential}
+                onInputRateChange={updateProviderInputRate}
+                onOutputRateChange={updateProviderOutputRate}
+                onSave={() => void saveAiProviderConfig()}
+                onVerify={() => void verifyAiProviderCredentials()}
+              />
+            }
+          />
         )}
 
         {activeSection === "setup" && (
-          <section className="integration-grid" aria-label="Setup">
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Primeira execucao</p>
-                  <h2>Bootstrap</h2>
-                </div>
-                <HardDriveDownload size={20} />
-              </div>
-              <div className="pipeline-list">
-                {bootstrapRows.map((item) => (
-                  <div className={`pipeline-row ${item.tone}`} key={item.label}>
-                    <span>{item.label}</span>
-                    <strong>{item.value}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Runtime</p>
-                  <h2>Diagnostico</h2>
-                </div>
-                <Activity size={20} />
-              </div>
-              <dl className="detail-list compact">
-                <div>
-                  <dt>Run atual</dt>
-                  <dd>{sessionRunId ?? "sem sessao editorial"}</dd>
-                </div>
-                <div>
-                  <dt>Estado</dt>
-                  <dd>{humanizeRunStatus(operation.status)}</dd>
-                </div>
-                <div>
-                  <dt>Logs</dt>
-                  <dd>um arquivo de diagnostico por execucao do app</dd>
-                </div>
-                <div>
-                  <dt>Config inicial</dt>
-                  <dd>data/config/bootstrap.json sem segredos</dd>
-                </div>
-                <div>
-                  <dt>Cloudflare env</dt>
-                  <dd>
-                    {cloudflareEnvSnapshot?.api_token_present
-                      ? `token em ${cloudflareEnvSnapshot.api_token_env_var} (${cloudflareEnvSnapshot.api_token_env_scope ?? "process"})`
-                      : "token nao detectado"}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          </section>
+          <SetupScreen
+            activeActionId={activeRuntimeBootstrapActionId}
+            bootstrapRows={bootstrapRows}
+            cloudflareEnvSnapshot={cloudflareEnvSnapshot}
+            isPlanning={isPlanningRuntimeBootstrap}
+            operation={operation}
+            plan={runtimeBootstrapPlan}
+            progressEvents={runtimeBootstrapProgress}
+            result={runtimeBootstrapResult}
+            sessionRunId={sessionRunId}
+            onActionControl={(actionId, disposition) =>
+              void controlRuntimeBootstrap(actionId, disposition)
+            }
+            onAuthorizeAction={(actionId) => void authorizeRuntimeBootstrapAction(actionId)}
+            onOpenSettings={() => setActiveSection("settings")}
+            onRefresh={() => void refreshRuntimeBootstrapPlan()}
+          />
         )}
       </main>
     </div>
