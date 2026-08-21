@@ -1,41 +1,16 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import {
-  Activity,
-  AlertTriangle,
-  Bot,
-  CheckCircle2,
-  Clock3,
-  Database,
-  EyeOff,
-  FilePlus2,
-  FileText,
-  Globe2,
-  HardDriveDownload,
-  KeyRound,
-  Link2,
-  ListChecks,
-  Play,
-  RefreshCw,
-  Search,
-  ShieldCheck,
-  Square,
-  Upload,
-} from "lucide-react";
 import type { ChangeEvent } from "react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import packageJson from "../package.json";
+import { AppSidebar } from "./app/AppSidebar";
+import { AppTopbar } from "./app/AppTopbar";
 import {
   aiProviderRows,
   attachmentLimits,
-  contentPipelines,
-  credentialStorageModes,
   defaultActiveAgents,
   finalArtifacts,
   idleActivityFeed,
   idleOperation,
   idlePhases,
-  importChannels,
   initialAgentOptions,
   initialAgents,
   initialAiProviderChecks,
@@ -44,20 +19,21 @@ import {
   initialDiscussionRounds,
   initialEvidenceRows,
   initialProtocolReadingGates,
-  navGroups,
   navItems,
-  providerRateRows,
-  settingsTabs,
-  storageModeSummaries,
-  verbosityOptions,
-  webEvidenceTools,
 } from "./constants";
 import { logEvent } from "./diagnostics";
+import { AgentsScreen } from "./features/agents/AgentsScreen";
+import { EvidenceScreen } from "./features/evidence/EvidenceScreen";
+import { ProtocolsScreen } from "./features/protocols/ProtocolsScreen";
+import { ResumeDialog } from "./features/session/ResumeDialog";
+import { SessionScreen } from "./features/session/SessionScreen";
+import { AiProviderSettingsPanel } from "./features/settings/AiProviderSettingsPanel";
+import { CloudflareSettingsPanel } from "./features/settings/CloudflareSettingsPanel";
+import { SettingsScreen } from "./features/settings/SettingsScreen";
+import { SetupScreen } from "./features/setup/SetupScreen";
 import {
-  attachmentDeliveryHint,
   attachmentDeliveryPlan,
   formatBrazilDateTime,
-  formatBytes,
   formatElapsedTime,
   humanizeAgentStatus,
   humanizeRunStatus,
@@ -65,11 +41,30 @@ import {
   latestProtocolGateItems,
   operationMeterLabel,
   sha256,
-  stateIcon,
-  stateLabel,
   summarizeAgentResults,
 } from "./helpers";
 import { useEscapeKey } from "./hooks/useEscapeKey";
+import {
+  listResumableSessions,
+  resumeEditorialSession,
+  runEditorialSession,
+  stopEditorialSession,
+} from "./services/editorial";
+import { auditLinks } from "./services/evidence";
+import { listenToNativeLogs, type NativeLogTone } from "./services/nativeEvents";
+import {
+  dependencyPreflight,
+  openDataFile,
+  readBootstrapConfig,
+  readCloudflareEnvSnapshot,
+  writeBootstrapConfig,
+} from "./services/runtime";
+import {
+  probeAiProviderCredentials,
+  probeCloudflareCredentials,
+  readAiProviderConfig,
+  writeAiProviderConfig,
+} from "./services/settings";
 import type {
   ActiveSection,
   ActivityItem,
@@ -77,19 +72,15 @@ import type {
   AgentState,
   AiCredentialKey,
   AiProviderConfig,
-  AiProviderProbeResult,
   AiProviderProbeRow,
   BootstrapCheckRow,
   BootstrapConfig,
   CloudflareEnvSnapshot,
   CloudflarePermissionRow,
-  CloudflareProbeResult,
   CloudflareProviderStorageRequest,
   CloudflareTokenSource,
   CredentialStorageMode,
-  DependencyPreflight,
   DiscussionRound,
-  EditorialSessionResult,
   EvidenceRow,
   InitialAgentKey,
   LinkAuditResult,
@@ -106,8 +97,6 @@ import type {
   VerbosityMode,
 } from "./types";
 
-const PostEditor = lazy(() => import("./editor/posteditor/PostEditor"));
-
 const APP_VERSION = `v${packageJson.version}`;
 
 type ActiveAgentNow = {
@@ -116,21 +105,6 @@ type ActiveAgentNow = {
   detail: string;
   state: "idle" | "running" | "finished";
 };
-
-type NativeLogPayload = {
-  category?: string;
-  context?: {
-    run_id?: string;
-    agent?: string;
-    role?: string;
-    cli?: string;
-    status?: string;
-    tone?: "ok" | "warn" | "blocked" | "error";
-    elapsed_seconds?: number;
-  };
-};
-
-type NativeLogTone = NonNullable<NativeLogPayload["context"]>["tone"];
 
 const agentIsApiOnly = (agent: InitialAgentKey) =>
   agent === "deepseek" || agent === "grok" || agent === "perplexity";
@@ -273,8 +247,8 @@ export function App() {
       return "evidence";
     };
 
-    void listen<NativeLogPayload>("maestro-log-event", (event) => {
-      const { category, context } = event.payload;
+    void listenToNativeLogs((payload) => {
+      const { category, context } = payload;
       if (!context?.run_id || context.run_id !== sessionRunIdRef.current) return;
 
       if (category === "session.agent.started") {
@@ -475,7 +449,7 @@ export function App() {
 
   async function verifyAgentsNow() {
     try {
-      const preflight = await invoke<DependencyPreflight>("dependency_preflight");
+      const preflight = await dependencyPreflight();
       setBootstrapRows(preflight.checks);
       const byLabel = new Map(preflight.checks.map((check) => [check.label, check]));
       setAgentCards((current) =>
@@ -540,7 +514,7 @@ export function App() {
     }
 
     try {
-      const openedPath = await invoke<string>("open_data_file", { path: lastSessionMinutesPath });
+      const openedPath = await openDataFile(lastSessionMinutesPath);
       appendActivity({
         level: "detail",
         title: "Ata aberta",
@@ -578,9 +552,7 @@ export function App() {
     );
 
     try {
-      const result = await invoke<LinkAuditResult>("audit_links", {
-        request: { text: sourceText },
-      });
+      const result = await auditLinks(sourceText);
       const failedLinkLabel =
         result.failed === 1
           ? "1 link com problema"
@@ -671,8 +643,8 @@ export function App() {
   async function loadBootstrapConfig() {
     try {
       const [config, envSnapshot] = await Promise.all([
-        invoke<BootstrapConfig>("read_bootstrap_config"),
-        invoke<CloudflareEnvSnapshot>("cloudflare_env_snapshot"),
+        readBootstrapConfig(),
+        readCloudflareEnvSnapshot(),
       ]);
 
       setBootstrapRows(
@@ -721,7 +693,7 @@ export function App() {
           cloudflare_api_token_present: envSnapshot.api_token_present,
         },
       });
-      void invoke<DependencyPreflight>("dependency_preflight")
+      void dependencyPreflight()
         .then((preflight) => {
           setBootstrapRows(preflight.checks);
           void logEvent({
@@ -764,9 +736,7 @@ export function App() {
 
   async function persistBootstrapConfig(nextMode = credentialStorageMode) {
     try {
-      const saved = await invoke<BootstrapConfig>("write_bootstrap_config", {
-        config: buildBootstrapConfig(nextMode),
-      });
+      const saved = await writeBootstrapConfig(buildBootstrapConfig(nextMode));
       setBootstrapConfigStatus(`bootstrap.json salvo em ${saved.updated_at}`);
       void logEvent({
         level: "info",
@@ -894,7 +864,7 @@ export function App() {
 
   async function loadAiProviderConfig() {
     try {
-      const config = await invoke<AiProviderConfig>("read_ai_provider_config");
+      const config = await readAiProviderConfig();
       setProviderMode(config.provider_mode);
       setAiCredentials({
         openai: config.openai_api_key ?? "",
@@ -967,11 +937,10 @@ export function App() {
   async function saveAiProviderConfig(nextProviderMode = providerMode) {
     setIsSavingAiConfig(true);
     try {
-      const saved = await invoke<AiProviderConfig>("write_ai_provider_config", {
-        config: buildAiProviderConfig(nextProviderMode),
-        cloudflare:
-          credentialStorageMode === "cloudflare" ? buildCloudflareProviderStorageRequest() : null,
-      });
+      const saved = await writeAiProviderConfig(
+        buildAiProviderConfig(nextProviderMode),
+        credentialStorageMode === "cloudflare" ? buildCloudflareProviderStorageRequest() : null,
+      );
       setProviderMode(saved.provider_mode);
       setAiCredentials({
         openai: saved.openai_api_key ?? "",
@@ -1124,7 +1093,7 @@ export function App() {
     });
 
     try {
-      const sessions = await invoke<ResumableSessionInfo[]>("list_resumable_sessions");
+      const sessions = await listResumableSessions();
       setResumeCandidates(sessions);
       setUseLoadedProtocolForResume(hasLoadedProtocolForResume);
 
@@ -1777,35 +1746,31 @@ export function App() {
 
     try {
       const result = resumeOptions
-        ? await invoke<EditorialSessionResult>("resume_editorial_session", {
-            request: {
-              run_id: runId,
-              protocol_name: resumeOptions.protocolName ?? null,
-              protocol_text: resumeOptions.protocolText ?? null,
-              protocol_hash: resumeOptions.protocolHash ?? null,
-              initial_agent: selectedInitialAgent,
-              active_agents: runOptions?.activeAgents ?? null,
-              max_session_cost_usd: runOptions?.maxSessionCostUsd ?? null,
-              max_session_minutes: runOptions?.maxSessionMinutes ?? null,
-              attachments: runOptions?.attachments ?? [],
-              links: runOptions?.links ?? null,
-            },
+        ? await resumeEditorialSession({
+            run_id: runId,
+            protocol_name: resumeOptions.protocolName ?? null,
+            protocol_text: resumeOptions.protocolText ?? null,
+            protocol_hash: resumeOptions.protocolHash ?? null,
+            initial_agent: selectedInitialAgent,
+            active_agents: runOptions?.activeAgents ?? null,
+            max_session_cost_usd: runOptions?.maxSessionCostUsd ?? null,
+            max_session_minutes: runOptions?.maxSessionMinutes ?? null,
+            attachments: runOptions?.attachments ?? [],
+            links: runOptions?.links ?? null,
           })
-        : await invoke<EditorialSessionResult>("run_editorial_session", {
-            request: {
-              run_id: runId,
-              session_name: sessionName,
-              prompt: promptText,
-              protocol_name: protocol.name,
-              protocol_text: protocolText,
-              protocol_hash: protocol.hash,
-              initial_agent: selectedInitialAgent,
-              active_agents: runOptions?.activeAgents ?? null,
-              max_session_cost_usd: runOptions?.maxSessionCostUsd ?? null,
-              max_session_minutes: runOptions?.maxSessionMinutes ?? null,
-              attachments: runOptions?.attachments ?? [],
-              links: runOptions?.links ?? [],
-            },
+        : await runEditorialSession({
+            run_id: runId,
+            session_name: sessionName,
+            prompt: promptText,
+            protocol_name: protocol.name,
+            protocol_text: protocolText,
+            protocol_hash: protocol.hash,
+            initial_agent: selectedInitialAgent,
+            active_agents: runOptions?.activeAgents ?? null,
+            max_session_cost_usd: runOptions?.maxSessionCostUsd ?? null,
+            max_session_minutes: runOptions?.maxSessionMinutes ?? null,
+            attachments: runOptions?.attachments ?? [],
+            links: runOptions?.links ?? [],
           });
       window.clearInterval(heartbeat);
       setLastSessionMinutesPath(result.session_minutes_path);
@@ -2038,7 +2003,7 @@ export function App() {
     if (!confirmed) return;
     setIsStopRequested(true);
     try {
-      await invoke<boolean>("stop_editorial_session", { runId: sessionRunId });
+      await stopEditorialSession(sessionRunId);
       void logEvent({
         level: "info",
         category: "session.user.stop_requested",
@@ -2198,15 +2163,13 @@ export function App() {
     });
 
     try {
-      const result = await invoke<CloudflareProbeResult>("verify_cloudflare_credentials", {
-        request: {
-          account_id: accountId,
-          api_token: cloudflareApiToken.trim() || null,
-          api_token_env_var: tokenEnvVar,
-          persistence_database: "maestro_db",
-          publication_database: "bigdata_db",
-          secret_store: "maestro",
-        },
+      const result = await probeCloudflareCredentials({
+        account_id: accountId,
+        api_token: cloudflareApiToken.trim() || null,
+        api_token_env_var: tokenEnvVar,
+        persistence_database: "maestro_db",
+        publication_database: "bigdata_db",
+        secret_store: "maestro",
       });
       setCloudflarePermissionRows(result.rows);
       appendActivity({
@@ -2283,9 +2246,7 @@ export function App() {
     }
 
     try {
-      const result = await invoke<AiProviderProbeResult>("verify_ai_provider_credentials", {
-        config: saved,
-      });
+      const result = await probeAiProviderCredentials(saved);
       setAiProviderRowsState(result.rows);
       setAiConfigStatus(`Verificado em ${formatBrazilDateTime(new Date(result.checked_at))}`);
       appendActivity({
@@ -2371,1245 +2332,171 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">M</div>
-          <div>
-            <div className="brand-name">Maestro Editorial AI</div>
-            <div className="brand-meta">{APP_VERSION}</div>
-          </div>
-        </div>
-
-        <nav className="nav-list" aria-label="Principal">
-          {navGroups.map((group) => (
-            <div className="nav-group" key={group.label}>
-              <div className="nav-group-label">{group.label}</div>
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    className={activeSection === item.section ? "nav-item active" : "nav-item"}
-                    type="button"
-                    key={item.section}
-                    aria-current={activeSection === item.section ? "page" : undefined}
-                    onClick={() => chooseSection(item.section)}
-                  >
-                    <Icon size={18} />
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-
-        <div className="storage-strip">
-          <Database size={18} />
-          <div>
-            <strong>{storageModeSummaries[credentialStorageMode].title}</strong>
-            <span>{storageModeSummaries[credentialStorageMode].detail}</span>
-          </div>
-        </div>
-      </aside>
+      <AppSidebar
+        activeSection={activeSection}
+        appVersion={APP_VERSION}
+        credentialStorageMode={credentialStorageMode}
+        onChooseSection={chooseSection}
+      />
 
       <main className="workspace">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">{activeNavItem?.label ?? "Workspace"}</p>
-            <input
-              className="session-title"
-              value={sessionName}
-              onChange={(event) => setSessionName(event.target.value)}
-              aria-label="Nome da sessao"
-            />
-          </div>
-          <div className="toolbar">
-            <button
-              className="icon-button"
-              type="button"
-              title="Revalidar"
-              onClick={() => void revalidateRuntime()}
-            >
-              <RefreshCw size={18} />
-            </button>
-            <button
-              className={isResumeLoading ? "secondary-button busy" : "secondary-button"}
-              type="button"
-              onClick={() => void requestResumeSession()}
-              aria-busy={isResumeLoading}
-              disabled={isRunPreparing || isResumeLoading}
-            >
-              <Clock3 size={18} />
-              {isResumeLoading ? "Buscando" : "Retomar"}
-            </button>
-            <button
-              className={isRunPreparing ? "primary-button busy" : "primary-button"}
-              type="button"
-              onClick={startEditorialSession}
-              aria-busy={isRunPreparing}
-              disabled={isRunPreparing}
-            >
-              <Play size={18} />
-              {isRunPreparing ? "Preparando" : runActionLabel}
-            </button>
-            {isRunPreparing && sessionRunId && (
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={handleStopSession}
-                disabled={isStopRequested}
-                aria-busy={isStopRequested}
-                title="Para a sessao em andamento (CLI peer cancela em ~250ms; API peer cancela em <2s)."
-              >
-                <Square size={18} />
-                {isStopRequested ? "Parando…" : "Parar sessao"}
-              </button>
-            )}
-          </div>
-        </header>
+        <AppTopbar
+          activeLabel={activeNavItem?.label ?? "Workspace"}
+          sessionName={sessionName}
+          isResumeLoading={isResumeLoading}
+          isRunPreparing={isRunPreparing}
+          isStopRequested={isStopRequested}
+          runActionLabel={runActionLabel}
+          sessionRunId={sessionRunId}
+          onSessionNameChange={setSessionName}
+          onRevalidate={() => void revalidateRuntime()}
+          onRequestResume={() => void requestResumeSession()}
+          onStart={startEditorialSession}
+          onStop={() => void handleStopSession()}
+        />
 
         {showResumePicker && (
-          <div className="modal-backdrop" role="presentation">
-            <section
-              className="resume-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Retomar sessao"
-            >
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Retomar</p>
-                  <h2>Escolha uma sessao</h2>
-                </div>
-                <button
-                  className="icon-button"
-                  type="button"
-                  onClick={() => setShowResumePicker(false)}
-                  title="Fechar"
-                >
-                  <EyeOff size={18} />
-                </button>
-              </div>
-
-              <label
-                className={
-                  hasLoadedProtocolForResume
-                    ? "resume-protocol-option"
-                    : "resume-protocol-option disabled"
-                }
-              >
-                <input
-                  type="checkbox"
-                  checked={useLoadedProtocolForResume && hasLoadedProtocolForResume}
-                  disabled={!hasLoadedProtocolForResume}
-                  onChange={(event) => setUseLoadedProtocolForResume(event.target.checked)}
-                />
-                <span>
-                  {hasLoadedProtocolForResume
-                    ? `Usar protocolo carregado agora: ${protocol.name}`
-                    : "Usar o protocolo salvo dentro de cada sessao"}
-                </span>
-              </label>
-
-              <div className="resume-list">
-                {resumeCandidates.map((session) => (
-                  <button
-                    className="resume-session-row"
-                    type="button"
-                    key={session.run_id}
-                    onClick={() => void startResumeSession(session, useLoadedProtocolForResume)}
-                  >
-                    <div>
-                      <strong>{session.session_name}</strong>
-                      <span>{session.run_id}</span>
-                    </div>
-                    <div>
-                      <strong>Rodada {session.next_round.toLocaleString("pt-BR")}</strong>
-                      <span>{formatSessionActivity(session)}</span>
-                    </div>
-                    <div>
-                      <strong>{session.status}</strong>
-                      <span>
-                        {session.artifact_count.toLocaleString("pt-BR")} arquivos;{" "}
-                        {session.protocol_lines.toLocaleString("pt-BR")} linhas
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-          </div>
+          <ResumeDialog
+            candidates={resumeCandidates}
+            hasLoadedProtocol={hasLoadedProtocolForResume}
+            protocol={protocol}
+            useLoadedProtocol={useLoadedProtocolForResume}
+            formatActivity={formatSessionActivity}
+            onClose={() => setShowResumePicker(false)}
+            onChoose={(session, useLoadedProtocol) =>
+              void startResumeSession(session, useLoadedProtocol)
+            }
+            onUseLoadedProtocolChange={setUseLoadedProtocolForResume}
+          />
         )}
 
         {activeSection === "session" && (
-          <>
-            <section className="status-grid" aria-label="Resumo">
-              <div className="metric-panel">
-                <ShieldCheck size={20} />
-                <div>
-                  <span>Estado formal</span>
-                  <strong>{formalState}</strong>
-                </div>
-              </div>
-              <div className="metric-panel">
-                <Bot size={20} />
-                <div>
-                  <span>Consenso</span>
-                  <strong>
-                    {readyCount}/{agentCards.length} aprovados
-                  </strong>
-                </div>
-              </div>
-              <div className="metric-panel">
-                <Link2 size={20} />
-                <div>
-                  <span>Links</span>
-                  <strong>{linkEvidenceState}</strong>
-                </div>
-              </div>
-              <div className="metric-panel">
-                <FileText size={20} />
-                <div>
-                  <span>Protocolo</span>
-                  <strong>{protocol.lines} linhas</strong>
-                </div>
-              </div>
-            </section>
-
-            <section className="prompt-grid" aria-label="Prompt editorial">
-              <div className="panel prompt-panel">
-                <div className="panel-heading">
-                  <div>
-                    <p className="eyebrow">Geracao</p>
-                    <h2>Prompt da sessao</h2>
-                  </div>
-                  <div className="panel-actions">
-                    <button
-                      className={isResumeLoading ? "secondary-button busy" : "secondary-button"}
-                      type="button"
-                      onClick={() => void requestResumeSession()}
-                      aria-busy={isResumeLoading}
-                      disabled={isRunPreparing || isResumeLoading}
-                    >
-                      <Clock3 size={18} />
-                      Retomar
-                    </button>
-                    <button
-                      className={isRunPreparing ? "primary-button busy" : "primary-button"}
-                      type="button"
-                      onClick={startEditorialSession}
-                      aria-busy={isRunPreparing}
-                      disabled={isRunPreparing}
-                    >
-                      <Play size={18} />
-                      {isRunPreparing ? "Preparando" : "Submeter"}
-                    </button>
-                  </div>
-                </div>
-                <div className="initial-agent-picker" aria-label="Agente redator inicial">
-                  <div>
-                    <span>Primeira versao</span>
-                    <strong>{initialAgentLabel}</strong>
-                  </div>
-                  <div className="initial-agent-buttons">
-                    {initialAgentOptions.map((option) => {
-                      const cliBlocksApiOnlyAgent =
-                        providerMode === "cli" && agentIsApiOnly(option.key);
-                      return (
-                        <button
-                          className={initialAgent === option.key ? "active" : ""}
-                          type="button"
-                          key={option.key}
-                          onClick={() => setInitialAgent(option.key)}
-                          aria-pressed={initialAgent === option.key}
-                          disabled={isRunPreparing || cliBlocksApiOnlyAgent}
-                          title={
-                            cliBlocksApiOnlyAgent
-                              ? `${option.label} so roda via API. Troque para Hibrido ou API para incluir.`
-                              : option.detail
-                          }
-                        >
-                          {option.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="session-controls" aria-label="Controles da sessao">
-                  <div className="control-row">
-                    <div>
-                      <span>Peers ativos</span>
-                      <strong>{activeAgentLabels}</strong>
-                    </div>
-                    <div className="initial-agent-buttons">
-                      {initialAgentOptions.map((option) => {
-                        const cliBlocksApiOnlyAgent =
-                          providerMode === "cli" && agentIsApiOnly(option.key);
-                        const isLastSelected =
-                          activeAgents.length === 1 && activeAgents.includes(option.key);
-                        return (
-                          <button
-                            className={activeAgents.includes(option.key) ? "active" : ""}
-                            type="button"
-                            key={option.key}
-                            onClick={() => toggleActiveAgent(option.key)}
-                            aria-pressed={activeAgents.includes(option.key)}
-                            disabled={isRunPreparing || cliBlocksApiOnlyAgent || isLastSelected}
-                            title={
-                              cliBlocksApiOnlyAgent
-                                ? `${option.label} so roda via API. Troque para Hibrido ou API para incluir.`
-                                : option.detail
-                            }
-                          >
-                            {option.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  {costRatesRequired && (
-                    <div className="session-warning" role="status">
-                      <AlertTriangle size={16} />
-                      <span>
-                        Tarifas obrigatorias para API pendentes:{" "}
-                        {agentsMissingCostRates
-                          .map(
-                            (agent) =>
-                              initialAgentOptions.find((option) => option.key === agent)?.label ??
-                              agent,
-                          )
-                          .join(", ")}
-                        .
-                      </span>
-                    </div>
-                  )}
-                  {apiCostLimitRequired && (
-                    <div className="session-warning" role="status">
-                      <AlertTriangle size={16} />
-                      <span>
-                        Defina um limite de custo em USD para peers via API:{" "}
-                        {apiAgentsSelected
-                          .map(
-                            (agent) =>
-                              initialAgentOptions.find((option) => option.key === agent)?.label ??
-                              agent,
-                          )
-                          .join(", ")}
-                        .
-                      </span>
-                    </div>
-                  )}
-                  <div className="limit-grid">
-                    <label title="Verificado entre rodadas e como timeout por chamada. Em branco = sem teto.">
-                      <Clock3 size={16} />
-                      <span>Tempo max. min</span>
-                      <input
-                        value={maxSessionMinutes}
-                        onChange={(event) => setMaxSessionMinutes(event.target.value)}
-                        inputMode="numeric"
-                        placeholder="60 (em branco = sem teto)"
-                        disabled={isRunPreparing}
-                      />
-                    </label>
-                    <label title="Aplica-se apenas a peers em modo API. Chamadas pagas exigem teto definido pelo usuario.">
-                      <Database size={16} />
-                      <span>Custo max. USD</span>
-                      <input
-                        value={maxSessionCostUsd}
-                        onChange={(event) => setMaxSessionCostUsd(event.target.value)}
-                        inputMode="decimal"
-                        placeholder="5.00"
-                        disabled={isRunPreparing}
-                      />
-                    </label>
-                  </div>
-                  <div className="attachments-row">
-                    <label className="secondary-button attachment-button">
-                      <Upload size={16} />
-                      Anexos
-                      <input
-                        type="file"
-                        multiple
-                        onChange={(event) => void handlePromptAttachments(event)}
-                        disabled={isRunPreparing}
-                      />
-                    </label>
-                    <span>
-                      {promptAttachments.length.toLocaleString("pt-BR")} arquivo(s),{" "}
-                      {formatBytes(attachmentTotalBytes)}
-                    </span>
-                  </div>
-                  {promptAttachments.length > 0 && (
-                    <div className="attachment-list">
-                      {attachmentDeliveryPlans.map((plan) => {
-                        const hint = attachmentDeliveryHint(plan);
-                        return (
-                          <button
-                            type="button"
-                            key={`${plan.attachment.name}-${plan.attachment.size_bytes}`}
-                            onClick={() =>
-                              removePromptAttachment(
-                                plan.attachment.name,
-                                plan.attachment.size_bytes,
-                              )
-                            }
-                            disabled={isRunPreparing}
-                            title={`Remover anexo; previsao de entrega: ${hint}. A decisao final acontece no envio.`}
-                          >
-                            <span>
-                              {plan.attachment.name} · {formatBytes(plan.attachment.size_bytes)}
-                            </span>
-                            <small>{hint}</small>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <label className="links-control">
-                    <span>
-                      <Globe2 size={16} />
-                      Links da sessao
-                    </span>
-                    <textarea
-                      value={sessionLinks}
-                      onChange={(event) => setSessionLinks(event.target.value)}
-                      placeholder="https://..."
-                      disabled={isRunPreparing}
-                    />
-                  </label>
-                </div>
-                <textarea
-                  className="prompt-input"
-                  value={editorialPrompt}
-                  onChange={(event) => setEditorialPrompt(event.target.value)}
-                  aria-label="Prompt de geracao editorial"
-                />
-                <div className="prompt-footer">
-                  <span>{editorialPrompt.length.toLocaleString("pt-BR")} caracteres</span>
-                  <span>entrega: unanimidade dos agentes</span>
-                  <span>run: {sessionRunId ?? "sem sessao"}</span>
-                  <span>{protocol.lines} linhas de protocolo</span>
-                </div>
-              </div>
-
-              <div className="panel reading-panel">
-                <div className="panel-heading">
-                  <div>
-                    <p className="eyebrow">Regra obrigatoria</p>
-                    <h2>Leitura integral</h2>
-                  </div>
-                  <ShieldCheck size={20} />
-                </div>
-                <div className="reading-list">
-                  {protocolGateItems.map((gate) => (
-                    <div className="reading-row" key={gate.agent}>
-                      <div>
-                        <strong>{gate.agent}</strong>
-                        <span>{gate.status}</span>
-                      </div>
-                      <div className="mini-progress" aria-label={`${gate.progress}%`}>
-                        <div style={{ width: `${gate.progress}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="panel operation-panel" aria-label="Sessao editorial">
-              <div className="operation-head">
-                <div>
-                  <p className="eyebrow">Sessao</p>
-                  <h2>{operation.title}</h2>
-                  <span className={`run-state-badge ${operation.status}`}>
-                    {humanizeRunStatus(operation.status)}
-                  </span>
-                </div>
-                <div className="verbosity-control" aria-label="Verbosidade da interface">
-                  {verbosityOptions.map((option) => {
-                    const Icon = option.icon;
-                    return (
-                      <button
-                        className={verbosity === option.mode ? "active" : ""}
-                        type="button"
-                        key={option.mode}
-                        aria-pressed={verbosity === option.mode}
-                        onClick={() => chooseVerbosity(option.mode)}
-                      >
-                        <Icon size={16} />
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="operation-body">
-                <div className="operation-summary">
-                  <div className={`pulse-icon ${operation.status}`}>
-                    <Activity size={22} />
-                  </div>
-                  <div>
-                    <strong>{operation.current}</strong>
-                    <span>{operation.eta}</span>
-                  </div>
-                </div>
-                <div className="progress-stack" aria-label={operationProgressLabel}>
-                  <div
-                    className={`progress-track ${operationIndeterminate ? "indeterminate" : ""}`}
-                  >
-                    <div
-                      className={`progress-fill ${operation.status} ${operationIndeterminate ? "indeterminate" : ""}`}
-                      style={
-                        operationIndeterminate ? undefined : { width: `${operation.progress}%` }
-                      }
-                    />
-                  </div>
-                  <span>{operationProgressLabel}</span>
-                </div>
-                <div
-                  className={`active-agent-now ${activeAgentNow?.state ?? "idle"}`}
-                  aria-live="polite"
-                >
-                  <div className="agent-icon">
-                    <Bot size={16} />
-                  </div>
-                  <div>
-                    <span>Agente em turno</span>
-                    <strong>
-                      {activeAgentNow?.name ??
-                        (isRunPreparing ? "Aguardando primeiro turno" : "Nenhum")}
-                    </strong>
-                    <em>
-                      {activeAgentNow?.detail ??
-                        "O indicador atualiza automaticamente quando o backend inicia cada peer."}
-                    </em>
-                  </div>
-                </div>
-              </div>
-
-              <div className="phase-list" aria-label="Fases da rodada">
-                {phaseItems.map((phase) => (
-                  <div className={`phase-item ${phase.state}`} key={phase.label}>
-                    <div className="phase-marker" />
-                    <strong>{phase.label}</strong>
-                    <span>{phase.detail}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="activity-feed" aria-label="Atividade">
-                {visibleActivity.map((item) => (
-                  <div className={`activity-row ${item.level}`} key={`${item.time}-${item.title}`}>
-                    <span>{item.time}</span>
-                    <div>
-                      <strong>{item.title}</strong>
-                      <p>{item.detail}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="panel session-ledger-panel" aria-label="Discussao editorial">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Ata viva</p>
-                  <h2>Discussao e entrega</h2>
-                </div>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => void openSessionLedger()}
-                >
-                  <FileText size={18} />
-                  Ver ata
-                </button>
-              </div>
-              <div className="ledger-grid">
-                <div className="round-list">
-                  {discussionItems.map((item) => (
-                    <div className="round-row" key={`${item.round}-${item.status}`}>
-                      <span>{item.round}</span>
-                      <div>
-                        <strong>{item.status}</strong>
-                        <p>{item.note}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="artifact-list">
-                  {finalArtifacts.map((artifact) => (
-                    <div className="artifact-card" key={artifact.name}>
-                      <FileText size={18} />
-                      <div>
-                        <strong>{artifact.name}</strong>
-                        <span>{artifact.detail}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="panel posteditor-parity-panel" aria-label="Editor integrado">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Editor integrado</p>
-                  <h2>PostEditor parity</h2>
-                </div>
-                {showPostEditor ? (
-                  <span className="parity-badge">HTML MainSite</span>
-                ) : (
-                  <button className="primary-button" type="button" onClick={openPostEditor}>
-                    <FilePlus2 size={18} />
-                    Criar Post
-                  </button>
-                )}
-              </div>
-              {showPostEditor && (
-                <Suspense
-                  fallback={
-                    <div className="posteditor-loading" role="status">
-                      Carregando editor...
-                    </div>
-                  }
-                >
-                  <PostEditor
-                    editingPostId={null}
-                    initialTitle={sessionName}
-                    initialAuthor="Leonardo Cardozo Vargas"
-                    initialContent={mainSiteHtml}
-                    initialIsPublished={false}
-                    initialIsAboutSite={false}
-                    savingPost={false}
-                    showNotification={(message, type) =>
-                      void logEvent({
-                        level: type === "error" ? "error" : "info",
-                        category: "editor.posteditor.notification",
-                        message,
-                        context: { type },
-                      })
-                    }
-                    onSave={savePostEditorDraft}
-                    onClose={closePostEditor}
-                  />
-                </Suspense>
-              )}
-            </section>
-          </>
+          <SessionScreen
+            activeAgentLabels={activeAgentLabels}
+            activeAgentNow={activeAgentNow}
+            activeAgents={activeAgents}
+            agentCards={agentCards}
+            agentsMissingCostRates={agentsMissingCostRates}
+            apiAgentsSelected={apiAgentsSelected}
+            apiCostLimitRequired={apiCostLimitRequired}
+            attachmentDeliveryPlans={attachmentDeliveryPlans}
+            attachmentTotalBytes={attachmentTotalBytes}
+            closePostEditor={closePostEditor}
+            costRatesRequired={costRatesRequired}
+            discussionItems={discussionItems}
+            editorialPrompt={editorialPrompt}
+            formalState={formalState}
+            handlePromptAttachments={handlePromptAttachments}
+            initialAgent={initialAgent}
+            initialAgentLabel={initialAgentLabel}
+            isResumeLoading={isResumeLoading}
+            isRunPreparing={isRunPreparing}
+            linkEvidenceState={linkEvidenceState}
+            mainSiteHtml={mainSiteHtml}
+            maxSessionCostUsd={maxSessionCostUsd}
+            maxSessionMinutes={maxSessionMinutes}
+            openPostEditor={openPostEditor}
+            openSessionLedger={openSessionLedger}
+            operation={operation}
+            operationIndeterminate={operationIndeterminate}
+            operationProgressLabel={operationProgressLabel}
+            phaseItems={phaseItems}
+            promptAttachments={promptAttachments}
+            protocol={protocol}
+            protocolGateItems={protocolGateItems}
+            providerMode={providerMode}
+            readyCount={readyCount}
+            removePromptAttachment={removePromptAttachment}
+            requestResumeSession={() => void requestResumeSession()}
+            savePostEditorDraft={savePostEditorDraft}
+            sessionLinks={sessionLinks}
+            sessionName={sessionName}
+            sessionRunId={sessionRunId}
+            setEditorialPrompt={setEditorialPrompt}
+            setInitialAgent={setInitialAgent}
+            setMaxSessionCostUsd={setMaxSessionCostUsd}
+            setMaxSessionMinutes={setMaxSessionMinutes}
+            setSessionLinks={setSessionLinks}
+            showPostEditor={showPostEditor}
+            startEditorialSession={startEditorialSession}
+            toggleActiveAgent={toggleActiveAgent}
+            verbosity={verbosity}
+            chooseVerbosity={chooseVerbosity}
+            visibleActivity={visibleActivity}
+          />
         )}
 
         {activeSection === "protocols" && (
-          <section className="main-grid" aria-label="Protocolos">
-            <div className="panel protocol-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Biblioteca</p>
-                  <h2>Protocolo ativo</h2>
-                </div>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => inputRef.current?.click()}
-                >
-                  <Upload size={18} />
-                  Importar
-                </button>
-                <input
-                  ref={inputRef}
-                  className="hidden-input"
-                  type="file"
-                  accept=".md,text/markdown,text/plain"
-                  onChange={importProtocol}
-                />
-              </div>
-
-              <div className="protocol-record">
-                <div className="file-badge">
-                  <FileText size={26} />
-                </div>
-                <div>
-                  <strong>{protocol.name}</strong>
-                  <span>
-                    {protocol.size
-                      ? `${protocol.size.toLocaleString("pt-BR")} bytes`
-                      : "artefato fonte local"}
-                  </span>
-                </div>
-              </div>
-
-              <dl className="detail-list">
-                <div>
-                  <dt>Hash</dt>
-                  <dd>{protocol.hash}</dd>
-                </div>
-                <div>
-                  <dt>Linhas</dt>
-                  <dd>{protocol.lines.toLocaleString("pt-BR")}</dd>
-                </div>
-                <div>
-                  <dt>Publicacao</dt>
-                  <dd>bloqueada ate unanimidade</dd>
-                </div>
-              </dl>
-            </div>
-
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Chats compartilhados</p>
-                  <h2>Entrada externa</h2>
-                </div>
-                <Link2 size={20} />
-              </div>
-              <div className="connector-list">
-                {importChannels.map((channel) => (
-                  <div className="connector-row" key={channel.provider}>
-                    <strong>{channel.provider}</strong>
-                    <span>{channel.pattern}</span>
-                    <em>{channel.status}</em>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Arquivos</p>
-                  <h2>Importar e exportar</h2>
-                </div>
-                <FileText size={20} />
-              </div>
-              <div className="pipeline-list">
-                {contentPipelines.map((pipeline) => (
-                  <div className="pipeline-row" key={pipeline.label}>
-                    <span>{pipeline.label}</span>
-                    <strong>{pipeline.value}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
+          <ProtocolsScreen inputRef={inputRef} protocol={protocol} onImport={importProtocol} />
         )}
 
         {activeSection === "evidence" && (
-          <section className="main-grid" aria-label="Evidencias">
-            <div className="panel evidence-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Motor mecanico</p>
-                  <h2>Evidencias</h2>
-                </div>
-                <button
-                  className={isAuditingEvidence ? "secondary-button busy" : "secondary-button"}
-                  type="button"
-                  onClick={() => void auditEvidenceNow()}
-                  disabled={isAuditingEvidence}
-                  aria-busy={isAuditingEvidence}
-                >
-                  {isAuditingEvidence ? <RefreshCw size={18} /> : <Link2 size={18} />}
-                  {isAuditingEvidence ? "Auditando" : "Auditar links"}
-                </button>
-              </div>
-
-              <div className="evidence-grid">
-                {evidenceRows.map((item) => (
-                  <div className={`evidence-tile ${item.tone}`} key={item.label}>
-                    <span>{item.label}</span>
-                    <strong>{item.value}</strong>
-                  </div>
-                ))}
-              </div>
-              {invalidLinkRows.length > 0 && (
-                <div className="link-audit-list" aria-label="Links com problema">
-                  {invalidLinkRows.map((row) => (
-                    <div className={`link-audit-row ${row.tone}`} key={`${row.url}-${row.status}`}>
-                      <div>
-                        <strong>{row.url}</strong>
-                        <span>{row.invalidity || row.status}</span>
-                      </div>
-                      <small>{row.status}</small>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Web evidence</p>
-                  <h2>Coleta assistida</h2>
-                </div>
-                <Globe2 size={20} />
-              </div>
-              <div className="pipeline-list">
-                {webEvidenceTools.map((tool) => (
-                  <div className="pipeline-row" key={tool.label}>
-                    <span>{tool.label}</span>
-                    <strong>{tool.value}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Cloudflare D1</p>
-                  <h2>mainsite_posts</h2>
-                </div>
-                <Database size={20} />
-              </div>
-              <dl className="detail-list compact">
-                <div>
-                  <dt>Banco</dt>
-                  <dd>bigdata_db</dd>
-                </div>
-                <div>
-                  <dt>Campos</dt>
-                  <dd>id, title, content, author, is_published</dd>
-                </div>
-                <div>
-                  <dt>Regra</dt>
-                  <dd>API principal; wrangler@latest fallback</dd>
-                </div>
-              </dl>
-            </div>
-          </section>
+          <EvidenceScreen
+            evidenceRows={evidenceRows}
+            invalidLinkRows={invalidLinkRows}
+            isAuditing={isAuditingEvidence}
+            onAudit={() => void auditEvidenceNow()}
+          />
         )}
 
         {activeSection === "agents" && (
-          <section className="main-grid" aria-label="Agentes">
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">{sessionRunId ?? "sem run"}</p>
-                  <h2>Agentes</h2>
-                </div>
-                <button
-                  className="icon-button"
-                  type="button"
-                  title="Verificar agentes"
-                  onClick={() => void verifyAgentsNow()}
-                >
-                  <Search size={18} />
-                </button>
-              </div>
-
-              <div className="agent-list">
-                {agentCards.map((agent) => (
-                  <div className={`agent-row ${agent.state}`} key={agent.name}>
-                    <div className="agent-main">
-                      <div className="agent-icon">{stateIcon(agent.state)}</div>
-                      <div>
-                        <strong>{agent.name}</strong>
-                        <span>{agent.cli}</span>
-                      </div>
-                    </div>
-                    <div className="agent-status">
-                      <strong>{stateLabel(agent.state)}</strong>
-                      <span>{agent.note}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="panel reading-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Regra obrigatoria</p>
-                  <h2>Leitura integral</h2>
-                </div>
-                <ShieldCheck size={20} />
-              </div>
-              <div className="reading-list">
-                {protocolGateItems.map((gate) => (
-                  <div className="reading-row" key={gate.agent}>
-                    <div>
-                      <strong>{gate.agent}</strong>
-                      <span>{gate.status}</span>
-                    </div>
-                    <div className="mini-progress" aria-label={`${gate.progress}%`}>
-                      <div style={{ width: `${gate.progress}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
+          <AgentsScreen
+            agentCards={agentCards}
+            protocolGateItems={protocolGateItems}
+            sessionRunId={sessionRunId}
+            onVerify={() => void verifyAgentsNow()}
+          />
         )}
 
         {activeSection === "settings" && (
-          <section className="settings-layout" aria-label="Configuracoes operacionais">
-            <aside className="panel settings-nav-panel" aria-label="Areas de configuracao">
-              <div>
-                <p className="eyebrow">Configuracoes</p>
-                <h2>Ajustes do Maestro</h2>
-              </div>
-              <div className="settings-tabs">
-                {settingsTabs.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      className={activeSettingsTab === item.tab ? "active" : ""}
-                      key={item.tab}
-                      type="button"
-                      aria-pressed={activeSettingsTab === item.tab}
-                      onClick={() => chooseSettingsTab(item.tab)}
-                    >
-                      <Icon size={18} />
-                      <span>
-                        <strong>{item.label}</strong>
-                        <em>{item.detail}</em>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </aside>
-
-            <div className="settings-content">
-              {activeSettingsTab === "cloudflare" && (
-                <div className="panel settings-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <p className="eyebrow">Ajustes</p>
-                      <h2>Cloudflare</h2>
-                    </div>
-                    <Database size={20} />
-                  </div>
-
-                  <div className="storage-mode-list" aria-label="Armazenamento de credenciais">
-                    {credentialStorageModes.map((item) => (
-                      <button
-                        key={item.mode}
-                        className={credentialStorageMode === item.mode ? "active" : ""}
-                        type="button"
-                        aria-pressed={credentialStorageMode === item.mode}
-                        onClick={() => chooseCredentialStorage(item.mode)}
-                      >
-                        <strong>{item.label}</strong>
-                        <span>{item.detail}</span>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="credential-form">
-                    <div className="storage-note">
-                      <strong>{storageModeSummaries[credentialStorageMode].title}</strong>
-                      <span>{storageModeSummaries[credentialStorageMode].detail}</span>
-                    </div>
-                    <div className="storage-note">
-                      <strong>Bootstrap local sem segredos</strong>
-                      <span>{bootstrapConfigStatus}</span>
-                    </div>
-                    <div className="storage-note">
-                      <strong>Token Cloudflare inicial</strong>
-                      <span>
-                        {cloudflareTokenAvailable
-                          ? `detectado via ${cloudflareEnvSnapshot?.api_token_env_var ?? cloudflareTokenEnvVar}${
-                              cloudflareEnvSnapshot?.api_token_env_scope
-                                ? ` (${cloudflareEnvSnapshot.api_token_env_scope})`
-                                : ""
-                            }`
-                          : "nao salvo no bootstrap; informe no campo, env var ou futura cripta local"}
-                      </span>
-                    </div>
-                    <div className="field-group">
-                      <label htmlFor="cloudflare-account-id">Account ID</label>
-                      <input
-                        id="cloudflare-account-id"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={cloudflareAccountId}
-                        onChange={(event) => setCloudflareAccountId(event.target.value)}
-                        placeholder="informar no app local"
-                      />
-                    </div>
-                    <div className="field-group">
-                      <label htmlFor="cloudflare-api-token">API token</label>
-                      <input
-                        id="cloudflare-api-token"
-                        type="password"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={cloudflareApiToken}
-                        onChange={(event) => setCloudflareApiToken(event.target.value)}
-                        placeholder="nunca gravar em logs ou artefatos"
-                      />
-                    </div>
-                    <div className="target-grid">
-                      <div>
-                        <span>Persistencia</span>
-                        <strong>maestro_db</strong>
-                      </div>
-                      <div>
-                        <span>Secrets</span>
-                        <strong>Cloudflare Secrets Store</strong>
-                      </div>
-                      <div>
-                        <span>Publicacao</span>
-                        <strong>bigdata_db</strong>
-                      </div>
-                      <div>
-                        <span>Tabela</span>
-                        <strong>mainsite_posts</strong>
-                      </div>
-                    </div>
-                    <button
-                      className={isVerifyingCloudflare ? "primary-button busy" : "primary-button"}
-                      type="button"
-                      onClick={() => void verifyCloudflareCredentials()}
-                      disabled={isVerifyingCloudflare}
-                    >
-                      {isVerifyingCloudflare ? <RefreshCw size={18} /> : <ShieldCheck size={18} />}
-                      {isVerifyingCloudflare ? "Verificando e preparando" : "Verificar e preparar"}
-                    </button>
-                  </div>
-
-                  <div className="status-checklist" aria-label="Permissoes Cloudflare">
-                    {cloudflarePermissionRows.map((item) => (
-                      <div className={`check-row ${item.tone}`} key={item.label}>
-                        {item.tone === "ok" ? (
-                          <CheckCircle2 size={15} />
-                        ) : item.tone === "blocked" ||
-                          item.tone === "error" ||
-                          item.tone === "warn" ? (
-                          <AlertTriangle size={15} />
-                        ) : (
-                          <Clock3 size={15} />
-                        )}
-                        <span>{item.label}</span>
-                        <strong>{item.value}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {activeSettingsTab === "providers" && (
-                <div className="panel settings-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <p className="eyebrow">Ajustes</p>
-                      <h2>Agentes via API</h2>
-                    </div>
-                    <KeyRound size={20} />
-                  </div>
-
-                  <div className="provider-mode" aria-label="Modo dos provedores">
-                    {(["hybrid", "cli", "api"] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        className={providerMode === mode ? "active" : ""}
-                        type="button"
-                        aria-pressed={providerMode === mode}
-                        onClick={() => chooseProviderMode(mode)}
-                      >
-                        {mode === "hybrid" ? "Hibrido" : mode.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="provider-mode-note">
-                    <strong>Execucao API real por peer</strong>
-                    <span>
-                      <strong>API</strong> roda os 6 peers via provedores oficiais.{" "}
-                      <strong>Hibrido</strong> reserva DeepSeek, Grok e Perplexity para API (nao tem
-                      CLI) e Claude, Codex, Gemini via Antigravity CLI (agy), sempre,
-                      independentemente das chaves. <strong>CLI</strong> roda os 3 peers com CLI;
-                      DeepSeek, Grok e Perplexity ficam desabilitados porque nao possuem integracao
-                      CLI. Tarifas continuam obrigatorias para qualquer chamada de API.
-                    </span>
-                  </div>
-
-                  <div className="ai-credential-list">
-                    {aiProviderRows.map((provider) => (
-                      <div className="credential-row" key={provider.key}>
-                        <div>
-                          <strong>{provider.name}</strong>
-                          <span>CLI: {provider.cli}</span>
-                        </div>
-                        <label>
-                          {provider.secretLabel}
-                          <input
-                            type="password"
-                            autoComplete="off"
-                            spellCheck={false}
-                            value={aiCredentials[provider.key]}
-                            onChange={(event) =>
-                              updateAiCredential(provider.key, event.target.value)
-                            }
-                            placeholder="informar no app local"
-                          />
-                        </label>
-                        <em>{provider.meta}</em>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="rate-card-panel" aria-label="Tabela de tarifas dos provedores">
-                    <div>
-                      <strong>Tabela de tarifas</strong>
-                      <span>
-                        Valores em USD por 1M tokens. O limite de custo continua sendo unico por
-                        sessao; esta tabela apenas calcula e audita consumo observado. Sem fallback
-                        por env var.
-                      </span>
-                    </div>
-                    <div className="rate-card-table">
-                      <div className="rate-card-head" aria-hidden="true">
-                        <span>Provedor</span>
-                        <span>Entrada</span>
-                        <span>Saida</span>
-                      </div>
-                      {providerRateRows.map((provider) => (
-                        <div className="rate-card-row" key={provider.key}>
-                          <div>
-                            <strong>{provider.name}</strong>
-                            <span>{provider.hint}</span>
-                          </div>
-                          <label>
-                            <span>Entrada USD / 1M</span>
-                            <input
-                              inputMode="decimal"
-                              value={providerInputUsdPerMillion[provider.key]}
-                              onChange={(event) =>
-                                updateProviderInputRate(provider.key, event.target.value)
-                              }
-                              placeholder="ex.: 0.55"
-                            />
-                          </label>
-                          <label>
-                            <span>Saida USD / 1M</span>
-                            <input
-                              inputMode="decimal"
-                              value={providerOutputUsdPerMillion[provider.key]}
-                              onChange={(event) =>
-                                updateProviderOutputRate(provider.key, event.target.value)
-                              }
-                              placeholder="ex.: 2.19"
-                            />
-                          </label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="settings-status" role="status" aria-live="polite">
-                    {aiConfigStatus}
-                  </div>
-
-                  <div className="button-row">
-                    <button
-                      className={isSavingAiConfig ? "secondary-button busy" : "secondary-button"}
-                      type="button"
-                      onClick={() => void saveAiProviderConfig()}
-                      disabled={isSavingAiConfig || isVerifyingAiProviders}
-                      aria-busy={isSavingAiConfig}
-                    >
-                      <KeyRound size={18} />
-                      {isSavingAiConfig ? "Salvando" : "Salvar APIs"}
-                    </button>
-                    <button
-                      className={
-                        isVerifyingAiProviders ? "secondary-button busy" : "secondary-button"
-                      }
-                      type="button"
-                      onClick={() => void verifyAiProviderCredentials()}
-                      disabled={isSavingAiConfig || isVerifyingAiProviders}
-                      aria-busy={isVerifyingAiProviders}
-                    >
-                      <ListChecks size={18} />
-                      {isVerifyingAiProviders ? "Verificando" : "Verificar APIs"}
-                    </button>
-                  </div>
-
-                  <div
-                    className="check-list compact-checks"
-                    aria-label="Resultado da verificacao das APIs"
-                  >
-                    {aiProviderRowsState.map((item) => (
-                      <div className={`check-row ${item.tone}`} key={item.label}>
-                        {item.tone === "ok" ? (
-                          <CheckCircle2 size={15} />
-                        ) : item.tone === "blocked" ||
-                          item.tone === "error" ||
-                          item.tone === "warn" ? (
-                          <AlertTriangle size={15} />
-                        ) : (
-                          <Clock3 size={15} />
-                        )}
-                        <span>{item.label}</span>
-                        <strong>{item.value}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
+          <SettingsScreen
+            activeTab={activeSettingsTab}
+            onChooseTab={chooseSettingsTab}
+            cloudflarePanel={
+              <CloudflareSettingsPanel
+                bootstrapConfigStatus={bootstrapConfigStatus}
+                cloudflareAccountId={cloudflareAccountId}
+                cloudflareApiToken={cloudflareApiToken}
+                cloudflareEnvSnapshot={cloudflareEnvSnapshot}
+                cloudflarePermissionRows={cloudflarePermissionRows}
+                cloudflareTokenAvailable={cloudflareTokenAvailable}
+                cloudflareTokenEnvVar={cloudflareTokenEnvVar}
+                credentialStorageMode={credentialStorageMode}
+                isVerifying={isVerifyingCloudflare}
+                onAccountIdChange={setCloudflareAccountId}
+                onApiTokenChange={setCloudflareApiToken}
+                onChooseCredentialStorage={chooseCredentialStorage}
+                onVerify={() => void verifyCloudflareCredentials()}
+              />
+            }
+            providersPanel={
+              <AiProviderSettingsPanel
+                aiConfigStatus={aiConfigStatus}
+                aiCredentials={aiCredentials}
+                isSaving={isSavingAiConfig}
+                isVerifying={isVerifyingAiProviders}
+                probeRows={aiProviderRowsState}
+                providerInputRates={providerInputUsdPerMillion}
+                providerMode={providerMode}
+                providerOutputRates={providerOutputUsdPerMillion}
+                onChooseProviderMode={chooseProviderMode}
+                onCredentialChange={updateAiCredential}
+                onInputRateChange={updateProviderInputRate}
+                onOutputRateChange={updateProviderOutputRate}
+                onSave={() => void saveAiProviderConfig()}
+                onVerify={() => void verifyAiProviderCredentials()}
+              />
+            }
+          />
         )}
 
         {activeSection === "setup" && (
-          <section className="integration-grid" aria-label="Setup">
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Primeira execucao</p>
-                  <h2>Bootstrap</h2>
-                </div>
-                <HardDriveDownload size={20} />
-              </div>
-              <div className="pipeline-list">
-                {bootstrapRows.map((item) => (
-                  <div className={`pipeline-row ${item.tone}`} key={item.label}>
-                    <span>{item.label}</span>
-                    <strong>{item.value}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Runtime</p>
-                  <h2>Diagnostico</h2>
-                </div>
-                <Activity size={20} />
-              </div>
-              <dl className="detail-list compact">
-                <div>
-                  <dt>Run atual</dt>
-                  <dd>{sessionRunId ?? "sem sessao editorial"}</dd>
-                </div>
-                <div>
-                  <dt>Estado</dt>
-                  <dd>{humanizeRunStatus(operation.status)}</dd>
-                </div>
-                <div>
-                  <dt>Logs</dt>
-                  <dd>um arquivo de diagnostico por execucao do app</dd>
-                </div>
-                <div>
-                  <dt>Config inicial</dt>
-                  <dd>data/config/bootstrap.json sem segredos</dd>
-                </div>
-                <div>
-                  <dt>Cloudflare env</dt>
-                  <dd>
-                    {cloudflareEnvSnapshot?.api_token_present
-                      ? `token em ${cloudflareEnvSnapshot.api_token_env_var} (${cloudflareEnvSnapshot.api_token_env_scope ?? "process"})`
-                      : "token nao detectado"}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          </section>
+          <SetupScreen
+            bootstrapRows={bootstrapRows}
+            cloudflareEnvSnapshot={cloudflareEnvSnapshot}
+            operation={operation}
+            sessionRunId={sessionRunId}
+          />
         )}
       </main>
     </div>

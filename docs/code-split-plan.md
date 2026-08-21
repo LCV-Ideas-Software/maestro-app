@@ -1,73 +1,62 @@
 # Maestro Code Split Plan
 
-Status: planning baseline for the v0.4.x stabilization line.
+Status: completed responsibility split; implementation record retained for future maintenance.
 
-Maestro is now large enough that feature work in single files increases review cost and regression risk. The first split must be conservative: move code along existing responsibility boundaries, preserve behavior, and keep tests green after each small extraction.
+Last verified: 21/08/2026.
+
+Maestro is large enough that feature work in single files increases review cost and regression risk. The split is conservative: code moves along existing responsibility boundaries, public Tauri commands remain stable, and behavior is covered by the same frontend and remote Rust gates.
 
 Progress on 2026-05-01: the first split batch extracted `human_logs.rs` and `session_controls.rs` from the native `lib.rs`, then moved the Tiptap-heavy PostEditor parity surface behind a `React.lazy` boundary that is rendered only after the operator clicks `Criar Post`. The production entry chunk dropped from about 1.30 MB to about 272 KB minified; the remaining large PostEditor chunk is intentionally isolated for on-demand loading.
 
-## Current Pressure Points
+## Completion Snapshot
 
-- `src-tauri/src/lib.rs` mixes Tauri command registration, runtime bootstrap, logging, Cloudflare provisioning, credential persistence, AI provider probes, editorial orchestration, link audit, session resume, artifact parsing, and tests.
-- `src/App.tsx` mixes global app state, navigation, orchestration UI, protocol UI, settings UI, Cloudflare UI, provider credentials UI, helpers, and rendering.
-- New peers such as DeepSeek add provider-specific behavior that should not live beside unrelated Cloudflare or session code.
+- The native track is complete at the responsibility boundary: `src-tauri/src/` contains 37 focused source modules for providers, Cloudflare, commands, evidence, persistence, resume, artifacts, prompts, orchestration, logging, sanitization and startup. `lib.rs` retains module wiring, the Tauri boundary, shared DTO compatibility and the centralized legacy test module.
+- The frontend track now has `src/app/`, `src/features/` and `src/services/`. `App.tsx` owns state and controller composition; navigation, session, protocol, evidence, agents, settings and setup rendering live in feature components.
+- `App.tsx` no longer imports `invoke` or `listen`. Typed service facades own every Tauri command/event name and payload boundary, with focused regression tests for those mappings.
+- On 21/08/2026, `App.tsx` fell from 3,617 to 2,504 lines without changing behavior. Its remaining size is controller/state composition, not duplicated screen markup or native transport wiring.
+
+Further hook-level extraction is normal incremental maintenance, not unfinished work in this plan. It must be driven by a concrete feature or testability need instead of line-count churn.
 
 ## Rust Module Target
 
-Recommended backend layout:
+Implemented backend responsibility layout (representative modules):
 
 ```text
 src-tauri/src/
   lib.rs
+  app_init.rs
   app_paths.rs
   logging.rs
-  bootstrap.rs
-  credentials/
-    mod.rs
-    ai_providers.rs
-    cloudflare.rs
-    windows_env.rs
-  cloudflare/
-    mod.rs
-    d1.rs
-    secrets_store.rs
-    probes.rs
-  editorial/
-    mod.rs
-    agents.rs
-    artifacts.rs
-    orchestration.rs
-    prompts.rs
-    resume.rs
-  providers/
-    mod.rs
-    deepseek.rs
-    cli.rs
+  config_persistence.rs
+  cloudflare.rs
+  cloudflare_commands.rs
+  editorial_agent_runners.rs
+  session_artifacts.rs
+  editorial_prompts.rs
+  session_orchestration.rs
+  session_persistence.rs
+  session_resume.rs
+  provider_deepseek.rs
+  provider_grok.rs
+  provider_perplexity.rs
+  provider_runners.rs
+  cli_adapter.rs
   link_audit.rs
-  import_export/
-    mod.rs
-    markdown.rs
-    pdf.rs
-    mainsite_d1.rs
+  tauri_commands.rs
 ```
 
 `lib.rs` should become the Tauri boundary: command exports, setup hooks, panic/crash guard, and module wiring only.
 
 ## Frontend Module Target
 
-Recommended frontend layout:
+Implemented frontend responsibility layout:
 
 ```text
 src/
   App.tsx
   app/
-    state.ts
-    types.ts
-    formatters.ts
-  components/
-    Shell.tsx
-    StatusPanel.tsx
-    ActivityLedger.tsx
+    AppSidebar.tsx
+    AppTopbar.tsx
   features/
     session/
     protocols/
@@ -76,13 +65,16 @@ src/
     settings/
     setup/
   services/
-    tauri.ts
-    logs.ts
+    editorial.ts
+    evidence.ts
+    nativeEvents.ts
+    runtime.ts
+    settings.ts
 ```
 
 `App.tsx` should become route/state composition, not the home of every screen.
 
-## Migration Order
+## Migration Order (completed)
 
 1. Extract pure helpers and types first.
 2. Extract logging and path safety next, because they are used everywhere and already have tests.
@@ -90,9 +82,12 @@ src/
 4. Extract Cloudflare D1 and Secrets Store operations.
 5. Extract editorial orchestration and artifacts.
 6. Split React settings/setup screens into feature components.
-7. Add focused unit tests around each extracted module before changing behavior again.
+7. Add focused unit tests around each extracted transport boundary before changing behavior again.
 
 ## Completed Split Batches
+
+- 2026-08-21: completed the frontend responsibility split. Added typed Tauri facades under `src/services/`; extracted the sidebar/topbar under `src/app/`; extracted session, resume, protocol, evidence, agents, settings and setup surfaces under `src/features/`; added regression tests proving native command names and payload envelopes remain unchanged. `App.tsx` now composes state/controllers and feature screens, with no direct `@tauri-apps/api` dependency.
+- 2026-08-21: audited the native track against the live source tree. The 37 existing native source modules cover migration steps 2-5; `lib.rs` is the command/setup/module boundary plus compatibility DTOs and legacy centralized tests. A mass relocation of those tests or DTOs would add compile risk without creating a new responsibility boundary, so it is explicitly outside this completed plan.
 
 - 2026-05-01: extracted native human-log projection helpers into `src-tauri/src/human_logs.rs`.
 - 2026-05-01: extracted selected-peer, optional limit, and provider cost helpers into `src-tauri/src/session_controls.rs`.
@@ -110,4 +105,4 @@ src/
 - Keep public Tauri command names stable.
 - Keep portable data paths stable.
 - Preserve secret redaction tests before and after every extraction.
-- Run `cargo test`, `npm run typecheck`, and `npm run build` after each completed split batch.
+- Run frontend typecheck/tests/build locally as applicable. Run all Rust gates on GitHub Actions; local `cargo`/`rustc` execution is intentionally not required for this repository workflow.
