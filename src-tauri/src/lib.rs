@@ -540,6 +540,14 @@ pub(crate) struct CostLedgerEntry {
     pub(crate) output_tokens: u64,
     pub(crate) cost_usd: f64,
     pub(crate) estimated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) attempt_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) round: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) turn: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) corrective_retry_ordinal: Option<u32>,
 }
 
 #[derive(Clone)]

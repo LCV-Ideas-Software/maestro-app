@@ -58,7 +58,8 @@ use crate::provider_config::{
 };
 use crate::session_artifacts::{
     circular_draft_sha256, parse_agent_artifact_name, write_circular_review_state,
-    CircularReviewState, CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+    CircularReviewState, CIRCULAR_REVIEW_ROSTER_SCHEMA_VERSION,
+    CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
 };
 use crate::session_controls::{
     api_role_max_tokens, effective_draft_lead, estimate_provider_cost_from_input_chars,
@@ -68,7 +69,8 @@ use crate::session_controls::{
 use crate::session_evidence::process_session_evidence;
 use crate::session_minutes::build_session_minutes;
 use crate::session_persistence::{
-    append_agent_cost_to_ledger, load_cost_ledger, load_session_contract, write_session_contract,
+    append_agent_cost_to_ledger, append_agent_cost_to_ledger_with_attribution, load_cost_ledger,
+    load_session_contract, write_session_contract, AgentCostAttribution,
 };
 use crate::session_resume::{parse_created_at, remaining_session_duration, session_time_exhausted};
 use crate::tauri_commands::read_ai_provider_config;
@@ -79,6 +81,7 @@ use crate::{
 };
 
 const MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN: u32 = 3;
+const MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND: u32 = 3;
 
 pub(crate) fn run_editorial_session_inner(
     request: &EditorialSessionRequest,
@@ -370,6 +373,8 @@ pub(crate) fn run_editorial_session_core(
     let mut round_turn_index = 0usize;
     let mut valid_round_agents = BTreeSet::<String>::new();
     let mut corrective_contract_retry_counts = BTreeMap::<String, u32>::new();
+    let mut paid_corrective_retries_by_round = BTreeMap::<usize, u32>::new();
+    let mut retry_accounting_authoritative = !is_resume;
     let mut resumed_circular_state = None::<CircularReviewState>;
     const ALL_ERROR_ESCALATION_THRESHOLD: u32 = 3;
 
@@ -550,6 +555,10 @@ pub(crate) fn run_editorial_session_core(
                 current_draft = draft_text.trim().to_string();
                 current_draft_path = Some(output_path);
                 current_draft_author_key = Some(spec.key.to_string());
+                // Without an accepted draft there cannot have been a serial
+                // corrective review retry. Once this call creates the first
+                // custody artifact, v3 accounting starts authoritatively.
+                retry_accounting_authoritative = true;
                 break;
             }
 
@@ -665,6 +674,9 @@ pub(crate) fn run_editorial_session_core(
             round_turn_index = progress.turn_index;
             valid_round_agents = progress.valid_agents;
             stable_serial_approval_agents = progress.stable_approvals;
+            paid_corrective_retries_by_round = progress.paid_corrective_retries_by_round;
+            corrective_contract_retry_counts = progress.corrective_contract_retry_counts;
+            retry_accounting_authoritative = progress.retry_accounting_authoritative;
             (
                 "persisted_atomic_state",
                 progress.had_substantive_change,
@@ -709,6 +721,56 @@ pub(crate) fn run_editorial_session_core(
                 })),
             },
         );
+    }
+    if should_pause_legacy_paid_retry_resume(
+        is_resume,
+        !current_draft.trim().is_empty(),
+        retry_accounting_authoritative,
+        !api_agent_keys.is_empty(),
+    ) {
+        let _ = write_log_record(
+            log_session,
+            LogEventInput {
+                level: "warn".to_string(),
+                category: "session.resume.paid_retry_accounting_unknown".to_string(),
+                message: "legacy session paused before API continuation because prior paid retry usage is not authoritative"
+                    .to_string(),
+                context: Some(json!({
+                    "run_id": &run_id,
+                    "round": round,
+                    "next_turn": round_turn_index + 1,
+                    "api_agents": api_agent_keys.iter().cloned().collect::<Vec<_>>(),
+                    "policy": "legacy_resume_must_not_replenish_unknown_paid_retry_budget"
+                })),
+            },
+        );
+        let minutes_path = session_dir.join("ata-da-sessao.md");
+        write_text_file(
+            &minutes_path,
+            &build_session_minutes(request, &run_id, &agents, false, None),
+        )?;
+        let context = SessionResultContext {
+            run_id: &run_id,
+            session_dir: &session_dir,
+            prompt_path: &prompt_path,
+            protocol_path: &protocol_path,
+            active_agents: &active_agent_keys,
+            max_session_cost_usd,
+            max_session_minutes,
+            observed_cost_usd: cost_ledger.total_observed_cost_usd,
+            links_path: evidence.links_path.as_ref(),
+            attachments_manifest_path: evidence.attachments_manifest_path.as_ref(),
+            human_log_path: &human_log_path,
+        };
+        return Ok(editorial_session_result(
+            &context,
+            None,
+            &minutes_path,
+            current_draft_path,
+            agents,
+            false,
+            "PAUSED_LEGACY_RETRY_ACCOUNTING_UNKNOWN",
+        ));
     }
 
     let final_path: PathBuf;
@@ -771,6 +833,9 @@ pub(crate) fn run_editorial_session_core(
                 round_roster: &round_turn_specs,
                 valid_round_agents: &valid_round_agents,
                 stable_serial_approval_agents: &stable_serial_approval_agents,
+                paid_corrective_retries_by_round: &paid_corrective_retries_by_round,
+                corrective_contract_retry_counts: &corrective_contract_retry_counts,
+                retry_accounting_authoritative,
             })?
         };
     }
@@ -1114,6 +1179,7 @@ pub(crate) fn run_editorial_session_core(
             .get(&retry_key)
             .copied()
             .unwrap_or(0);
+        let use_api_agent = api_agent_keys.contains(spec.key);
         let mut review_prompt = build_serial_revision_prompt(
             request,
             &run_id,
@@ -1152,7 +1218,7 @@ pub(crate) fn run_editorial_session_core(
             },
         );
         if let Some(max_cost_usd) = max_session_cost_usd {
-            let projected_round_cost_usd = if api_agent_keys.contains(spec.key) {
+            let projected_round_cost_usd = if use_api_agent {
                 api_provider_for_agent(spec.key)
                     .and_then(|provider| {
                         let rates = provider_cost_rates.get(spec.key).copied()?;
@@ -1220,9 +1286,99 @@ pub(crate) fn run_editorial_session_core(
                 ));
             }
         }
+        let paid_corrective_retry_ordinal = match paid_corrective_retry_admission(
+            use_api_agent,
+            corrective_retry_count,
+            paid_corrective_retries_by_round
+                .get(&round)
+                .copied()
+                .unwrap_or(0),
+        ) {
+            PaidCorrectiveRetryAdmission::NotApplicable => None,
+            PaidCorrectiveRetryAdmission::Admitted { ordinal } => {
+                paid_corrective_retries_by_round.insert(round, ordinal);
+                // Reserve before dispatch. If the process stops between here and
+                // the provider response, resume must fail closed instead of
+                // silently granting a fresh paid-retry allowance.
+                persist_circular_progress!();
+                let _ = write_log_record(
+                    log_session,
+                    LogEventInput {
+                        level: "info".to_string(),
+                        category: "session.cost.paid_corrective_retry_reserved".to_string(),
+                        message: "paid corrective retry slot reserved before provider dispatch"
+                            .to_string(),
+                        context: Some(json!({
+                            "run_id": &run_id,
+                            "round": round,
+                            "turn": round_turn_index + 1,
+                            "review_agent": spec.key,
+                            "provider": api_provider_for_agent(spec.key).unwrap_or("unknown"),
+                            "paid_corrective_retry_ordinal": ordinal,
+                            "max_paid_corrective_retries_per_round": MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND,
+                            "policy": "reserve_persisted_paid_retry_slot_before_dispatch"
+                        })),
+                    },
+                );
+                Some(ordinal)
+            }
+            PaidCorrectiveRetryAdmission::RoundLimitReached { used } => {
+                consecutive_reviewer_outage_rounds += 1;
+                let _ = write_log_record(
+                    log_session,
+                    LogEventInput {
+                        level: "warn".to_string(),
+                        category: "session.cost.paid_corrective_retry_round_cap".to_string(),
+                        message: "paid corrective retry not started because the round cap is exhausted"
+                            .to_string(),
+                        context: Some(json!({
+                            "run_id": &run_id,
+                            "round": round,
+                            "turn": round_turn_index + 1,
+                            "review_agent": spec.key,
+                            "provider": api_provider_for_agent(spec.key).unwrap_or("unknown"),
+                            "paid_corrective_retries_used": used,
+                            "max_paid_corrective_retries_per_round": MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND,
+                            "policy": "skip_paid_reviewer_after_round_retry_cap_preserve_current_custody"
+                        })),
+                    },
+                );
+                round_turn_index += 1;
+                persist_circular_progress!();
+                if round_turn_index >= round_turn_count {
+                    let minutes_path = session_dir.join("ata-da-sessao.md");
+                    write_text_file(
+                        &minutes_path,
+                        &build_session_minutes(request, &run_id, &agents, false, None),
+                    )?;
+                    let context = SessionResultContext {
+                        run_id: &run_id,
+                        session_dir: &session_dir,
+                        prompt_path: &prompt_path,
+                        protocol_path: &protocol_path,
+                        active_agents: &active_agent_keys,
+                        max_session_cost_usd,
+                        max_session_minutes,
+                        observed_cost_usd: cost_ledger.total_observed_cost_usd,
+                        links_path: evidence.links_path.as_ref(),
+                        attachments_manifest_path: evidence.attachments_manifest_path.as_ref(),
+                        human_log_path: &human_log_path,
+                    };
+                    return Ok(editorial_session_result(
+                        &context,
+                        None,
+                        &minutes_path,
+                        current_draft_path,
+                        agents,
+                        false,
+                        "PAUSED_ROUND_INCOMPLETE",
+                    ));
+                }
+                continue;
+            }
+        };
         let output_path = agent_attempt_output_path(&agent_dir, round, spec.key, "revision");
         let timeout = remaining_session_duration(time_budget_anchor, max_session_minutes);
-        let use_api_agent = api_agent_keys.contains(spec.key);
         let cost_guard = if use_api_agent {
             provider_cost_guard_for(
                 max_session_cost_usd,
@@ -1246,7 +1402,46 @@ pub(crate) fn run_editorial_session_core(
             use_api_agent,
             cancel_token,
         );
-        append_agent_cost_to_ledger(&session_dir, &mut cost_ledger, &cost_scope_id, &result)?;
+        append_agent_cost_to_ledger_with_attribution(
+            &session_dir,
+            &mut cost_ledger,
+            &cost_scope_id,
+            &result,
+            Some(AgentCostAttribution {
+                attempt_kind: if paid_corrective_retry_ordinal.is_some() {
+                    "paid_corrective_retry"
+                } else {
+                    "review"
+                },
+                round,
+                turn: round_turn_index + 1,
+                corrective_retry_ordinal: paid_corrective_retry_ordinal,
+            }),
+        )?;
+        if let Some(ordinal) = paid_corrective_retry_ordinal {
+            let _ = write_log_record(
+                log_session,
+                LogEventInput {
+                    level: "info".to_string(),
+                    category: "session.cost.paid_corrective_retry_attempt_finished".to_string(),
+                    message: "paid-provider corrective retry attempt finished with sanitized accounting"
+                        .to_string(),
+                    context: Some(json!({
+                        "run_id": &run_id,
+                        "round": round,
+                        "turn": round_turn_index + 1,
+                        "review_agent": spec.key,
+                        "provider": api_provider_for_agent(spec.key).unwrap_or("unknown"),
+                        "paid_corrective_retry_ordinal": ordinal,
+                        "status": &result.status,
+                        "cost_usd": result.cost_usd,
+                        "cost_estimated": result.cost_estimated,
+                        "billable_cost_observed": result.cost_usd.is_some(),
+                        "policy": "account_paid_corrective_retry_without_prompt_or_output_content"
+                    })),
+                },
+            );
+        }
         agents.push(result.clone());
 
         if result.status == "COST_LIMIT_REACHED" {
@@ -1393,10 +1588,14 @@ pub(crate) fn run_editorial_session_core(
                     &mut stable_serial_approval_agents,
                     StableApprovalTransition::RejectedAttempt,
                 );
-                let retry_count = corrective_contract_retry_counts
-                    .entry(retry_key.clone())
-                    .or_insert(0);
-                *retry_count += 1;
+                let retry_count = {
+                    let count = corrective_contract_retry_counts
+                        .entry(retry_key.clone())
+                        .or_insert(0);
+                    *count += 1;
+                    *count
+                };
+                persist_circular_progress!();
                 let _ = write_log_record(
                     log_session,
                     LogEventInput {
@@ -1412,13 +1611,13 @@ pub(crate) fn run_editorial_session_core(
                             "agent": spec.key,
                             "status": result.status,
                             "reason": reason,
-                            "retry_count": *retry_count,
+                            "retry_count": retry_count,
                             "max_retries": MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
                             "policy": "strict_output_contract_required_for_serial_custody_or_approval"
                         })),
                     },
                 );
-                if *retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
+                if retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
                     continue;
                 }
                 consecutive_reviewer_outage_rounds += 1;
@@ -1433,7 +1632,7 @@ pub(crate) fn run_editorial_session_core(
                             "round": round,
                             "turn": round_turn_index + 1,
                             "agent": spec.key,
-                            "retry_count": *retry_count,
+                            "retry_count": retry_count,
                             "policy": "bounded_same_reviewer_contract_retry_exhausted"
                         })),
                     },
@@ -1534,6 +1733,7 @@ pub(crate) fn run_editorial_session_core(
                             StableApprovalTransition::RejectedAttempt,
                         );
                         corrective_contract_retry_counts.insert(retry_key.clone(), retry_count);
+                        persist_circular_progress!();
                         let _ = write_log_record(
                             log_session,
                             LogEventInput {
@@ -1684,10 +1884,14 @@ pub(crate) fn run_editorial_session_core(
                 &mut stable_serial_approval_agents,
                 StableApprovalTransition::RejectedAttempt,
             );
-            let retry_count = corrective_contract_retry_counts
-                .entry(retry_key.clone())
-                .or_insert(0);
-            *retry_count += 1;
+            let retry_count = {
+                let count = corrective_contract_retry_counts
+                    .entry(retry_key.clone())
+                    .or_insert(0);
+                *count += 1;
+                *count
+            };
+            persist_circular_progress!();
             let _ = write_log_record(
                 log_session,
                 LogEventInput {
@@ -1700,13 +1904,13 @@ pub(crate) fn run_editorial_session_core(
                         "turn": round_turn_index + 1,
                         "agent": spec.key,
                         "reason": reason,
-                        "retry_count": *retry_count,
+                        "retry_count": retry_count,
                         "max_retries": MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
                         "policy": "approved_content_lock_is_enforced_before_text_custody_transfer"
                     })),
                 },
             );
-            if *retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
+            if retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
                 continue;
             }
             consecutive_reviewer_outage_rounds += 1;
@@ -1721,7 +1925,7 @@ pub(crate) fn run_editorial_session_core(
                         "round": round,
                         "turn": round_turn_index + 1,
                         "agent": spec.key,
-                        "retry_count": *retry_count,
+                        "retry_count": retry_count,
                         "policy": "noncompliant_content_lock_turn_becomes_operational_failure_after_bounded_retries"
                     })),
                 },
@@ -1785,10 +1989,14 @@ pub(crate) fn run_editorial_session_core(
                 &mut stable_serial_approval_agents,
                 StableApprovalTransition::RejectedAttempt,
             );
-            let retry_count = corrective_contract_retry_counts
-                .entry(retry_key.clone())
-                .or_insert(0);
-            *retry_count += 1;
+            let retry_count = {
+                let count = corrective_contract_retry_counts
+                    .entry(retry_key.clone())
+                    .or_insert(0);
+                *count += 1;
+                *count
+            };
+            persist_circular_progress!();
             let _ = write_log_record(
                 log_session,
                 LogEventInput {
@@ -1803,13 +2011,13 @@ pub(crate) fn run_editorial_session_core(
                         "current_author": current_draft_author_key.clone(),
                         "current_chars": current_draft.chars().count(),
                         "revised_chars": revised_text.chars().count(),
-                        "retry_count": *retry_count,
+                        "retry_count": retry_count,
                         "max_retries": MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
                         "policy": "anti_impoverishment_quality_ratchet_same_reviewer_retry"
                     })),
                 },
             );
-            if *retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
+            if retry_count <= MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN {
                 continue;
             }
             consecutive_reviewer_outage_rounds += 1;
@@ -1946,6 +2154,9 @@ struct CircularProgressPersistence<'a> {
     round_roster: &'a [crate::EditorialAgentSpec],
     valid_round_agents: &'a BTreeSet<String>,
     stable_serial_approval_agents: &'a BTreeSet<String>,
+    paid_corrective_retries_by_round: &'a BTreeMap<usize, u32>,
+    corrective_contract_retry_counts: &'a BTreeMap<String, u32>,
+    retry_accounting_authoritative: bool,
 }
 
 fn persist_circular_review_progress(input: CircularProgressPersistence<'_>) -> Result<(), String> {
@@ -1991,6 +2202,9 @@ fn persist_circular_review_progress(input: CircularProgressPersistence<'_>) -> R
                 .iter()
                 .cloned()
                 .collect(),
+            paid_corrective_retries_by_round: input.paid_corrective_retries_by_round.clone(),
+            corrective_contract_retry_counts: input.corrective_contract_retry_counts.clone(),
+            retry_accounting_authoritative: input.retry_accounting_authoritative,
             updated_at: Utc::now().to_rfc3339(),
         },
     )
@@ -2041,6 +2255,9 @@ struct CircularResumeProgress {
     turn_index: usize,
     valid_agents: BTreeSet<String>,
     stable_approvals: BTreeSet<String>,
+    paid_corrective_retries_by_round: BTreeMap<usize, u32>,
+    corrective_contract_retry_counts: BTreeMap<String, u32>,
+    retry_accounting_authoritative: bool,
     had_substantive_change: bool,
     had_editorial_divergence: bool,
 }
@@ -2059,8 +2276,11 @@ fn restore_persisted_circular_progress(
         .iter()
         .map(String::as_str)
         .collect::<Vec<_>>();
-    let roster_matches = state.schema_version >= CIRCULAR_REVIEW_STATE_SCHEMA_VERSION
+    let roster_matches = state.schema_version >= CIRCULAR_REVIEW_ROSTER_SCHEMA_VERSION
         && persisted_roster == current_roster;
+    let retry_accounting_authoritative = state.schema_version
+        >= CIRCULAR_REVIEW_STATE_SCHEMA_VERSION
+        && state.retry_accounting_authoritative;
 
     let mut round = state.round.max(1);
     let mut turn_index = state.turn_index;
@@ -2097,6 +2317,9 @@ fn restore_persisted_circular_progress(
         turn_index,
         valid_agents,
         stable_approvals,
+        paid_corrective_retries_by_round: state.paid_corrective_retries_by_round,
+        corrective_contract_retry_counts: state.corrective_contract_retry_counts,
+        retry_accounting_authoritative,
         had_substantive_change: false,
         had_editorial_divergence: false,
     }
@@ -2115,6 +2338,9 @@ fn restore_circular_resume_progress(
         turn_index: 0,
         valid_agents: BTreeSet::new(),
         stable_approvals: BTreeSet::new(),
+        paid_corrective_retries_by_round: BTreeMap::new(),
+        corrective_contract_retry_counts: BTreeMap::new(),
+        retry_accounting_authoritative: false,
         had_substantive_change: false,
         had_editorial_divergence: false,
     };
@@ -2400,7 +2626,47 @@ fn serial_turn_retry_key(
     agent: &str,
     current_draft: &str,
 ) -> String {
-    format!("{round}:{round_turn_index}:{agent}:{current_draft}")
+    format!(
+        "{round}:{round_turn_index}:{agent}:{}",
+        circular_draft_sha256(current_draft)
+    )
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum PaidCorrectiveRetryAdmission {
+    NotApplicable,
+    Admitted { ordinal: u32 },
+    RoundLimitReached { used: u32 },
+}
+
+fn paid_corrective_retry_admission(
+    use_api_agent: bool,
+    corrective_retry_count: u32,
+    paid_corrective_retries_in_round: u32,
+) -> PaidCorrectiveRetryAdmission {
+    if !use_api_agent || corrective_retry_count == 0 {
+        return PaidCorrectiveRetryAdmission::NotApplicable;
+    }
+    if paid_corrective_retries_in_round >= MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND {
+        return PaidCorrectiveRetryAdmission::RoundLimitReached {
+            used: paid_corrective_retries_in_round,
+        };
+    }
+    PaidCorrectiveRetryAdmission::Admitted {
+        ordinal: paid_corrective_retries_in_round + 1,
+    }
+}
+
+fn should_pause_legacy_paid_retry_resume(
+    is_resume: bool,
+    has_accepted_draft: bool,
+    retry_accounting_authoritative: bool,
+    has_api_agents: bool,
+) -> bool {
+    is_resume
+        && has_accepted_draft
+        && !retry_accounting_authoritative
+        && has_api_agents
 }
 
 fn contains_final_release_blocker(text: &str) -> bool {
@@ -2987,7 +3253,7 @@ fn agent_attempt_output_path(agent_dir: &Path, round: usize, agent: &str, role: 
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::path::PathBuf;
 
     use super::{
@@ -2995,15 +3261,18 @@ mod tests {
         current_draft_author_from_path, current_version_has_all_independent_approvals,
         final_release_audit_failure, is_operational_only_review_round,
         is_substantive_editorial_change, not_ready_unchanged_release_audit_failure,
+        paid_corrective_retry_admission,
         quality_guard_blocks_revision, ready_unchanged_release_audit_failure,
         report_declares_custody_value, report_declares_nonempty_changes,
         report_declares_nonempty_operator_evidence_required, restore_circular_resume_progress,
         restore_persisted_circular_progress, select_serial_reviewer_index,
         serial_turn_counts_as_valid_round_agent, serial_turn_retry_key,
+        should_pause_legacy_paid_retry_resume,
         unrevised_serial_turn_audit_decision, unrevised_serial_turn_runtime_action,
         validate_final_release_candidate, validate_serial_revised_content_lock,
-        validate_serial_turn_output, StableApprovalTransition, UnrevisedSerialTurnAuditDecision,
-        UnrevisedSerialTurnRuntimeAction, MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN,
+        validate_serial_turn_output, PaidCorrectiveRetryAdmission, StableApprovalTransition,
+        UnrevisedSerialTurnAuditDecision, UnrevisedSerialTurnRuntimeAction,
+        MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN, MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND,
     };
     use crate::session_artifacts::{CircularReviewState, CIRCULAR_REVIEW_STATE_SCHEMA_VERSION};
     use crate::EditorialAgentResult;
@@ -3367,6 +3636,12 @@ mod tests {
                     "perplexity".to_string(),
                 ],
                 stable_serial_approval_agents: vec!["codex".to_string()],
+                paid_corrective_retries_by_round: BTreeMap::from([(4, 3)]),
+                corrective_contract_retry_counts: BTreeMap::from([(
+                    serial_turn_retry_key(4, 0, "codex", "draft"),
+                    2,
+                )]),
+                retry_accounting_authoritative: true,
                 updated_at: "2026-07-25T00:00:00Z".to_string(),
             },
             &specs,
@@ -3376,6 +3651,11 @@ mod tests {
         assert_eq!(progress.round, 5);
         assert_eq!(progress.turn_index, 0);
         assert!(progress.valid_agents.is_empty());
+        assert_eq!(
+            progress.paid_corrective_retries_by_round.get(&5),
+            None,
+            "the next round starts with a fresh paid corrective retry budget"
+        );
         assert_eq!(
             progress.stable_approvals,
             BTreeSet::from(["codex".to_string()])
@@ -3415,6 +3695,15 @@ mod tests {
                 ],
                 valid_round_agents: vec!["codex".to_string(), "gemini".to_string()],
                 stable_serial_approval_agents: vec!["codex".to_string(), "gemini".to_string()],
+                paid_corrective_retries_by_round: BTreeMap::from([(
+                    4,
+                    MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND,
+                )]),
+                corrective_contract_retry_counts: BTreeMap::from([(
+                    serial_turn_retry_key(4, 3, "grok", "draft"),
+                    2,
+                )]),
+                retry_accounting_authoritative: true,
                 updated_at: "2026-07-25T00:00:00Z".to_string(),
             },
             &specs,
@@ -3423,6 +3712,31 @@ mod tests {
 
         assert_eq!(progress.round, 4);
         assert_eq!(progress.turn_index, 0);
+        assert_eq!(
+            progress.paid_corrective_retries_by_round.get(&4),
+            Some(&MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND),
+            "a roster redraw in the same round must not replenish paid retries"
+        );
+        assert_eq!(
+            paid_corrective_retry_admission(
+                true,
+                2,
+                *progress
+                    .paid_corrective_retries_by_round
+                    .get(&4)
+                    .expect("persisted round cap")
+            ),
+            PaidCorrectiveRetryAdmission::RoundLimitReached {
+                used: MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND
+            }
+        );
+        assert_eq!(
+            progress
+                .corrective_contract_retry_counts
+                .get(&serial_turn_retry_key(4, 3, "grok", "draft")),
+            Some(&2),
+            "resume must preserve the fact that the next API attempt is corrective"
+        );
         assert!(progress.valid_agents.is_empty());
         assert_eq!(
             progress.stable_approvals,
@@ -3924,6 +4238,56 @@ Referencia removida.
     }
 
     #[test]
+    fn paid_corrective_retry_round_cap_counts_only_api_retries() {
+        assert_eq!(
+            paid_corrective_retry_admission(true, 0, 0),
+            PaidCorrectiveRetryAdmission::NotApplicable,
+            "an initial API attempt is not a corrective retry"
+        );
+        assert_eq!(
+            paid_corrective_retry_admission(false, 2, 0),
+            PaidCorrectiveRetryAdmission::NotApplicable,
+            "CLI retries do not consume the paid retry budget"
+        );
+
+        for used in 0..MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND {
+            assert_eq!(
+                paid_corrective_retry_admission(true, 1, used),
+                PaidCorrectiveRetryAdmission::Admitted { ordinal: used + 1 }
+            );
+        }
+        assert_eq!(
+            paid_corrective_retry_admission(
+                true,
+                1,
+                MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND
+            ),
+            PaidCorrectiveRetryAdmission::RoundLimitReached {
+                used: MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND
+            }
+        );
+    }
+
+    #[test]
+    fn legacy_resume_pauses_only_before_api_review_with_an_accepted_draft() {
+        assert!(should_pause_legacy_paid_retry_resume(
+            true, true, false, true
+        ));
+        assert!(!should_pause_legacy_paid_retry_resume(
+            true, true, false, false
+        ));
+        assert!(!should_pause_legacy_paid_retry_resume(
+            true, false, false, true
+        ));
+        assert!(!should_pause_legacy_paid_retry_resume(
+            true, true, true, true
+        ));
+        assert!(!should_pause_legacy_paid_retry_resume(
+            false, true, false, true
+        ));
+    }
+
+    #[test]
     fn unrevised_not_ready_without_actionable_blocker_requires_corrective_retry() {
         let stdout = r#"MAESTRO_STATUS: NOT_READY
 <maestro_revision_report>
@@ -4150,6 +4514,8 @@ operator_evidence_required: [{ "issue": "missing source" }]"#
             first,
             serial_turn_retry_key(2, 3, "grok", "Draft with [EVIDENCIA_PENDENTE].")
         );
+        assert!(!first.contains("Draft with"));
+        assert_eq!(first.split(':').last().map(str::len), Some(64));
     }
 
     #[test]

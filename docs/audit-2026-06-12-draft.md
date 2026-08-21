@@ -56,5 +56,11 @@ Notas de implementação:
 - **S1** — além do bloqueio por hop, um resolver DNS custom (`PublicOnlyResolver`) resolve cada host e só retorna os endereços se nenhum for privado/reservado; o reqwest conecta exatamente nos endereços retornados, vinculando a checagem à conexão real (fecha DNS-rebinding/resolver-mismatch e falha fechado em erro de resolução).
 - **S2** — `resolved_stays_within` usa `symlink_metadata` (não `exists()`) para parar no reparse point mais profundo, tratando symlink quebrado como entrada existente que falha em `canonicalize()` → rejeitado.
 
-Adiado (sub-partes), com justificativa por evidência (não evasão):
-- **R1(b)/(c)** — cap de retry por-peer que pula o peer + cap de retries pagos por round: alterações nos contadores do loop de orquestração (2.248 linhas, invariantes de custódia/redraw/rodada-circular) que só se validam em sessão multi-agente paga ao vivo. R1(a) já remove a causa-raiz observada (bloco duplicado deixa de forçar retry).
+## Fechamento em implementação (21/08/2026)
+
+- **R1(b)** — entregue anteriormente pelo retry corretivo limitado a três tentativas por turno/revisor, com avanço sem transferência indevida da custódia após exaustão.
+- **R1(c)** — implementado na branch consolidada de fechamento: no máximo três retries corretivos de providers API por rodada, compartilhados entre revisores. A tentativa inicial e retries de CLI não consomem esse teto. Cada slot é reservado e persistido antes do dispatch; a quarta tentativa é bloqueada antes do provider, preserva o draft/autor e avança sem conceder aprovação.
+- **Retomada e accounting** — o estado circular v3 persiste o total por rodada e o contador do turno com chave baseada em SHA-256 do draft, nunca com o texto. Sessões legadas com histórico pago desconhecido são pausadas antes de continuação API. O cost ledger recebe `attempt_kind`, rodada, turno e ordinal quando há custo observado; tentativas sem custo permanecem auditáveis por evento saneado.
+- **R2** — mitigado por um guard de output específico para Gemini/Antigravity que exige status único, tags balanceadas e artigo completo. A eficácia no modelo/transporte corrente ainda depende de evidência operacional pós-release com orçamento e autorização explícitos; testes simulados e CI não serão apresentados como prova empírica.
+
+Este arquivo mantém o sufixo `-draft` até R2 receber essa evidência operacional. Os gates Rust serão executados exclusivamente no GitHub Actions do PR consolidado; nenhuma sessão multiagente paga foi iniciada durante a implementação.
