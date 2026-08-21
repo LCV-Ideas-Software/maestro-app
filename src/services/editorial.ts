@@ -2,9 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   EditorialSessionResult,
   InitialAgentKey,
+  MainSiteDraft,
   PromptAttachmentPayload,
   ResumableSessionInfo,
+  SaveMainSiteDraftRequest,
 } from "../types";
+
+export const MAIN_SITE_SANITIZER_PROFILE = "mainsite_post_html.v1";
 
 export type RunEditorialSessionRequest = {
   run_id: string;
@@ -45,3 +49,8 @@ export const resumeEditorialSession = (request: ResumeEditorialSessionRequest) =
 
 export const stopEditorialSession = (runId: string) =>
   invoke<boolean>("stop_editorial_session", { runId });
+
+export const loadMainSiteDraft = () => invoke<MainSiteDraft | null>("load_mainsite_draft");
+
+export const saveMainSiteDraft = (request: SaveMainSiteDraftRequest) =>
+  invoke<MainSiteDraft>("save_mainsite_draft", { request });

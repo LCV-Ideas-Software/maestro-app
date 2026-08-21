@@ -62,13 +62,8 @@ import { PromptModal as EditorPromptModal } from "./editor/PromptModal";
 import { PROMPT_MODAL_INITIAL, type PromptModalState } from "./editor/promptModalState";
 import { SearchReplacePanel } from "./editor/SearchReplace";
 import { TIPTAP_SLASH_EVENTS } from "./editor/SlashCommands";
-import {
-  clamp,
-  formatImageUrl,
-  isYoutubeUrl,
-  migrateLegacyCaptions,
-  sanitizeMainSiteLinks,
-} from "./editor/utils";
+import { sanitizeFinalMainSiteHtml } from "./editor/sanitizeFinalHtml";
+import { clamp, formatImageUrl, isYoutubeUrl, migrateLegacyCaptions } from "./editor/utils";
 
 type SaveFeedback = { message: string; type: "success" | "error" | "info" } | null;
 
@@ -743,7 +738,7 @@ export default function PostEditor({
     if (!trimmed) return undefined;
 
     const parsed = Number(trimmed);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
       flashFeedback("Informe um ID inteiro positivo para o post.", "error");
       showNotification("Informe um ID inteiro positivo para o post.", "error");
       return null;
@@ -757,15 +752,13 @@ export default function PostEditor({
     const title = postTitle.trim();
     const author = postAuthor.trim();
     const rawContent = editor?.getHTML()?.trim() ?? "";
-    if (!title || !rawContent || rawContent === "<p></p>") {
+    const content = sanitizeFinalMainSiteHtml(rawContent);
+    if (!title || !content || content === "<p></p>") {
       const label = aboutMode || postIsAboutSite ? "Sobre Este Site" : "post";
       flashFeedback(`Título e conteúdo são obrigatórios para salvar ${label}.`, "error");
       showNotification(`Título e conteúdo são obrigatórios para salvar ${label}.`, "error");
       return;
     }
-    // Apply only deterministic safety/rendering rules. Link replacement and
-    // support-for-claim decisions remain explicit Link Integrity reviews.
-    const content = sanitizeMainSiteLinks(rawContent);
     const requestedPostId = resolveRequestedPostId();
     if (requestedPostId === null) return;
 

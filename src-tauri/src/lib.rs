@@ -43,6 +43,7 @@ mod human_logs;
 mod link_audit;
 mod link_integrity;
 mod logging;
+mod mainsite_draft;
 mod provider_config;
 mod provider_deepseek;
 mod provider_grok;
@@ -813,6 +814,7 @@ use crate::cloudflare_commands::{
     cloudflare_env_snapshot, dependency_preflight, verify_cloudflare_credentials,
 };
 use crate::abnt_citation::audit_abnt_citations;
+use crate::mainsite_draft::{load_mainsite_draft, save_mainsite_draft};
 use crate::runtime_bootstrap::{
     execute_runtime_bootstrap_action, runtime_bootstrap_action_control,
     runtime_bootstrap_plan,
@@ -957,6 +959,8 @@ pub fn run() {
             list_link_integrity_records,
             review_link_integrity,
             propose_link_corrections,
+            load_mainsite_draft,
+            save_mainsite_draft,
             open_data_file,
             cloudflare_env_snapshot,
             dependency_preflight,

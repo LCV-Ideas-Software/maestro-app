@@ -55,16 +55,16 @@ export function sanitizeMainSiteLinks(html: string): string {
     // external links.
     if (isYoutubeUrl(href)) continue;
 
-    const isExternal = /^(?:https?:)?\/\//i.test(href);
-    if (isExternal) {
-      if (anchor.getAttribute("target") !== "_blank") {
-        anchor.setAttribute("target", "_blank");
-        changed = true;
-      }
-      if (anchor.getAttribute("rel") !== "noopener noreferrer") {
-        anchor.setAttribute("rel", "noopener noreferrer");
-        changed = true;
-      }
+    // Exact PostEditor parity: every safe non-YouTube link opens in a new tab,
+    // including relative, fragment and mailto links. The final parser-backed
+    // sanitizer separately enforces the publishable protocol allowlist.
+    if (anchor.getAttribute("target") !== "_blank") {
+      anchor.setAttribute("target", "_blank");
+      changed = true;
+    }
+    if (anchor.getAttribute("rel") !== "noopener noreferrer") {
+      anchor.setAttribute("rel", "noopener noreferrer");
+      changed = true;
     }
   }
 

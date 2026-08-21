@@ -44,12 +44,14 @@ describe("sanitizeMainSiteLinks", () => {
     expect(sanitized).not.toContain("target");
   });
 
-  it("preserves safe protocols and hardens only ordinary external web links", () => {
+  it("forces target and rel on every safe non-YouTube link", () => {
     const sanitized = sanitizeMainSiteLinks(
       '<a href="https://example.com/source">web</a>' +
         '<a href="http://example.com/other">http</a>' +
         '<a href="mailto:editor@example.com">mail</a>' +
-        '<a href="/artigos/1">internal</a>',
+        '<a href="/artigos/1">internal</a>' +
+        '<a href="#referencias">fragment</a>' +
+        '<a href="//cdn.example.com/source">scheme relative</a>',
     );
 
     expect(sanitized).toContain(
@@ -58,8 +60,18 @@ describe("sanitizeMainSiteLinks", () => {
     expect(sanitized).toContain(
       '<a href="http://example.com/other" target="_blank" rel="noopener noreferrer">http</a>',
     );
-    expect(sanitized).toContain('<a href="mailto:editor@example.com">mail</a>');
-    expect(sanitized).toContain('<a href="/artigos/1">internal</a>');
+    expect(sanitized).toContain(
+      '<a href="mailto:editor@example.com" target="_blank" rel="noopener noreferrer">mail</a>',
+    );
+    expect(sanitized).toContain(
+      '<a href="/artigos/1" target="_blank" rel="noopener noreferrer">internal</a>',
+    );
+    expect(sanitized).toContain(
+      '<a href="#referencias" target="_blank" rel="noopener noreferrer">fragment</a>',
+    );
+    expect(sanitized).toContain(
+      '<a href="//cdn.example.com/source" target="_blank" rel="noopener noreferrer">scheme relative</a>',
+    );
   });
 
   it("keeps YouTube link attributes unchanged", () => {

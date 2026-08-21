@@ -46,8 +46,11 @@ import {
 import { useEscapeKey } from "./hooks/useEscapeKey";
 import {
   listResumableSessions,
+  loadMainSiteDraft,
+  MAIN_SITE_SANITIZER_PROFILE,
   resumeEditorialSession,
   runEditorialSession,
+  saveMainSiteDraft,
   stopEditorialSession,
 } from "./services/editorial";
 import { auditAbntCitations, auditLinks } from "./services/evidence";
@@ -188,6 +191,12 @@ export function App() {
   const [mainSiteHtml, setMainSiteHtml] = useState(
     '<h1>Artigo em preparacao</h1><p style="text-align: justify">Texto inicial para edicao com o mesmo PostEditor usado pelo MainSite.</p>',
   );
+  const [mainSiteAuthor, setMainSiteAuthor] = useState("Leonardo Cardozo Vargas");
+  const [mainSiteIsPublished, setMainSiteIsPublished] = useState(false);
+  const [mainSiteIsAboutSite, setMainSiteIsAboutSite] = useState(false);
+  const [mainSitePostId, setMainSitePostId] = useState<number | null>(null);
+  const [mainSiteDraftStatus, setMainSiteDraftStatus] = useState("Rascunho ainda nao persistido");
+  const [isSavingPostEditor, setIsSavingPostEditor] = useState(false);
   const [providerMode, setProviderMode] = useState<ProviderMode>("hybrid");
   const [initialAgent, setInitialAgent] = useState<InitialAgentKey>("claude");
   const [activeAgents, setActiveAgents] = useState<InitialAgentKey[]>(defaultActiveAgents);
@@ -287,6 +296,46 @@ export function App() {
   const [isResumeLoading, setIsResumeLoading] = useState(false);
   const [useLoadedProtocolForResume, setUseLoadedProtocolForResume] = useState(false);
   const sessionRunIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    void loadMainSiteDraft()
+      .then((draft) => {
+        if (disposed || !draft) return;
+        setSessionName(draft.title);
+        setMainSiteHtml(draft.content);
+        setMainSiteAuthor(draft.author);
+        setMainSiteIsPublished(draft.is_published);
+        setMainSiteIsAboutSite(draft.is_about_site);
+        setMainSitePostId(draft.requested_post_id);
+        setMainSiteDraftStatus(
+          `Rascunho recuperado em ${formatBrazilDateTime(new Date(draft.updated_at))}`,
+        );
+        void logEvent({
+          level: "info",
+          category: "editor.posteditor.draft_loaded",
+          message: "persisted MainSite draft restored",
+          context: {
+            content_sha256: draft.content_sha256,
+            sanitizer_profile: draft.sanitizer_profile,
+            updated_at: draft.updated_at,
+          },
+        });
+      })
+      .catch((error) => {
+        if (disposed) return;
+        setMainSiteDraftStatus("Falha fechada ao ler o rascunho persistido");
+        void logEvent({
+          level: "error",
+          category: "editor.posteditor.draft_load_failed",
+          message: "persisted MainSite draft failed validation",
+          context: { error },
+        });
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   // v0.3.14 / audit closure (MEDIUM): ESC dismissal on the ResumeDialog at
   // line 2574. Mirrors the existing Close button (line 2582) — no new
@@ -2630,24 +2679,109 @@ export function App() {
     confirmedAboutAction?: boolean,
     requestedPostId?: number,
   ) {
-    setSessionName(title || sessionName);
-    setMainSiteHtml(htmlContent);
-    void logEvent({
-      level: "info",
-      category: "editor.posteditor.save",
-      message: "operator saved PostEditor-compatible draft",
-      context: {
+    setIsSavingPostEditor(true);
+    setMainSiteDraftStatus("Auditando links antes de persistir");
+    try {
+      const linkAudit = await auditLinks(htmlContent);
+      setLinkAuditRows(linkAudit.rows);
+      setEvidenceRows((current) =>
+        current.map((row) =>
+          row.label === "Links"
+            ? {
+                ...row,
+                value:
+                  linkAudit.urls_found === 0
+                    ? "nenhum link encontrado"
+                    : linkAudit.failed > 0
+                      ? `${linkAudit.failed.toLocaleString("pt-BR")} link(s) com falha mecanica`
+                      : linkAudit.blocked > 0
+                        ? `${linkAudit.blocked.toLocaleString("pt-BR")} link(s) bloqueado(s)`
+                        : linkAudit.pending_review > 0
+                          ? `${linkAudit.pending_review.toLocaleString("pt-BR")} link(s) aguardando decisao editorial`
+                          : `${linkAudit.ok.toLocaleString("pt-BR")} link(s) liberado(s) para persistencia`,
+                tone:
+                  linkAudit.failed > 0 || linkAudit.blocked > 0 || linkAudit.pending_review > 0
+                    ? "warn"
+                    : "ok",
+              }
+            : row,
+        ),
+      );
+      if (linkAudit.failed > 0 || linkAudit.blocked > 0 || linkAudit.pending_review > 0) {
+        setMainSiteDraftStatus("Save bloqueado pelo Link Integrity Engine");
+        appendActivity({
+          level: "diagnostic",
+          title: "Rascunho MainSite nao persistido",
+          detail:
+            "Revise os links pendentes na area Evidencias; o HTML anterior permanece intacto.",
+        });
+        void logEvent({
+          level: "warn",
+          category: "editor.posteditor.save_blocked",
+          message: "MainSite draft save blocked by link integrity",
+          context: {
+            audit_id: linkAudit.audit_id,
+            failed: linkAudit.failed,
+            blocked: linkAudit.blocked,
+            pending_review: linkAudit.pending_review,
+          },
+        });
+        return false;
+      }
+
+      const draft = await saveMainSiteDraft({
+        requested_post_id: requestedPostId ?? mainSitePostId,
         title,
         author,
-        chars: htmlContent.length,
+        content: htmlContent,
         is_published: isPublished,
         is_about_site: isAboutSite,
-        confirmed_about_action: confirmedAboutAction ?? false,
-        requested_post_id: requestedPostId ?? null,
-        compatibility_target: "admin-app/MainSite/PostEditor",
-      },
-    });
-    return true;
+        sanitizer_profile: MAIN_SITE_SANITIZER_PROFILE,
+      });
+      setSessionName(draft.title);
+      setMainSiteHtml(draft.content);
+      setMainSiteAuthor(draft.author);
+      setMainSiteIsPublished(draft.is_published);
+      setMainSiteIsAboutSite(draft.is_about_site);
+      setMainSitePostId(draft.requested_post_id);
+      setMainSiteDraftStatus(
+        `Rascunho persistido em ${formatBrazilDateTime(new Date(draft.updated_at))}`,
+      );
+      appendActivity({
+        level: "detail",
+        title: "Rascunho MainSite persistido",
+        detail: "HTML sanitizado e verificado foi salvo atomicamente na pasta data do Maestro.",
+      });
+      void logEvent({
+        level: "info",
+        category: "editor.posteditor.save",
+        message: "operator saved PostEditor-compatible draft",
+        context: {
+          title: draft.title,
+          author: draft.author,
+          chars: draft.content.length,
+          content_sha256: draft.content_sha256,
+          sanitizer_profile: draft.sanitizer_profile,
+          is_published: draft.is_published,
+          is_about_site: draft.is_about_site,
+          confirmed_about_action: confirmedAboutAction ?? false,
+          requested_post_id: draft.requested_post_id,
+          compatibility_target: "admin-app/MainSite/PostEditor",
+        },
+      });
+      return true;
+    } catch (error) {
+      setMainSiteDraftStatus("Falha ao persistir; rascunho anterior preservado");
+      void logEvent({
+        level: "error",
+        category: "editor.posteditor.save_failed",
+        message: "PostEditor-compatible draft was not persisted",
+        context: { error },
+      });
+      return false;
+    } finally {
+      setIsSavingPostEditor(false);
+    }
   }
 
   function openPostEditor() {
@@ -2730,7 +2864,13 @@ export function App() {
             isResumeLoading={isResumeLoading}
             isRunPreparing={isRunPreparing}
             linkEvidenceState={linkEvidenceState}
+            isSavingPostEditor={isSavingPostEditor}
+            mainSiteAuthor={mainSiteAuthor}
+            mainSiteDraftStatus={mainSiteDraftStatus}
             mainSiteHtml={mainSiteHtml}
+            mainSiteIsAboutSite={mainSiteIsAboutSite}
+            mainSiteIsPublished={mainSiteIsPublished}
+            mainSitePostId={mainSitePostId}
             maxSessionCostUsd={maxSessionCostUsd}
             maxSessionMinutes={maxSessionMinutes}
             openPostEditor={openPostEditor}

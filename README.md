@@ -169,6 +169,8 @@ The portable ZIP includes `LEIAME.md` with first-run instructions for end users,
 
 The growing native and React surfaces now have a staged modularization plan in `docs/code-split-plan.md`.
 
+PostEditor final HTML is sanitized with the reviewed MainSite allowlist, gated by Link Integrity, and stored atomically as a recoverable `mainsite_draft.v1` under the portable `data/` directory. Direct Cloudflare D1 publication remains disabled until the separate MAESTRO-7 bridge re-sanitizes remotely and passes its release canaries; see `docs/mainsite-compatibility-contract.md`.
+
 Prompt-to-consensus sessions export separate final text and session minutes. Interrupted sessions can be resumed from `data/sessions/`; if a new protocol is loaded before resume, Maestro passes it to the agents and preserves the previous protocol as a local session artifact. See `docs/editorial-session-workflow.md`.
 
 Shared chat import, Markdown/PDF support, and Cloudflare D1 integration are planned under `docs/import-export-cloudflare.md`.

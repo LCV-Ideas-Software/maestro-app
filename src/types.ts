@@ -673,3 +673,30 @@ export type ProtocolReadingGate = {
   progress: number;
   status: string;
 };
+
+export type MainSiteDraft = {
+  schema_version: "mainsite_draft.v1";
+  requested_post_id: number | null;
+  title: string;
+  author: string;
+  content: string;
+  is_pinned: false;
+  display_order: 0;
+  is_published: boolean;
+  is_about_site: boolean;
+  sanitizer_profile: string;
+  content_sha256: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SaveMainSiteDraftRequest = Pick<
+  MainSiteDraft,
+  | "requested_post_id"
+  | "title"
+  | "author"
+  | "content"
+  | "is_published"
+  | "is_about_site"
+  | "sanitizer_profile"
+>;

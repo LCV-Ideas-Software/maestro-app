@@ -4,8 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AiProviderConfig, BootstrapConfig } from "../types";
 import {
   listResumableSessions,
+  loadMainSiteDraft,
+  MAIN_SITE_SANITIZER_PROFILE,
   resumeEditorialSession,
   runEditorialSession,
+  saveMainSiteDraft,
   stopEditorialSession,
 } from "./editorial";
 import {
@@ -102,6 +105,26 @@ describe("Tauri service facades", () => {
     expect(invokeMock).toHaveBeenNthCalledWith(2, "cloudflare_env_snapshot");
     expect(invokeMock).toHaveBeenNthCalledWith(3, "read_ai_provider_config");
     expect(invokeMock).toHaveBeenNthCalledWith(4, "list_resumable_sessions");
+  });
+
+  it("keeps the durable MainSite draft boundary explicit and draft-safe", async () => {
+    const request = {
+      requested_post_id: null,
+      title: "Artigo",
+      author: "Autoria",
+      content: "<p>Conteudo</p>",
+      is_published: false,
+      is_about_site: false,
+      sanitizer_profile: MAIN_SITE_SANITIZER_PROFILE,
+    };
+
+    await loadMainSiteDraft();
+    await saveMainSiteDraft(request);
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "load_mainsite_draft");
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "save_mainsite_draft", { request });
+    expect(request.sanitizer_profile).toBe("mainsite_post_html.v1");
+    expect(request.is_published).toBe(false);
   });
 
   it("keeps runtime bootstrap authorization payloads fail-closed", async () => {

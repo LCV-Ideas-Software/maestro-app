@@ -61,8 +61,14 @@ type SessionScreenProps = {
   initialAgentLabel: string;
   isResumeLoading: boolean;
   isRunPreparing: boolean;
+  isSavingPostEditor: boolean;
   linkEvidenceState: string;
+  mainSiteAuthor: string;
+  mainSiteDraftStatus: string;
   mainSiteHtml: string;
+  mainSiteIsAboutSite: boolean;
+  mainSiteIsPublished: boolean;
+  mainSitePostId: number | null;
   maxSessionCostUsd: string;
   maxSessionMinutes: string;
   openPostEditor: () => void;
@@ -126,8 +132,14 @@ export function SessionScreen({
   initialAgentLabel,
   isResumeLoading,
   isRunPreparing,
+  isSavingPostEditor,
   linkEvidenceState,
+  mainSiteAuthor,
+  mainSiteDraftStatus,
   mainSiteHtml,
+  mainSiteIsAboutSite,
+  mainSiteIsPublished,
+  mainSitePostId,
   maxSessionCostUsd,
   maxSessionMinutes,
   openPostEditor,
@@ -565,6 +577,7 @@ export function SessionScreen({
           <div>
             <p className="eyebrow">Editor integrado</p>
             <h2>PostEditor parity</h2>
+            <p className="field-hint">{mainSiteDraftStatus}</p>
           </div>
           {showPostEditor ? (
             <span className="parity-badge">HTML MainSite</span>
@@ -584,13 +597,13 @@ export function SessionScreen({
             }
           >
             <PostEditor
-              editingPostId={null}
+              editingPostId={mainSitePostId}
               initialTitle={sessionName}
-              initialAuthor="Leonardo Cardozo Vargas"
+              initialAuthor={mainSiteAuthor}
               initialContent={mainSiteHtml}
-              initialIsPublished={false}
-              initialIsAboutSite={false}
-              savingPost={false}
+              initialIsPublished={mainSiteIsPublished}
+              initialIsAboutSite={mainSiteIsAboutSite}
+              savingPost={isSavingPostEditor}
               showNotification={(message, type) =>
                 void logEvent({
                   level: type === "error" ? "error" : "info",
