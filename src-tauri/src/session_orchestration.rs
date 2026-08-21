@@ -51,7 +51,10 @@ use crate::editorial_prompts::is_operational_agent_result;
 use crate::editorial_prompts::{
     build_draft_prompt, build_revision_history_block, build_serial_revision_prompt,
 };
-use crate::link_audit::{count_unique_url_candidates, run_link_audit, LINK_AUDIT_MAX_UNIQUE_URLS};
+use crate::link_integrity::{
+    audit_requires_editorial_resolution, count_link_occurrences, run_link_integrity_audit,
+    LINK_INTEGRITY_MAX_OCCURRENCES,
+};
 use crate::logging::{write_log_record, LogEventInput, LogSession};
 use crate::provider_config::{
     api_provider_for_agent, provider_cost_rates_from_config, should_run_agent_via_api,
@@ -1197,6 +1200,15 @@ pub(crate) fn run_editorial_session_core(
                 corrective_retry_count,
                 MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN
             ));
+            if let Some((reason, audit_context)) = final_release_audit_failure(&current_draft) {
+                let packet = serde_json::to_string_pretty(&audit_context)
+                    .unwrap_or_else(|_| "{\"error\":\"audit packet unavailable\"}".to_string());
+                review_prompt.push_str(&format!(
+                    "\n## Current Mechanical Link-Integrity Packet\n\nReason: {}\n\n```json\n{}\n```\n\nTreat this packet as mechanical evidence, not as proof that a source supports a claim. Correct, remove, narrow, or quarantine every unresolved link. Do not invent a replacement. A semantically acceptable reachable link still requires an explicit recorded review against its current URL and hash before publication.\n",
+                    sanitize_text(&reason, 300),
+                    packet
+                ));
+            }
         }
         let _ = write_log_record(
             log_session,
@@ -2790,31 +2802,46 @@ fn final_release_audit_failure(text: &str) -> Option<(String, serde_json::Value)
         ));
     }
 
-    let url_count = count_unique_url_candidates(text);
-    if url_count > LINK_AUDIT_MAX_UNIQUE_URLS {
+    let link_count = count_link_occurrences(text);
+    if link_count > LINK_INTEGRITY_MAX_OCCURRENCES {
         return Some((
             "final candidate exceeds link audit capacity".to_string(),
             json!({
                 "gate": "link_audit_capacity",
-                "urls_found": url_count,
-                "max_urls": LINK_AUDIT_MAX_UNIQUE_URLS,
+                "link_occurrences_found": link_count,
+                "max_link_occurrences": LINK_INTEGRITY_MAX_OCCURRENCES,
                 "policy": "final_text_must_not_contain_unaudited_public_links"
             }),
         ));
     }
 
-    let link_audit = run_link_audit(text);
-    if link_audit.failed > 0 {
+    let link_audit = match run_link_integrity_audit(text) {
+        Ok(audit) => audit,
+        Err(error) => {
+            return Some((
+                "final candidate link-integrity engine failed closed".to_string(),
+                json!({
+                    "gate": "link_integrity_engine",
+                    "error": sanitize_text(&error, 500),
+                    "policy": "link_integrity_must_be_observable_before_release"
+                }),
+            ));
+        }
+    };
+    if audit_requires_editorial_resolution(&link_audit) {
         return Some((
-            "final candidate failed link audit".to_string(),
+            "final candidate has unresolved link-integrity evidence".to_string(),
             json!({
-                "gate": "link_audit",
+                "gate": "link_integrity",
                 "urls_found": link_audit.urls_found,
                 "checked": link_audit.checked,
                 "ok": link_audit.ok,
                 "failed": link_audit.failed,
+                "pending_review": link_audit.pending_review,
+                "blocked": link_audit.blocked,
                 "rows": link_audit.rows,
-                "policy": "all_final_public_links_must_be_valid_before_release"
+                "required_action": "correct_remove_reword_quarantine_or_record_explicit_review_then_revalidate",
+                "policy": "only_reviewed_current_url_and_hash_links_may_be_released"
             }),
         ));
     }
@@ -4621,8 +4648,8 @@ Este texto ainda contem [EVIDENCIA_PENDENTE] para que o proximo revisor resolva 
         let failure = final_release_audit_failure("Referencia: http://localhost:8787/test")
             .expect("local link should be blocked before any network probe");
 
-        assert!(failure.0.contains("link audit"));
-        assert_eq!(failure.1["gate"], "link_audit");
+        assert!(failure.0.contains("link-integrity"));
+        assert_eq!(failure.1["gate"], "link_integrity");
     }
 
     #[test]

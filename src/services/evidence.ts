@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   LinkAuditResult,
+  LinkCorrectionProposalRequest,
+  LinkIntegrityListRequest,
+  LinkIntegrityListResult,
+  LinkIntegrityRecord,
+  LinkIntegrityReviewRequest,
   WebEvidenceFetchRequest,
   WebEvidenceImportRequest,
   WebEvidenceListRequest,
@@ -12,6 +17,15 @@ import type {
 
 export const auditLinks = (text: string) =>
   invoke<LinkAuditResult>("audit_links", { request: { text } });
+
+export const listLinkIntegrityRecords = (request: LinkIntegrityListRequest = {}) =>
+  invoke<LinkIntegrityListResult>("list_link_integrity_records", { request });
+
+export const reviewLinkIntegrity = (request: LinkIntegrityReviewRequest) =>
+  invoke<LinkIntegrityRecord>("review_link_integrity", { request });
+
+export const proposeLinkCorrections = (request: LinkCorrectionProposalRequest) =>
+  invoke<LinkIntegrityRecord>("propose_link_corrections", { request });
 
 export const listWebEvidence = (request: WebEvidenceListRequest = {}) =>
   invoke<WebEvidenceListResult>("list_web_evidence", { request });

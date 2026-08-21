@@ -65,9 +65,9 @@ import { TIPTAP_SLASH_EVENTS } from "./editor/SlashCommands";
 import {
   clamp,
   formatImageUrl,
-  hasUnsafeUrlScheme,
   isYoutubeUrl,
   migrateLegacyCaptions,
+  sanitizeMainSiteLinks,
 } from "./editor/utils";
 
 type SaveFeedback = { message: string; type: "success" | "error" | "info" } | null;
@@ -735,36 +735,6 @@ export default function PostEditor({
     [editor, showNotification],
   );
 
-  // ── Deterministic link sanitizer at save-time ────────────────
-  // Ensures ALL non-YouTube links get target="_blank" + secure rel,
-  // regardless of whether the ProseMirror plugin had a chance to run.
-  const sanitizeLinksTargetBlank = (html: string): string => {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, "text/html");
-    const anchors = doc.querySelectorAll("a[href]");
-    let changed = false;
-    anchors.forEach((a) => {
-      const href = a.getAttribute("href") || "";
-      // Strip script-capable schemes before the HTML is persisted/published,
-      // independent of TipTap's allowlist (S4).
-      if (hasUnsafeUrlScheme(href)) {
-        a.removeAttribute("href");
-        changed = true;
-        return;
-      }
-      if (isYoutubeUrl(href)) return;
-      if (a.getAttribute("target") !== "_blank") {
-        a.setAttribute("target", "_blank");
-        changed = true;
-      }
-      if (a.getAttribute("rel") !== "noopener noreferrer") {
-        a.setAttribute("rel", "noopener noreferrer");
-        changed = true;
-      }
-    });
-    return changed ? doc.body.innerHTML : html;
-  };
-
   // ── Form submission ─────────────────────────────────────────
   const resolveRequestedPostId = (): number | undefined | null => {
     if (!postIdEditorOpen || aboutMode || postIsAboutSite) return undefined;
@@ -793,8 +763,9 @@ export default function PostEditor({
       showNotification(`Título e conteúdo são obrigatórios para salvar ${label}.`, "error");
       return;
     }
-    // Enforce target="_blank" on all non-YouTube links before persisting
-    const content = sanitizeLinksTargetBlank(rawContent);
+    // Apply only deterministic safety/rendering rules. Link replacement and
+    // support-for-claim decisions remain explicit Link Integrity reviews.
+    const content = sanitizeMainSiteLinks(rawContent);
     const requestedPostId = resolveRequestedPostId();
     if (requestedPostId === null) return;
 

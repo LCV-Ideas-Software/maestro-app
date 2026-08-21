@@ -27,7 +27,7 @@
 //   Editorial utilities (4):
 //   - `verify_ai_provider_credentials` — runs `ai_probes::run_ai_provider_probe`
 //     (HTTP HEAD/GET probes for the 4 provider /models endpoints).
-//   - `audit_links` — wraps `link_audit::run_link_audit`.
+//   - `audit_links` — runs the persistent Link Integrity Engine off-thread.
 //   - `open_data_file` — opens an artifact path under `data/` via Windows
 //     `explorer.exe` or `xdg-open` on other platforms.
 //   - `run_cli_adapter_smoke` — runs the 3-spec CLI adapter probe table
@@ -55,7 +55,11 @@ use crate::config_persistence::{
     enrich_ai_provider_config_from_cloudflare, persist_ai_provider_cloudflare_marker,
     persist_ai_provider_config, persist_ai_provider_config_to_cloudflare, persist_bootstrap_config,
 };
-use crate::link_audit::run_link_audit;
+use crate::link_integrity::{
+    list_link_integrity_records as list_link_integrity_records_inner,
+    propose_link_corrections as propose_link_corrections_inner,
+    review_link_integrity as review_link_integrity_inner, run_link_integrity_audit,
+};
 use crate::logging::{write_log_record, LogEventInput, LogSession, LogWriteResult};
 use crate::provider_config::{
     merge_ai_provider_env_values, normalize_cloudflare_token_source, normalize_storage_mode,
@@ -65,7 +69,8 @@ use crate::sanitize::{sanitize_short, sanitize_text};
 use crate::{
     AiProviderConfig, AiProviderProbeResult, BootstrapConfig, CliAdapterProbeResult,
     CliAdapterSmokeRequest, CliAdapterSmokeResult, CloudflareProviderStorageRequest,
-    LinkAuditRequest, LinkAuditResult, RuntimeProfile,
+    LinkAuditRequest, LinkAuditResult, LinkAuditRow, LinkCorrectionProposalRequest,
+    LinkIntegrityListRequest, LinkIntegrityListResult, LinkIntegrityReviewRequest, RuntimeProfile,
 };
 
 #[tauri::command]
@@ -232,8 +237,33 @@ pub(crate) fn verify_ai_provider_credentials(config: AiProviderConfig) -> AiProv
 }
 
 #[tauri::command]
-pub(crate) fn audit_links(request: LinkAuditRequest) -> LinkAuditResult {
-    run_link_audit(&request.text)
+pub(crate) async fn audit_links(request: LinkAuditRequest) -> Result<LinkAuditResult, String> {
+    tauri::async_runtime::spawn_blocking(move || run_link_integrity_audit(&request.text))
+        .await
+        .map_err(|error| format!("link-integrity audit worker failed: {error}"))?
+}
+
+#[tauri::command]
+pub(crate) fn list_link_integrity_records(
+    request: LinkIntegrityListRequest,
+) -> Result<LinkIntegrityListResult, String> {
+    list_link_integrity_records_inner(request)
+}
+
+#[tauri::command]
+pub(crate) fn review_link_integrity(
+    request: LinkIntegrityReviewRequest,
+) -> Result<LinkAuditRow, String> {
+    review_link_integrity_inner(request)
+}
+
+#[tauri::command]
+pub(crate) async fn propose_link_corrections(
+    request: LinkCorrectionProposalRequest,
+) -> Result<LinkAuditRow, String> {
+    tauri::async_runtime::spawn_blocking(move || propose_link_corrections_inner(request))
+        .await
+        .map_err(|error| format!("link correction worker failed: {error}"))?
 }
 
 #[tauri::command]

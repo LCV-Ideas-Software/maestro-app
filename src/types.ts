@@ -261,19 +261,121 @@ export type AiProviderProbeResult = {
   checked_at: string;
 };
 
-export type LinkAuditRow = {
+export type LinkClassification =
+  | "verified_supports_claim"
+  | "verified_but_weak"
+  | "redirected_verified"
+  | "content_type_mismatch"
+  | "not_found"
+  | "forbidden"
+  | "auth_required"
+  | "captcha_required"
+  | "paywall"
+  | "timeout"
+  | "dns_error"
+  | "tls_error"
+  | "malformed"
+  | "suspected_hallucination"
+  | "quarantined";
+
+export type LinkCrossReviewStatus = "not_needed" | "pending" | "accepted" | "rejected";
+export type LinkReviewDecision = "accept" | "reject" | "quarantine";
+export type LinkCorrectionAction = "replace" | "remove" | "reword";
+
+export type LinkIntegrityRedirect = {
+  url: string;
+  status: number;
+};
+
+export type LinkCorrectionCandidate = {
+  candidate_id: string;
+  action: LinkCorrectionAction;
+  url: string | null;
+  title: string | null;
+  provider: string;
+  query: string | null;
+  web_evidence_id: string | null;
+  rationale: string;
+  proposed_at: string;
+};
+
+export type LinkIntegrityRecord = {
+  schema_version: "link_evidence.v1";
+  link_id: string;
+  source_artifact: string;
+  source_fingerprint: string;
+  anchor_text: string | null;
+  surrounding_text: string;
+  original_url: string;
+  normalized_url: string;
+  normalization_changes: string[];
+  final_url: string | null;
+  redirect_chain: LinkIntegrityRedirect[];
+  http_status: number | null;
+  content_type: string | null;
+  sha256: string | null;
+  checked_at: string;
+  claim_supported: boolean | null;
+  classification: LinkClassification;
+  correction_candidates: LinkCorrectionCandidate[];
+  cross_review_status: LinkCrossReviewStatus;
+  review_decision: LinkReviewDecision | null;
+  reviewed_by: string | null;
+  review_note: string | null;
+  reviewed_at: string | null;
+  web_evidence_id: string | null;
   url: string;
   status: string;
   invalidity: string;
   tone: "ok" | "warn" | "blocked" | "error";
 };
 
+export type LinkAuditRow = LinkIntegrityRecord;
+
 export type LinkAuditResult = {
   urls_found: number;
   checked: number;
   ok: number;
   failed: number;
-  rows: LinkAuditRow[];
+  rows: LinkIntegrityRecord[];
+  schema_version: "link_integrity_audit.v1";
+  audit_id: string;
+  source_artifact: string;
+  checked_at: string;
+  pending_review: number;
+  blocked: number;
+};
+
+export type LinkIntegrityListRequest = {
+  query?: string;
+  classifications?: LinkClassification[];
+  cross_review_statuses?: LinkCrossReviewStatus[];
+  source_artifact?: string;
+  needs_review_only?: boolean;
+  limit?: number;
+  cursor?: string;
+};
+
+export type LinkIntegrityListResult = {
+  items: LinkIntegrityRecord[];
+  next_cursor: string | null;
+  total: number;
+};
+
+export type LinkIntegrityReviewRequest = {
+  link_id: string;
+  decision: LinkReviewDecision;
+  note: string;
+  reviewer: "operator";
+  expected_normalized_url: string;
+  expected_sha256: string | null;
+};
+
+export type LinkCorrectionProposalRequest = {
+  link_id: string;
+  provider: string;
+  query?: string;
+  limit?: number;
 };
 
 export type WebEvidenceMethod = "GET" | "HEAD";

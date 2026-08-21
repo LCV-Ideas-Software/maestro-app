@@ -33,10 +33,11 @@ import type {
   WebEvidenceRecord,
   WebEvidenceState,
 } from "../../types";
+import { LinkIntegrityPanel } from "./LinkIntegrityPanel";
 
 type EvidenceScreenProps = {
   evidenceRows: EvidenceRow[];
-  invalidLinkRows: LinkAuditResult["rows"];
+  linkAuditRows: LinkAuditResult["rows"];
   isAuditing: boolean;
   onAudit: () => void;
 };
@@ -142,10 +143,17 @@ function mergeEvidence(current: WebEvidenceRecord[], incoming: WebEvidenceRecord
 
 export function EvidenceScreen({
   evidenceRows,
-  invalidLinkRows,
+  linkAuditRows,
   isAuditing,
   onAudit,
 }: EvidenceScreenProps) {
+  const invalidLinkRows = useMemo(
+    () =>
+      linkAuditRows.filter(
+        (row) => row.tone === "error" || row.tone === "blocked" || row.tone === "warn",
+      ),
+    [linkAuditRows],
+  );
   const [targetUrl, setTargetUrl] = useState("");
   const [method, setMethod] = useState<WebEvidenceMethod>("GET");
   const [forceRevalidate, setForceRevalidate] = useState(false);
@@ -490,7 +498,7 @@ export function EvidenceScreen({
         {invalidLinkRows.length > 0 && (
           <div className="link-audit-list" aria-label="Links com problema">
             {invalidLinkRows.map((row) => (
-              <div className={`link-audit-row ${row.tone}`} key={`${row.url}-${row.status}`}>
+              <div className={`link-audit-row ${row.tone}`} key={row.link_id}>
                 <div>
                   <strong>{row.url}</strong>
                   <span>{row.invalidity || row.status}</span>
@@ -609,6 +617,8 @@ export function EvidenceScreen({
           </button>
         </div>
       </div>
+
+      <LinkIntegrityPanel recentRecords={linkAuditRows} />
 
       <div className="panel evidence-capture-panel">
         <div className="panel-heading">

@@ -377,13 +377,6 @@ export function App() {
   const formalState = humanizeRunStatus(operation.status);
   const linkEvidenceState =
     evidenceRows.find((item) => item.label === "Links")?.value ?? "nao iniciado";
-  const invalidLinkRows = useMemo(
-    () =>
-      linkAuditRows.filter(
-        (row) => row.tone === "error" || row.tone === "blocked" || row.tone === "warn",
-      ),
-    [linkAuditRows],
-  );
   const activeNavItem = navItems.find((item) => item.section === activeSection) ?? navItems[0];
   const cloudflareTokenAvailable =
     cloudflareApiToken.length > 0 || Boolean(cloudflareEnvSnapshot?.api_token_present);
@@ -740,6 +733,10 @@ export function App() {
         result.failed === 1
           ? "1 link com problema"
           : `${result.failed.toLocaleString("pt-BR")} links com problema`;
+      const pendingReviewLabel =
+        result.pending_review === 1
+          ? "1 link aguardando revisao editorial"
+          : `${result.pending_review.toLocaleString("pt-BR")} links aguardando revisao editorial`;
       setLinkAuditRows(result.rows);
       setEvidenceRows((current) =>
         current.map((row) => {
@@ -751,6 +748,13 @@ export function App() {
             return {
               ...row,
               value: failedLinkLabel,
+              tone: "warn",
+            };
+          }
+          if (result.pending_review > 0) {
+            return {
+              ...row,
+              value: pendingReviewLabel,
               tone: "warn",
             };
           }
@@ -767,10 +771,10 @@ export function App() {
         detail:
           result.urls_found === 0
             ? "Nenhum link foi encontrado no prompt, protocolo ou texto em edicao."
-            : `${result.ok.toLocaleString("pt-BR")} acessiveis; ${failedLinkLabel}.`,
+            : `${result.ok.toLocaleString("pt-BR")} aceitos; ${pendingReviewLabel}; ${failedLinkLabel}.`,
       });
       void logEvent({
-        level: result.failed > 0 ? "warn" : "info",
+        level: result.failed > 0 || result.pending_review > 0 ? "warn" : "info",
         category: "evidence.audit.completed",
         message: "link evidence audit completed",
         context: {
@@ -778,6 +782,8 @@ export function App() {
           checked: result.checked,
           ok: result.ok,
           failed: result.failed,
+          pending_review: result.pending_review,
+          blocked: result.blocked,
           rows: result.rows.map((row) => ({
             url: row.url,
             tone: row.tone,
@@ -2616,7 +2622,7 @@ export function App() {
         {activeSection === "evidence" && (
           <EvidenceScreen
             evidenceRows={evidenceRows}
-            invalidLinkRows={invalidLinkRows}
+            linkAuditRows={linkAuditRows}
             isAuditing={isAuditingEvidence}
             onAudit={() => void auditEvidenceNow()}
           />

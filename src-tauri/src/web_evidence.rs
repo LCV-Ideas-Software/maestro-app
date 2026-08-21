@@ -953,7 +953,7 @@ fn failed_fetch_record(
     }
 }
 
-fn fetch_web_evidence_inner(
+pub(crate) fn fetch_web_evidence_inner(
     app: Option<&tauri::AppHandle>,
     request: WebEvidenceFetchRequest,
 ) -> Result<WebEvidenceRecord, String> {
@@ -1466,7 +1466,7 @@ fn persist_search_response(id: &str, bytes: &[u8]) -> Result<(), String> {
     write_binary_file(&path, bytes)
 }
 
-fn search_web_evidence_inner(
+pub(crate) fn search_web_evidence_inner(
     app: Option<&tauri::AppHandle>,
     request: WebEvidenceSearchRequest,
 ) -> Result<WebEvidenceSearchResult, String> {

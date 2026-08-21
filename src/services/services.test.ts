@@ -13,10 +13,13 @@ import {
   fetchWebEvidence,
   getWebEvidence,
   importOperatorEvidence,
+  listLinkIntegrityRecords,
   listWebEvidence,
   openWebEvidenceInDefaultBrowser,
+  proposeLinkCorrections,
   replayWebEvidence,
   resumeWebEvidenceInteraction,
+  reviewLinkIntegrity,
   searchWebEvidence,
   startRenderedWebEvidence,
 } from "./evidence";
@@ -156,6 +159,45 @@ describe("Tauri service facades", () => {
     });
     expect(invokeMock).toHaveBeenNthCalledWith(9, "get_web_evidence", {
       evidenceId: "evidence-1",
+    });
+  });
+
+  it("keeps link integrity inventory, review and proposals fail-closed", async () => {
+    const listRequest = {
+      query: "fonte primária",
+      classifications: ["verified_but_weak" as const],
+      cross_review_statuses: ["pending" as const],
+      needs_review_only: true,
+      limit: 30,
+      cursor: "cursor-1",
+    };
+    const reviewRequest = {
+      link_id: "link-1",
+      decision: "accept" as const,
+      note: "A fonte primária sustenta a afirmação no contexto citado.",
+      reviewer: "operator" as const,
+      expected_normalized_url: "https://example.com/source",
+      expected_sha256: "sha256-current",
+    };
+    const proposalRequest = {
+      link_id: "link-1",
+      provider: "crossref",
+      query: "título específico",
+      limit: 8,
+    };
+
+    await listLinkIntegrityRecords(listRequest);
+    await reviewLinkIntegrity(reviewRequest);
+    await proposeLinkCorrections(proposalRequest);
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "list_link_integrity_records", {
+      request: listRequest,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "review_link_integrity", {
+      request: reviewRequest,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "propose_link_corrections", {
+      request: proposalRequest,
     });
   });
 

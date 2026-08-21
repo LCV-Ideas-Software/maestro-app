@@ -11,9 +11,69 @@ export const formatImageUrl = (url: string): string => {
 
 export const isYoutubeUrl = (url: string): boolean => /(?:youtube\.com|youtu\.be)\//i.test(url);
 
+function hasUrlControlCharacters(value: string): boolean {
+  return [...value].some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 31 || (codePoint >= 127 && codePoint <= 159);
+  });
+}
+
+/**
+ * Applies the mechanical MainSite link rules before HTML is persisted.
+ *
+ * This helper deliberately does not replace a URL or decide whether it
+ * supports an editorial claim. Those decisions belong to Link Integrity
+ * review. It only removes unsafe hrefs and normalizes safe link attributes.
+ */
+export function sanitizeMainSiteLinks(html: string): string {
+  if (!html) return html;
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const anchors = doc.querySelectorAll<HTMLAnchorElement>("a[href]");
+  let changed = false;
+
+  for (const anchor of anchors) {
+    const originalHref = anchor.getAttribute("href") ?? "";
+    const href = originalHref.trim();
+
+    if (!href || hasUrlControlCharacters(originalHref) || hasUnsafeUrlScheme(href)) {
+      anchor.removeAttribute("href");
+      anchor.removeAttribute("target");
+      anchor.removeAttribute("rel");
+      changed = true;
+      continue;
+    }
+
+    if (href !== originalHref) {
+      anchor.setAttribute("href", href);
+      changed = true;
+    }
+
+    // YouTube links retain PostEditor/PostReader behavior. They are handled by
+    // the dedicated YouTube extension and must not be rewritten as ordinary
+    // external links.
+    if (isYoutubeUrl(href)) continue;
+
+    const isExternal = /^(?:https?:)?\/\//i.test(href);
+    if (isExternal) {
+      if (anchor.getAttribute("target") !== "_blank") {
+        anchor.setAttribute("target", "_blank");
+        changed = true;
+      }
+      if (anchor.getAttribute("rel") !== "noopener noreferrer") {
+        anchor.setAttribute("rel", "noopener noreferrer");
+        changed = true;
+      }
+    }
+  }
+
+  return changed ? doc.body.innerHTML : html;
+}
+
 // Reject hrefs whose scheme can execute script or smuggle content. TipTap's
 // Link extension already enforces a protocol allowlist, but the app's own link
-// helpers (AutoTargetBlankLink, sanitizeLinksTargetBlank) must not depend on
+// helpers (AutoTargetBlankLink, sanitizeMainSiteLinks) must not depend on
 // that upstream default — this is the independent backstop. See audit S4.
 // Relative, anchor and scheme-relative ("//host") hrefs have no scheme and are
 // treated as safe; only an explicit dangerous scheme is rejected.
@@ -24,10 +84,10 @@ export const hasUnsafeUrlScheme = (url: string): boolean => {
   const schemeMatch = normalized.match(/^([a-z][a-z0-9+.-]*):/);
   if (!schemeMatch) return false;
   const scheme = schemeMatch[1] ?? "";
-  // Mirror the safe subset of TipTap's own protocol allowlist so legitimate
-  // editorial links (incl. ftp) are not dropped; only script-capable schemes
-  // (javascript/data/vbscript/file/blob/…) fall outside this set.
-  return !["http", "https", "ftp", "ftps", "mailto", "tel"].includes(scheme);
+  // Keep the publishable protocol set identical to the Link Integrity Engine.
+  // A protocol that the release gate cannot inventory must not survive the
+  // MainSite sanitizer merely because a browser knows how to open it.
+  return !["http", "https", "mailto"].includes(scheme);
 };
 
 export function migrateLegacyCaptions(html: string): string {

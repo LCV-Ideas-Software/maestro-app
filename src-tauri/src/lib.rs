@@ -38,7 +38,9 @@ mod editorial_inputs;
 mod editorial_io;
 mod editorial_prompts;
 mod human_logs;
+#[cfg(test)]
 mod link_audit;
+mod link_integrity;
 mod logging;
 mod provider_config;
 mod provider_deepseek;
@@ -271,21 +273,162 @@ pub(crate) struct LinkAuditRequest {
     pub(crate) text: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LinkClassification {
+    VerifiedSupportsClaim,
+    VerifiedButWeak,
+    RedirectedVerified,
+    ContentTypeMismatch,
+    NotFound,
+    Forbidden,
+    AuthRequired,
+    CaptchaRequired,
+    Paywall,
+    Timeout,
+    DnsError,
+    TlsError,
+    Malformed,
+    SuspectedHallucination,
+    Quarantined,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LinkCrossReviewStatus {
+    NotNeeded,
+    Pending,
+    Accepted,
+    Rejected,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LinkReviewDecision {
+    Accept,
+    Reject,
+    Quarantine,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LinkCorrectionAction {
+    Replace,
+    Remove,
+    Reword,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub(crate) struct LinkEvidenceRedirect {
+    pub(crate) url: String,
+    pub(crate) status: u16,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct LinkCorrectionCandidate {
+    pub(crate) candidate_id: String,
+    pub(crate) action: LinkCorrectionAction,
+    pub(crate) url: Option<String>,
+    pub(crate) title: Option<String>,
+    pub(crate) provider: String,
+    pub(crate) query: Option<String>,
+    pub(crate) web_evidence_id: Option<String>,
+    pub(crate) rationale: String,
+    pub(crate) proposed_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct LinkAuditRow {
+    pub(crate) schema_version: String,
+    pub(crate) link_id: String,
+    pub(crate) source_artifact: String,
+    pub(crate) source_fingerprint: String,
+    pub(crate) anchor_text: Option<String>,
+    pub(crate) surrounding_text: String,
+    pub(crate) original_url: String,
+    pub(crate) normalized_url: String,
+    pub(crate) normalization_changes: Vec<String>,
+    pub(crate) final_url: Option<String>,
+    pub(crate) redirect_chain: Vec<LinkEvidenceRedirect>,
+    pub(crate) http_status: Option<u16>,
+    pub(crate) content_type: Option<String>,
+    pub(crate) sha256: Option<String>,
+    pub(crate) checked_at: String,
+    pub(crate) claim_supported: Option<bool>,
+    pub(crate) classification: LinkClassification,
+    pub(crate) correction_candidates: Vec<LinkCorrectionCandidate>,
+    pub(crate) cross_review_status: LinkCrossReviewStatus,
+    pub(crate) review_decision: Option<LinkReviewDecision>,
+    pub(crate) reviewed_by: Option<String>,
+    pub(crate) review_note: Option<String>,
+    pub(crate) reviewed_at: Option<String>,
+    pub(crate) web_evidence_id: Option<String>,
+    // Legacy audit_links projection. Keep these fields stable for callers that
+    // have not yet adopted the persistent Link Integrity Engine DTO.
     pub(crate) url: String,
     pub(crate) status: String,
     pub(crate) invalidity: String,
     pub(crate) tone: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct LinkAuditResult {
+    pub(crate) schema_version: String,
+    pub(crate) audit_id: String,
+    pub(crate) source_artifact: String,
+    pub(crate) checked_at: String,
     pub(crate) urls_found: usize,
     pub(crate) checked: usize,
     pub(crate) ok: usize,
     pub(crate) failed: usize,
+    pub(crate) pending_review: usize,
+    pub(crate) blocked: usize,
     pub(crate) rows: Vec<LinkAuditRow>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct LinkIntegrityListRequest {
+    #[serde(default)]
+    pub(crate) query: Option<String>,
+    #[serde(default)]
+    pub(crate) classifications: Vec<LinkClassification>,
+    #[serde(default)]
+    pub(crate) cross_review_statuses: Vec<LinkCrossReviewStatus>,
+    #[serde(default)]
+    pub(crate) source_artifact: Option<String>,
+    #[serde(default)]
+    pub(crate) needs_review_only: bool,
+    #[serde(default)]
+    pub(crate) limit: Option<usize>,
+    #[serde(default)]
+    pub(crate) cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct LinkIntegrityListResult {
+    pub(crate) items: Vec<LinkAuditRow>,
+    pub(crate) next_cursor: Option<String>,
+    pub(crate) total: usize,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct LinkIntegrityReviewRequest {
+    pub(crate) link_id: String,
+    pub(crate) decision: LinkReviewDecision,
+    pub(crate) note: String,
+    pub(crate) reviewer: String,
+    pub(crate) expected_normalized_url: String,
+    pub(crate) expected_sha256: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct LinkCorrectionProposalRequest {
+    pub(crate) link_id: String,
+    pub(crate) provider: String,
+    #[serde(default)]
+    pub(crate) query: Option<String>,
+    #[serde(default)]
+    pub(crate) limit: Option<usize>,
 }
 
 #[derive(Serialize)]
@@ -680,9 +823,11 @@ pub(crate) use crate::session_orchestration::{
     run_editorial_session_core, run_editorial_session_inner,
 };
 use crate::tauri_commands::{
-    audit_links, diagnostics_snapshot, open_data_file, read_ai_provider_config,
-    read_bootstrap_config, run_cli_adapter_smoke, runtime_profile, verify_ai_provider_credentials,
-    write_ai_provider_config, write_bootstrap_config, write_log_event,
+    audit_links, diagnostics_snapshot, list_link_integrity_records, open_data_file,
+    propose_link_corrections, read_ai_provider_config, read_bootstrap_config,
+    review_link_integrity, run_cli_adapter_smoke, runtime_profile,
+    verify_ai_provider_credentials, write_ai_provider_config, write_bootstrap_config,
+    write_log_event,
 };
 use crate::web_evidence::{
     fetch_web_evidence, get_web_evidence, import_operator_evidence, list_web_evidence,
@@ -806,6 +951,9 @@ pub fn run() {
             write_ai_provider_config,
             verify_ai_provider_credentials,
             audit_links,
+            list_link_integrity_records,
+            review_link_integrity,
+            propose_link_corrections,
             open_data_file,
             cloudflare_env_snapshot,
             dependency_preflight,

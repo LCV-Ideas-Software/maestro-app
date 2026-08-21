@@ -177,7 +177,7 @@ Web fetch, curl-compatible replay, web search, isolated WebView2 rendering, and 
 
 ABNT citation/reference formatting and Maestro's deterministic fourth-peer role are planned under `docs/abnt-citation-engine.md`.
 
-Link checking, sanitization, correction proposals, and cross-review escalation are planned under `docs/link-integrity-engine.md`.
+Persistent link checking, MainSite-safe sanitization, explicit editorial decisions, correction proposals, and final-release escalation are implemented under `docs/link-integrity-engine.md`; native Rust validation runs in GitHub Actions.
 
 ## Repository conventions
 
