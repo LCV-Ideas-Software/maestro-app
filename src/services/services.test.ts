@@ -1,11 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AiProviderConfig, BootstrapConfig } from "../types";
+import type {
+  AiProviderConfig,
+  BootstrapConfig,
+  MainSiteD1PublishPlan,
+  MainSiteDraft,
+} from "../types";
 import {
+  importSharedChat,
   listResumableSessions,
   loadMainSiteDraft,
   MAIN_SITE_SANITIZER_PROFILE,
+  previewMainSiteD1Publish,
+  probeMainSiteD1,
+  publishMainSiteD1,
   resumeEditorialSession,
   runEditorialSession,
   saveMainSiteDraft,
@@ -125,6 +134,55 @@ describe("Tauri service facades", () => {
     expect(invokeMock).toHaveBeenNthCalledWith(2, "save_mainsite_draft", { request });
     expect(request.sanitizer_profile).toBe("mainsite_post_html.v1");
     expect(request.is_published).toBe(false);
+  });
+
+  it("keeps MainSite D1 preview and confirmed publication as separate commands", async () => {
+    const target = {
+      account_id: "example-account",
+      api_token: null,
+      api_token_env_var: "EXAMPLE_TOKEN",
+      database: "example_db",
+      table: "mainsite_posts",
+      allow_wrangler_fallback: false,
+    };
+    const draft = {
+      schema_version: "mainsite_draft.v1",
+      sanitizer_profile: MAIN_SITE_SANITIZER_PROFILE,
+      is_published: false,
+      is_about_site: false,
+    } as MainSiteDraft;
+    const preview = {
+      schema_version: "mainsite_d1_publish_plan.v1",
+      plan_id: "plan-1",
+      confirmation_token: "confirmation-1",
+      read_only: true,
+    } as MainSiteD1PublishPlan;
+
+    await probeMainSiteD1(target);
+    await previewMainSiteD1Publish(target, draft);
+    await publishMainSiteD1(target, draft, preview);
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "probe_mainsite_d1", {
+      request: { target },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "preview_mainsite_d1_publish", {
+      request: { target, draft },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "publish_mainsite_d1", {
+      request: { target, draft, preview, confirmed: true },
+    });
+  });
+
+  it("imports a shared chat through the native evidence command", async () => {
+    await importSharedChat("https://chatgpt.com/share/example");
+
+    expect(invokeMock).toHaveBeenCalledWith("import_shared_chat", {
+      request: {
+        url: "https://chatgpt.com/share/example",
+        evidence_id: null,
+        force_revalidate: false,
+      },
+    });
   });
 
   it("keeps runtime bootstrap authorization payloads fail-closed", async () => {
@@ -335,6 +393,7 @@ describe("Tauri service facades", () => {
       api_token_env_var: "EXAMPLE_TOKEN",
       persistence_database: "example-db",
       publication_database: "example-publication-db",
+      publication_table: "mainsite_posts",
       secret_store: "example-store",
     };
 

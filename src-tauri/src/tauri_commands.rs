@@ -149,6 +149,10 @@ pub(crate) fn read_bootstrap_config() -> Result<BootstrapConfig, String> {
         .map_err(|error| format!("failed to parse bootstrap config: {error}"))?;
     config.credential_storage_mode =
         normalize_storage_mode(&config.credential_storage_mode).to_string();
+    config.cloudflare_publication_database =
+        crate::mainsite_d1::validate_database_name(&config.cloudflare_publication_database)?;
+    config.cloudflare_publication_table =
+        crate::mainsite_d1::validate_table_identifier(&config.cloudflare_publication_table)?;
     Ok(config)
 }
 
@@ -173,6 +177,12 @@ pub(crate) fn write_bootstrap_config(config: BootstrapConfig) -> Result<Bootstra
             &config.cloudflare_persistence_database,
             80,
         ),
+        cloudflare_publication_database: crate::mainsite_d1::validate_database_name(
+            &config.cloudflare_publication_database,
+        )?,
+        cloudflare_publication_table: crate::mainsite_d1::validate_table_identifier(
+            &config.cloudflare_publication_table,
+        )?,
         cloudflare_secret_store: sanitize_short(&config.cloudflare_secret_store, 80),
         windows_env_prefix: sanitize_short(&config.windows_env_prefix, 80),
         updated_at: Utc::now().to_rfc3339(),

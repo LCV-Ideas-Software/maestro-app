@@ -100,6 +100,8 @@ export type BootstrapConfig = {
   cloudflare_api_token_source: CloudflareTokenSource;
   cloudflare_api_token_env_var: string;
   cloudflare_persistence_database: string;
+  cloudflare_publication_database: string;
+  cloudflare_publication_table: string;
   cloudflare_secret_store: string;
   windows_env_prefix: string;
   updated_at: string;
@@ -700,3 +702,97 @@ export type SaveMainSiteDraftRequest = Pick<
   | "is_about_site"
   | "sanitizer_profile"
 >;
+
+export type MainSiteD1Target = {
+  account_id: string;
+  api_token: string | null;
+  api_token_env_var: string;
+  database: string;
+  table: string;
+  allow_wrangler_fallback: boolean;
+};
+
+export type MainSiteD1ProbeResult = {
+  schema_version: string;
+  transport: string;
+  database: string;
+  table: string;
+  readable: boolean;
+  required_columns: string[];
+  content_version_ready: boolean;
+  checked_at: string;
+};
+
+export type MainSiteD1DiffSummary = {
+  field: string;
+  change: "new" | "changed" | "unchanged";
+};
+
+export type MainSiteD1PublishPlan = {
+  schema_version: string;
+  plan_id: string;
+  action: "insert" | "update";
+  database: string;
+  table: string;
+  requested_post_id: number | null;
+  sql_intent: string;
+  diff_summary: MainSiteD1DiffSummary[];
+  draft_hash: string;
+  remote_hash: string | null;
+  content_version_hash: string | null;
+  content_version_current: number;
+  content_version_next: number;
+  confirmation_token: string;
+  checked_at: string;
+  read_only: true;
+};
+
+export type MainSiteD1PublishResult = {
+  schema_version: string;
+  plan_id: string;
+  action: "insert" | "update";
+  post_id: number;
+  draft_hash: string;
+  readback_hash: string;
+  content_version: number;
+  fields_verified: string[];
+  verified: true;
+  transport: string;
+  published_at: string;
+};
+
+export type SharedChatProvider = "chatgpt" | "gemini" | "claude";
+
+export type SharedChatEvidenceProjection = {
+  id: string;
+  source_url: string;
+  final_url: string | null;
+  sha256: string | null;
+  retrieved_at: string | null;
+  access_mode: string | null;
+  notes: string[];
+};
+
+export type SharedChatImportReady = {
+  state: "ready";
+  title: string | null;
+  html: string;
+  provider: SharedChatProvider;
+  evidence: SharedChatEvidenceProjection;
+  provenance_id: string;
+  markdown_path: string;
+  provenance_path: string;
+};
+
+export type SharedChatOperatorActionRequired = {
+  state: "operator_action_required";
+  provider: SharedChatProvider;
+  evidence: SharedChatEvidenceProjection;
+  action: {
+    kind: string;
+    reason: string;
+    next_step: string;
+  };
+};
+
+export type SharedChatImportResponse = SharedChatImportReady | SharedChatOperatorActionRequired;

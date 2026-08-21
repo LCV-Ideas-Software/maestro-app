@@ -31,6 +31,7 @@ import {
   Minus,
   Outdent,
   Palette,
+  Printer,
   Quote,
   Redo2,
   Save,
@@ -55,6 +56,13 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { EditorBubbleMenu } from "./editor/BubbleMenu";
+import {
+  buildFinalContentExport,
+  buildPdfProvenanceExport,
+  downloadExportArtifact,
+  type FinalContentExportFormat,
+  openFinalContentPrintDialog,
+} from "./editor/exportFinalContent";
 import { buildTiptapExtensions, EDITORIAL_MENTION_BASE_ITEMS } from "./editor/extensions";
 import { EditorFloatingMenu } from "./editor/FloatingMenu";
 import { convertMarkdownToFormattedHtml } from "./editor/markdownImport";
@@ -62,19 +70,29 @@ import { PromptModal as EditorPromptModal } from "./editor/PromptModal";
 import { PROMPT_MODAL_INITIAL, type PromptModalState } from "./editor/promptModalState";
 import { SearchReplacePanel } from "./editor/SearchReplace";
 import { TIPTAP_SLASH_EVENTS } from "./editor/SlashCommands";
-import { sanitizeFinalMainSiteHtml } from "./editor/sanitizeFinalHtml";
+import { sanitizeFinalMainSiteHtml, sanitizeFinalPostHtml } from "./editor/sanitizeFinalHtml";
+import {
+  getSharedChatImportDiagnostic,
+  getSharedChatProviderLabel,
+  normalizeSharedChatImportResult,
+  parseSharedChatUrl,
+  SHARED_CHAT_URL_EXAMPLES,
+  SharedChatImportError,
+  type SharedChatImporter,
+  type StoredSharedChatEvidence,
+} from "./editor/sharedChatImport";
 import { clamp, formatImageUrl, isYoutubeUrl, migrateLegacyCaptions } from "./editor/utils";
 
 type SaveFeedback = { message: string; type: "success" | "error" | "info" } | null;
 
-type GeminiImportProgress = {
+type SharedChatImportProgress = {
   active: boolean;
   stage: "idle" | "validating" | "requesting" | "processing" | "inserting" | "done" | "error";
   message: string;
   percent: number;
 };
 
-const GEMINI_IMPORT_IDLE: GeminiImportProgress = {
+const SHARED_CHAT_IMPORT_IDLE: SharedChatImportProgress = {
   active: false,
   stage: "idle",
   message: "",
@@ -82,7 +100,7 @@ const GEMINI_IMPORT_IDLE: GeminiImportProgress = {
 };
 
 // Single sanitization posture for every path that injects remote or imported
-// HTML into the editor (Word, Markdown, Gemini import, AI transform/freeform).
+// HTML into the editor (Word, Markdown, shared chat, AI transform/freeform).
 // Routing all of them through this keeps the four ingress points uniform so no
 // path can insert unsanitized markup. See audit finding S3.
 const sanitizeImportedHtml = (html: string): string =>
@@ -109,6 +127,7 @@ export type PostEditorProps = {
     confirmedAboutAction?: boolean,
     requestedPostId?: number,
   ) => Promise<boolean>;
+  onImportSharedChat?: SharedChatImporter;
   onClose: () => void;
 };
 
@@ -125,6 +144,7 @@ export default function PostEditor({
   savingPost,
   showNotification,
   onSave,
+  onImportSharedChat,
   onClose,
 }: PostEditorProps) {
   const [postTitle, setPostTitle] = useState(initialTitle);
@@ -138,10 +158,11 @@ export default function PostEditor({
   const [promptModal, setPromptModal] = useState<PromptModalState>(PROMPT_MODAL_INITIAL);
   const [isUploading, setIsUploading] = useState(false);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
-  const [isImportingGemini, setIsImportingGemini] = useState(false);
-  const [geminiImportProgress, setGeminiImportProgress] =
-    useState<GeminiImportProgress>(GEMINI_IMPORT_IDLE);
-  const [lastGeminiImportUrl, setLastGeminiImportUrl] = useState("");
+  const [isImportingSharedChat, setIsImportingSharedChat] = useState(false);
+  const [sharedChatImportProgress, setSharedChatImportProgress] =
+    useState<SharedChatImportProgress>(SHARED_CHAT_IMPORT_IDLE);
+  const [lastSharedChatImportUrl, setLastSharedChatImportUrl] = useState("");
+  const [sharedChatEvidence, setSharedChatEvidence] = useState<StoredSharedChatEvidence[]>([]);
   const [saveFeedback, setSaveFeedback] = useState<SaveFeedback>(null);
   const saveFeedbackTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -819,114 +840,135 @@ export default function PostEditor({
     setShowAboutRestoreConfirm(false);
     setPostIdEditorOpen(false);
     setPostIdDraft(editingPostId ? String(editingPostId) : "");
+    setSharedChatEvidence([]);
+    setSharedChatImportProgress(SHARED_CHAT_IMPORT_IDLE);
+    setLastSharedChatImportUrl("");
   };
 
-  const handleGeminiImport = useCallback(
-    async (url: string) => {
-      if (!url || !editor) return;
+  const handleSharedChatImport = useCallback(
+    async (rawUrl: string) => {
+      if (!editor) return;
 
-      const normalizedUrl = url.trim();
-      const updateProgress = (next: Partial<GeminiImportProgress>) => {
-        setGeminiImportProgress((prev) => ({ ...prev, ...next, active: true }));
-      };
-
-      const resolveImportError = (status: number | null, backendMessage?: string): string => {
-        if (backendMessage) {
-          if (/privado|expirado|bloqueado/i.test(backendMessage)) {
-            return "O link do Gemini parece privado, expirado ou bloqueado. Gere um novo link de compartilhamento publico e tente novamente.";
-          }
-          if (/nenhum conteudo extraido/i.test(backendMessage)) {
-            return "Nao consegui extrair conteudo desse link. Abra o compartilhamento, confirme se o texto aparece publicamente e tente de novo.";
-          }
-        }
-        if (status === 422) {
-          return "URL invalida. Use um link de compartilhamento do Gemini no formato https://gemini.google.com/share/....";
-        }
-        if (status === 502) {
-          return "Falha ao ler o compartilhamento do Gemini no servidor. Tente novamente em instantes ou gere um novo link publico.";
-        }
-        if (status === 400) {
-          return "A requisicao de importacao foi rejeitada. Verifique o link informado.";
-        }
-        return backendMessage || "Erro ao importar do Gemini.";
+      const updateProgress = (next: Partial<SharedChatImportProgress>) => {
+        setSharedChatImportProgress((previous) => ({ ...previous, ...next, active: true }));
       };
 
       updateProgress({
         stage: "validating",
         percent: 12,
-        message: "Validando link compartilhado do Gemini...",
+        message: "Validando o link público e identificando o provedor...",
       });
-
-      if (!/^https:\/\//i.test(normalizedUrl)) {
-        const message = "URL invalida. O link precisa comecar com https://.";
-        updateProgress({ stage: "error", percent: 100, message });
-        showNotification(message, "error");
-        setTimeout(() => setGeminiImportProgress(GEMINI_IMPORT_IDLE), 2400);
-        return;
-      }
-
-      setLastGeminiImportUrl(normalizedUrl);
-
-      setIsImportingGemini(true);
-      updateProgress({
-        stage: "requesting",
-        percent: 36,
-        message: "Conectando ao endpoint de importação...",
-      });
-      showNotification("Importando conteúdo do Gemini...", "info");
+      setLastSharedChatImportUrl("");
 
       try {
-        const res = await fetch("/api/mainsite/gemini-import", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: normalizedUrl }),
-        });
+        const parsed = parseSharedChatUrl(rawUrl);
+        setLastSharedChatImportUrl(parsed.url);
+        if (!onImportSharedChat) {
+          throw new SharedChatImportError(
+            "CONNECTOR_UNAVAILABLE",
+            "O conector de importação de chats compartilhados não está disponível nesta sessão.",
+          );
+        }
 
+        setIsImportingSharedChat(true);
+        updateProgress({
+          stage: "requesting",
+          percent: 36,
+          message: `Coletando o compartilhamento público do ${getSharedChatProviderLabel(parsed.provider)}...`,
+        });
+        showNotification(
+          `Importando compartilhamento do ${getSharedChatProviderLabel(parsed.provider)}...`,
+          "info",
+        );
+
+        const imported = normalizeSharedChatImportResult(
+          parsed.provider,
+          await onImportSharedChat(parsed.url),
+        );
         updateProgress({
           stage: "processing",
           percent: 70,
-          message: "Processando conteudo retornado...",
+          message: "Validando conteúdo e proveniência retornados...",
         });
 
-        let data: { html?: string; title?: string; error?: string } = {};
-        try {
-          data = (await res.json()) as { html?: string; title?: string; error?: string };
-        } catch {
-          data = {};
-        }
-
-        if (!res.ok) {
-          throw new Error(resolveImportError(res.status, data.error));
+        const safeHtml = sanitizeFinalPostHtml(imported.html);
+        const safeDocument = new DOMParser().parseFromString(safeHtml, "text/html");
+        if (!safeHtml || !(safeDocument.body.textContent ?? "").trim()) {
+          throw new SharedChatImportError(
+            "INVALID_RESPONSE",
+            "O compartilhamento não produziu conteúdo publicável após a sanitização.",
+          );
         }
 
         updateProgress({
           stage: "inserting",
           percent: 90,
-          message: "Inserindo conteudo no editor...",
+          message: "Inserindo o conteúdo sanitizado no editor...",
         });
-
-        if (data.html) {
-          editor.chain().focus().insertContent(sanitizeImportedHtml(data.html)).run();
-          if (data.title && !postTitle.trim()) setPostTitle(data.title);
-        }
+        editor.chain().focus().insertContent(safeHtml).run();
+        if (imported.title && !postTitle.trim()) setPostTitle(imported.title);
+        setSharedChatEvidence((current) => [
+          ...current.filter((evidence) => evidence.id !== imported.evidence.id),
+          { provider: imported.provider, ...imported.evidence },
+        ]);
 
         updateProgress({
           stage: "done",
           percent: 100,
-          message: "Importacao concluida com sucesso.",
+          message: `Importação do ${getSharedChatProviderLabel(imported.provider)} concluída com proveniência separada.`,
         });
-        showNotification("Conteúdo importado com sucesso!", "success");
-        setTimeout(() => setGeminiImportProgress(GEMINI_IMPORT_IDLE), 1400);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Erro desconhecido.";
+        showNotification("Chat compartilhado importado com segurança.", "success");
+        setTimeout(() => setSharedChatImportProgress(SHARED_CHAT_IMPORT_IDLE), 1600);
+      } catch (error) {
+        const message = getSharedChatImportDiagnostic(error);
         updateProgress({ stage: "error", percent: 100, message });
         showNotification(message, "error");
-        setTimeout(() => setGeminiImportProgress(GEMINI_IMPORT_IDLE), 2800);
       } finally {
-        setIsImportingGemini(false);
+        setIsImportingSharedChat(false);
       }
     },
-    [editor, showNotification, postTitle],
+    [editor, onImportSharedChat, postTitle, showNotification],
+  );
+
+  const handleFinalContentExport = useCallback(
+    (format: FinalContentExportFormat | "pdf") => {
+      if (!editor) return;
+      const ownerDocument = editor.view.dom.ownerDocument;
+      const ownerWindow = ownerDocument.defaultView ?? window;
+      const exportInput = {
+        title: postTitle,
+        author: postAuthor,
+        html: editor.getHTML(),
+        exportedAt: new Date().toISOString(),
+        evidence: sharedChatEvidence,
+      };
+
+      try {
+        if (format === "pdf") {
+          downloadExportArtifact(buildPdfProvenanceExport(exportInput), ownerDocument);
+          openFinalContentPrintDialog(exportInput, ownerWindow);
+          showNotification(
+            "Diálogo de impressão aberto. Selecione “Salvar como PDF”; a proveniência foi baixada separadamente.",
+            "success",
+          );
+          return;
+        }
+
+        const exported = buildFinalContentExport(exportInput, format);
+        downloadExportArtifact(exported.content, ownerDocument);
+        downloadExportArtifact(exported.provenance, ownerDocument);
+        showNotification(
+          `${format === "html" ? "HTML MainSite" : "Markdown"} e proveniência exportados separadamente.`,
+          "success",
+        );
+      } catch (error) {
+        showNotification(
+          error instanceof Error ? error.message : "Não foi possível exportar o conteúdo final.",
+          "error",
+        );
+      }
+    },
+    [editor, postAuthor, postTitle, sharedChatEvidence, showNotification],
   );
 
   return (
@@ -947,6 +989,36 @@ export default function PostEditor({
           </p>
         </div>
         <div className="inline-actions">
+          <button
+            type="button"
+            className="ghost-button"
+            title="Exportar o conteúdo final em Markdown e baixar a proveniência separadamente"
+            onClick={() => handleFinalContentExport("markdown")}
+            disabled={savingPost || !editor}
+          >
+            <FileText size={16} />
+            Markdown
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            title="Exportar o fragmento HTML final compatível com MainSite e sua proveniência"
+            onClick={() => handleFinalContentExport("html")}
+            disabled={savingPost || !editor}
+          >
+            <Code size={16} />
+            HTML MainSite
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            title="Abrir o diálogo do sistema para salvar como PDF; a proveniência será baixada separadamente"
+            onClick={() => handleFinalContentExport("pdf")}
+            disabled={savingPost || !editor}
+          >
+            <Printer size={16} />
+            PDF
+          </button>
           {!aboutMode && !postIsAboutSite && (
             <button
               type="button"
@@ -1624,19 +1696,23 @@ export default function PostEditor({
             </button>
             <button
               type="button"
-              title="Importar do Gemini"
+              title="Importar chat público compartilhado do ChatGPT, Gemini ou Claude"
               onClick={() =>
                 openPromptModal({
-                  title: "Importar do Gemini (link compartilhado):",
+                  title: "Importar chat público compartilhado",
                   submitLabel: "Importar",
-                  primaryLabel: "URL do compartilhamento",
-                  placeholder: "https://gemini.google.com/share/...",
-                  callback: ({ value }) => handleGeminiImport(value),
+                  primaryLabel: "URL pública do ChatGPT, Gemini ou Claude",
+                  placeholder: SHARED_CHAT_URL_EXAMPLES.join(" · "),
+                  callback: ({ value }) => handleSharedChatImport(value),
                 })
               }
-              disabled={isImportingGemini}
+              disabled={isImportingSharedChat}
             >
-              {isImportingGemini ? <Loader2 size={15} className="spin" /> : <Download size={15} />}
+              {isImportingSharedChat ? (
+                <Loader2 size={15} className="spin" />
+              ) : (
+                <Download size={15} />
+              )}
             </button>
 
             <span className="tiptap-divider" />
@@ -1819,37 +1895,37 @@ export default function PostEditor({
              quando o React tenta montar condicionalmente ANTES de um nó do Tiptap (DragHandle)
              cujo DOM foi manipulado externamente. */}
         <div className="gemini-import-progress-wrapper" aria-live="polite">
-          {geminiImportProgress.active && (
+          {sharedChatImportProgress.active && (
             <div
-              className={`gemini-import-progress gemini-import-progress--${geminiImportProgress.stage}`}
+              className={`gemini-import-progress gemini-import-progress--${sharedChatImportProgress.stage}`}
               role="status"
             >
               <div className="gemini-import-progress__meta">
-                <span>Importacao Gemini</span>
-                <span>{geminiImportProgress.percent}%</span>
+                <span>Importação de chat compartilhado</span>
+                <span>{sharedChatImportProgress.percent}%</span>
               </div>
               <div className="gemini-import-progress__track" aria-hidden="true">
                 <div
                   className="gemini-import-progress__fill"
-                  style={{ width: `${geminiImportProgress.percent}%` }}
+                  style={{ width: `${sharedChatImportProgress.percent}%` }}
                 />
               </div>
-              <p className="gemini-import-progress__message">{geminiImportProgress.message}</p>
-              {geminiImportProgress.stage === "error" && (
+              <p className="gemini-import-progress__message">{sharedChatImportProgress.message}</p>
+              {sharedChatImportProgress.stage === "error" && (
                 <div className="gemini-import-progress__actions">
                   <button
                     type="button"
                     className="gemini-import-progress__btn gemini-import-progress__btn--primary"
-                    onClick={() => handleGeminiImport(lastGeminiImportUrl)}
-                    disabled={!lastGeminiImportUrl || isImportingGemini}
+                    onClick={() => handleSharedChatImport(lastSharedChatImportUrl)}
+                    disabled={!lastSharedChatImportUrl || isImportingSharedChat}
                   >
                     Tentar novamente
                   </button>
                   <button
                     type="button"
                     className="gemini-import-progress__btn gemini-import-progress__btn--ghost"
-                    onClick={() => setGeminiImportProgress(GEMINI_IMPORT_IDLE)}
-                    disabled={isImportingGemini}
+                    onClick={() => setSharedChatImportProgress(SHARED_CHAT_IMPORT_IDLE)}
+                    disabled={isImportingSharedChat}
                   >
                     Fechar
                   </button>

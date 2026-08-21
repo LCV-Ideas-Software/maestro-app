@@ -45,9 +45,13 @@ import {
 } from "./helpers";
 import { useEscapeKey } from "./hooks/useEscapeKey";
 import {
+  importSharedChat,
   listResumableSessions,
   loadMainSiteDraft,
   MAIN_SITE_SANITIZER_PROFILE,
+  previewMainSiteD1Publish,
+  probeMainSiteD1,
+  publishMainSiteD1,
   resumeEditorialSession,
   runEditorialSession,
   saveMainSiteDraft,
@@ -96,6 +100,10 @@ import type {
   EvidenceRow,
   InitialAgentKey,
   LinkAuditResult,
+  MainSiteD1PublishPlan,
+  MainSiteD1PublishResult,
+  MainSiteD1Target,
+  MainSiteDraft,
   OperationSnapshot,
   PhaseItem,
   PromptAttachmentPayload,
@@ -196,7 +204,15 @@ export function App() {
   const [mainSiteIsAboutSite, setMainSiteIsAboutSite] = useState(false);
   const [mainSitePostId, setMainSitePostId] = useState<number | null>(null);
   const [mainSiteDraftStatus, setMainSiteDraftStatus] = useState("Rascunho ainda nao persistido");
+  const [mainSiteDraft, setMainSiteDraft] = useState<MainSiteDraft | null>(null);
   const [isSavingPostEditor, setIsSavingPostEditor] = useState(false);
+  const [mainSitePublishPlan, setMainSitePublishPlan] = useState<MainSiteD1PublishPlan | null>(
+    null,
+  );
+  const [mainSitePublishResult, setMainSitePublishResult] =
+    useState<MainSiteD1PublishResult | null>(null);
+  const [mainSitePublishError, setMainSitePublishError] = useState<string | null>(null);
+  const [mainSitePublishBusy, setMainSitePublishBusy] = useState(false);
   const [providerMode, setProviderMode] = useState<ProviderMode>("hybrid");
   const [initialAgent, setInitialAgent] = useState<InitialAgentKey>("claude");
   const [activeAgents, setActiveAgents] = useState<InitialAgentKey[]>(defaultActiveAgents);
@@ -215,6 +231,8 @@ export function App() {
   const [cloudflareTokenEnvVar, setCloudflareTokenEnvVar] = useState(
     "MAESTRO_CLOUDFLARE_API_TOKEN",
   );
+  const [cloudflarePublicationDatabase, setCloudflarePublicationDatabase] = useState("example_db");
+  const [cloudflarePublicationTable, setCloudflarePublicationTable] = useState("mainsite_posts");
   const [cloudflareEnvSnapshot, setCloudflareEnvSnapshot] = useState<CloudflareEnvSnapshot | null>(
     null,
   );
@@ -302,6 +320,7 @@ export function App() {
     void loadMainSiteDraft()
       .then((draft) => {
         if (disposed || !draft) return;
+        setMainSiteDraft(draft);
         setSessionName(draft.title);
         setMainSiteHtml(draft.content);
         setMainSiteAuthor(draft.author);
@@ -1014,6 +1033,8 @@ export function App() {
       cloudflare_api_token_source: cloudflareTokenSource,
       cloudflare_api_token_env_var: cloudflareTokenEnvVar.trim() || "MAESTRO_CLOUDFLARE_API_TOKEN",
       cloudflare_persistence_database: "maestro_db",
+      cloudflare_publication_database: cloudflarePublicationDatabase.trim() || "example_db",
+      cloudflare_publication_table: cloudflarePublicationTable.trim() || "mainsite_posts",
       cloudflare_secret_store: "maestro",
       windows_env_prefix: "MAESTRO_",
       updated_at: new Date().toISOString(),
@@ -1042,6 +1063,8 @@ export function App() {
         envSnapshot.api_token_env_var ?? config.cloudflare_api_token_env_var,
       );
       setCloudflareEnvSnapshot(envSnapshot);
+      setCloudflarePublicationDatabase(config.cloudflare_publication_database || "example_db");
+      setCloudflarePublicationTable(config.cloudflare_publication_table || "mainsite_posts");
       if (!cloudflareAccountId.trim() && (envSnapshot.account_id || config.cloudflare_account_id)) {
         setCloudflareAccountId(envSnapshot.account_id ?? config.cloudflare_account_id ?? "");
       }
@@ -2541,8 +2564,8 @@ export function App() {
           ? "windows_env"
           : cloudflareTokenSource,
         token_env_var: tokenEnvVar,
-        target_database: "bigdata_db",
-        target_table: "mainsite_posts",
+        target_database: cloudflarePublicationDatabase.trim() || "example_db",
+        target_table: cloudflarePublicationTable.trim() || "mainsite_posts",
         persistence_database: "maestro_db",
         persistence_secret_store: "maestro",
         credential_storage_mode: credentialStorageMode,
@@ -2555,7 +2578,8 @@ export function App() {
         api_token: cloudflareApiToken.trim() || null,
         api_token_env_var: tokenEnvVar,
         persistence_database: "maestro_db",
-        publication_database: "bigdata_db",
+        publication_database: cloudflarePublicationDatabase.trim() || "example_db",
+        publication_table: cloudflarePublicationTable.trim() || "mainsite_posts",
         secret_store: "maestro",
       });
       setCloudflarePermissionRows(result.rows);
@@ -2738,6 +2762,10 @@ export function App() {
         is_about_site: isAboutSite,
         sanitizer_profile: MAIN_SITE_SANITIZER_PROFILE,
       });
+      setMainSiteDraft(draft);
+      setMainSitePublishPlan(null);
+      setMainSitePublishResult(null);
+      setMainSitePublishError(null);
       setSessionName(draft.title);
       setMainSiteHtml(draft.content);
       setMainSiteAuthor(draft.author);
@@ -2782,6 +2810,183 @@ export function App() {
     } finally {
       setIsSavingPostEditor(false);
     }
+  }
+
+  function buildMainSiteD1Target(): MainSiteD1Target {
+    return {
+      account_id: cloudflareAccountId.trim() || cloudflareEnvSnapshot?.account_id || "",
+      api_token: cloudflareApiToken.trim() || null,
+      api_token_env_var:
+        cloudflareTokenEnvVar.trim() ||
+        cloudflareEnvSnapshot?.api_token_env_var ||
+        "MAESTRO_CLOUDFLARE_API_TOKEN",
+      database: cloudflarePublicationDatabase.trim(),
+      table: cloudflarePublicationTable.trim(),
+      allow_wrangler_fallback: false,
+    };
+  }
+
+  async function previewMainSitePublish() {
+    if (!mainSiteDraft) {
+      setMainSitePublishError("Salve primeiro um rascunho MainSite validado.");
+      return;
+    }
+
+    setMainSitePublishBusy(true);
+    setMainSitePublishError(null);
+    setMainSitePublishResult(null);
+    try {
+      await persistBootstrapConfig();
+      const target = buildMainSiteD1Target();
+      await probeMainSiteD1(target);
+      const plan = await previewMainSiteD1Publish(target, mainSiteDraft);
+      setMainSitePublishPlan(plan);
+      void logEvent({
+        level: "info",
+        category: "editor.mainsite_d1.preview_ready",
+        message: "read-only MainSite D1 publication preview prepared",
+        context: {
+          plan_id: plan.plan_id,
+          action: plan.action,
+          draft_hash: plan.draft_hash,
+          remote_hash_present: Boolean(plan.remote_hash),
+          read_only: plan.read_only,
+        },
+      });
+    } catch (error) {
+      setMainSitePublishPlan(null);
+      setMainSitePublishError(error instanceof Error ? error.message : String(error));
+      void logEvent({
+        level: "warn",
+        category: "editor.mainsite_d1.preview_blocked",
+        message: "MainSite D1 publication preview failed closed",
+        context: { error },
+      });
+    } finally {
+      setMainSitePublishBusy(false);
+    }
+  }
+
+  async function publishMainSiteDraft() {
+    if (!mainSiteDraft || !mainSitePublishPlan) {
+      setMainSitePublishError("Gere um novo preview somente leitura antes de publicar.");
+      return;
+    }
+
+    setMainSitePublishBusy(true);
+    setMainSitePublishError(null);
+    try {
+      const result = await publishMainSiteD1(
+        buildMainSiteD1Target(),
+        mainSiteDraft,
+        mainSitePublishPlan,
+      );
+      let linkedDraft: MainSiteDraft;
+      try {
+        linkedDraft = await saveMainSiteDraft({
+          requested_post_id: result.post_id,
+          title: mainSiteDraft.title,
+          author: mainSiteDraft.author,
+          content: mainSiteDraft.content,
+          is_published: mainSiteDraft.is_published,
+          is_about_site: mainSiteDraft.is_about_site,
+          sanitizer_profile: mainSiteDraft.sanitizer_profile,
+        });
+      } catch (persistenceError) {
+        const recoveryMessage =
+          `O post remoto #${result.post_id} foi publicado e relido, mas o vínculo local não pôde ser persistido. ` +
+          "A publicação foi bloqueada nesta sessão: não tente novamente até recuperar o rascunho com esse ID.";
+        setMainSitePostId(result.post_id);
+        setMainSiteDraft(null);
+        setMainSitePublishPlan(null);
+        setMainSitePublishResult(null);
+        setMainSitePublishError(recoveryMessage);
+        setMainSiteDraftStatus(recoveryMessage);
+        void logEvent({
+          level: "error",
+          category: "editor.mainsite_d1.local_linkage_failed",
+          message: "remote MainSite D1 write succeeded but local post linkage failed",
+          context: {
+            plan_id: result.plan_id,
+            post_id: result.post_id,
+            error: persistenceError,
+          },
+        });
+        return;
+      }
+      setMainSiteDraft(linkedDraft);
+      setMainSitePublishResult(result);
+      setMainSitePublishPlan(null);
+      setMainSitePostId(linkedDraft.requested_post_id);
+      setMainSiteDraftStatus(
+        `Publicado e relido em ${formatBrazilDateTime(new Date(result.published_at))}`,
+      );
+      void logEvent({
+        level: "info",
+        category: "editor.mainsite_d1.publish_verified",
+        message: "MainSite D1 publication verified by readback",
+        context: {
+          plan_id: result.plan_id,
+          action: result.action,
+          post_id: result.post_id,
+          draft_hash: result.draft_hash,
+          readback_hash: result.readback_hash,
+          content_version: result.content_version,
+          fields_verified: result.fields_verified,
+          transport: result.transport,
+        },
+      });
+    } catch (error) {
+      setMainSitePublishError(error instanceof Error ? error.message : String(error));
+      void logEvent({
+        level: "error",
+        category: "editor.mainsite_d1.publish_failed",
+        message: "MainSite D1 publication failed or readback did not match",
+        context: { error, plan_id: mainSitePublishPlan.plan_id },
+      });
+    } finally {
+      setMainSitePublishBusy(false);
+    }
+  }
+
+  function resetMainSitePublish() {
+    setMainSitePublishPlan(null);
+    setMainSitePublishResult(null);
+    setMainSitePublishError(null);
+  }
+
+  async function importSharedChatIntoEditor(url: string) {
+    const result = await importSharedChat(url);
+    if (result.state === "operator_action_required") {
+      void logEvent({
+        level: "warn",
+        category: "editor.shared_chat.operator_action_required",
+        message: "shared chat import requires explicit operator assistance",
+        context: {
+          provider: result.provider,
+          action_kind: result.action.kind,
+          evidence_id: result.evidence.id,
+        },
+      });
+      throw new Error(`${result.action.reason} ${result.action.next_step}`.trim());
+    }
+
+    void logEvent({
+      level: "info",
+      category: "editor.shared_chat.imported",
+      message: "shared chat imported with separate provenance",
+      context: {
+        provider: result.provider,
+        evidence_id: result.evidence.id,
+        provenance_id: result.provenance_id,
+      },
+    });
+    return {
+      title: result.title,
+      html: result.html,
+      provider: result.provider,
+      evidence: result.evidence,
+    };
   }
 
   function openPostEditor() {
@@ -2859,6 +3064,7 @@ export function App() {
             editorialPrompt={editorialPrompt}
             formalState={formalState}
             handlePromptAttachments={handlePromptAttachments}
+            importSharedChat={importSharedChatIntoEditor}
             initialAgent={initialAgent}
             initialAgentLabel={initialAgentLabel}
             isResumeLoading={isResumeLoading}
@@ -2871,10 +3077,22 @@ export function App() {
             mainSiteIsAboutSite={mainSiteIsAboutSite}
             mainSiteIsPublished={mainSiteIsPublished}
             mainSitePostId={mainSitePostId}
+            mainSitePublishBusy={mainSitePublishBusy}
+            mainSitePublishError={mainSitePublishError}
+            mainSitePublishPlan={mainSitePublishPlan}
+            mainSitePublishResult={mainSitePublishResult}
+            mainSitePublishTargetConfigured={
+              Boolean(mainSiteDraft) &&
+              Boolean(cloudflareAccountId.trim() || cloudflareEnvSnapshot?.account_id) &&
+              cloudflareTokenAvailable &&
+              Boolean(cloudflarePublicationDatabase.trim()) &&
+              Boolean(cloudflarePublicationTable.trim())
+            }
             maxSessionCostUsd={maxSessionCostUsd}
             maxSessionMinutes={maxSessionMinutes}
             openPostEditor={openPostEditor}
             openSessionLedger={openSessionLedger}
+            previewMainSitePublish={() => void previewMainSitePublish()}
             operation={operation}
             operationIndeterminate={operationIndeterminate}
             operationProgressLabel={operationProgressLabel}
@@ -2886,6 +3104,8 @@ export function App() {
             readyCount={readyCount}
             removePromptAttachment={removePromptAttachment}
             requestResumeSession={() => void requestResumeSession()}
+            publishMainSiteDraft={() => void publishMainSiteDraft()}
+            resetMainSitePublish={resetMainSitePublish}
             savePostEditorDraft={savePostEditorDraft}
             sessionLinks={sessionLinks}
             sessionName={sessionName}
@@ -2938,6 +3158,8 @@ export function App() {
                 cloudflareApiToken={cloudflareApiToken}
                 cloudflareEnvSnapshot={cloudflareEnvSnapshot}
                 cloudflarePermissionRows={cloudflarePermissionRows}
+                cloudflarePublicationDatabase={cloudflarePublicationDatabase}
+                cloudflarePublicationTable={cloudflarePublicationTable}
                 cloudflareTokenAvailable={cloudflareTokenAvailable}
                 cloudflareTokenEnvVar={cloudflareTokenEnvVar}
                 credentialStorageMode={credentialStorageMode}
@@ -2945,6 +3167,8 @@ export function App() {
                 onAccountIdChange={setCloudflareAccountId}
                 onApiTokenChange={setCloudflareApiToken}
                 onChooseCredentialStorage={chooseCredentialStorage}
+                onPublicationDatabaseChange={setCloudflarePublicationDatabase}
+                onPublicationTableChange={setCloudflarePublicationTable}
                 onVerify={() => void verifyCloudflareCredentials()}
               />
             }

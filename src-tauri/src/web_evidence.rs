@@ -35,7 +35,7 @@ use crate::app_init::hidden_command;
 use crate::app_paths::{checked_data_child_path, data_dir, sanitize_path_segment};
 use crate::editorial_io::{read_text_file, write_binary_file, write_text_file};
 use crate::link_audit::{public_http_url_rejection_reason, PublicOnlyResolver};
-use crate::sanitize::{sanitize_short, sanitize_text};
+use crate::sanitize::{redact_secrets, sanitize_short, sanitize_text};
 
 const SCHEMA_VERSION: &str = "web_evidence.v1";
 const PROGRESS_EVENT: &str = "web-evidence-progress";
@@ -48,6 +48,11 @@ const MAX_ROBOTS_BYTES: usize = 512 * 1024;
 const MAX_OPERATOR_ARTIFACT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_SEARCH_RESULTS: usize = 20;
 const MAX_LIST_RESULTS: usize = 100;
+const SHARED_CHAT_SCHEMA_VERSION: &str = "shared_chat_import.v1";
+const MAX_SHARED_CHAT_ARTIFACT_BYTES: usize = 8 * 1024 * 1024;
+const MAX_SHARED_CHAT_TURNS: usize = 500;
+const MAX_SHARED_CHAT_TURN_BYTES: usize = 512 * 1024;
+const MAX_SHARED_CHAT_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
 
 static EVIDENCE_IO_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -244,6 +249,142 @@ pub(crate) struct WebEvidenceImportRequest {
 pub(crate) struct WebEvidenceInteractionRequest {
     pub(crate) evidence_id: String,
     pub(crate) confirmed: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SharedChatProvider {
+    #[serde(rename = "chatgpt")]
+    ChatGpt,
+    Gemini,
+    Claude,
+}
+
+impl SharedChatProvider {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ChatGpt => "chatgpt",
+            Self::Gemini => "gemini",
+            Self::Claude => "claude",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct SharedChatImportRequest {
+    pub(crate) url: String,
+    #[serde(default)]
+    pub(crate) evidence_id: Option<String>,
+    #[serde(default)]
+    pub(crate) force_revalidate: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct SharedChatEvidenceProjection {
+    pub(crate) id: String,
+    pub(crate) source_url: String,
+    pub(crate) final_url: Option<String>,
+    pub(crate) sha256: Option<String>,
+    pub(crate) retrieved_at: Option<String>,
+    pub(crate) access_mode: WebEvidenceAccessMode,
+    pub(crate) notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct SharedChatActionRequired {
+    pub(crate) kind: String,
+    pub(crate) reason: String,
+    pub(crate) next_step: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub(crate) enum SharedChatImportResult {
+    Ready {
+        title: Option<String>,
+        html: String,
+        provider: SharedChatProvider,
+        evidence: SharedChatEvidenceProjection,
+        provenance_id: String,
+        markdown_path: String,
+        provenance_path: String,
+    },
+    OperatorActionRequired {
+        provider: SharedChatProvider,
+        evidence: SharedChatEvidenceProjection,
+        action: SharedChatActionRequired,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum SharedChatRole {
+    User,
+    Assistant,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct SharedChatArtifact {
+    kind: String,
+    name: Option<String>,
+    content: Option<String>,
+    url: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct SharedChatTurn {
+    ordinal: usize,
+    role: SharedChatRole,
+    content_markdown: String,
+    artifacts: Vec<SharedChatArtifact>,
+    timestamp_hint: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SharedChatCandidate {
+    title: Option<String>,
+    turns: Vec<SharedChatTurn>,
+}
+
+#[derive(Clone, Debug)]
+struct ClassifiedSharedChatUrl {
+    provider: SharedChatProvider,
+    normalized_url: String,
+    requires_gemini_redirect_validation: bool,
+}
+
+#[derive(Clone, Debug)]
+enum SharedChatExtractionError {
+    Insufficient(String),
+    Ambiguous(String),
+    Invalid(String),
+}
+
+impl SharedChatExtractionError {
+    fn message(&self) -> &str {
+        match self {
+            Self::Insufficient(message) | Self::Ambiguous(message) | Self::Invalid(message) => {
+                message
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct SharedChatProvenance {
+    schema_version: String,
+    provenance_id: String,
+    provider: SharedChatProvider,
+    source_url: String,
+    canonical_url: String,
+    evidence: SharedChatEvidenceProjection,
+    title: Option<String>,
+    turns: Vec<SharedChatTurn>,
+    conversation_sha256: String,
+    markdown_sha256: String,
+    html_sha256: String,
+    trust_classification: String,
+    created_at: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -2091,9 +2232,1368 @@ pub(crate) fn resume_web_evidence_interaction(
     Ok(stored.record)
 }
 
+fn valid_shared_chat_token(value: &str) -> bool {
+    (1..=256).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn classify_shared_chat_url(value: &str) -> Result<ClassifiedSharedChatUrl, String> {
+    let mut url = validate_public_url(value)?;
+    if url.scheme() != "https" {
+        return Err("shared-chat URLs must use HTTPS".to_string());
+    }
+    if url.port().is_some() {
+        return Err("shared-chat URLs with explicit ports are not supported".to_string());
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| "shared-chat URL omitted its host".to_string())?
+        .to_ascii_lowercase();
+    let mut segments = url
+        .path_segments()
+        .ok_or_else(|| "shared-chat URL path could not be inspected".to_string())?
+        .collect::<Vec<_>>();
+    while segments.last().is_some_and(|segment| segment.is_empty()) {
+        segments.pop();
+    }
+
+    let (provider, token, requires_gemini_redirect_validation) = match host.as_str() {
+        "chatgpt.com" if segments.len() == 2 && segments[0] == "share" => {
+            (SharedChatProvider::ChatGpt, segments[1], false)
+        }
+        "gemini.google.com" if segments.len() == 2 && segments[0] == "share" => {
+            (SharedChatProvider::Gemini, segments[1], false)
+        }
+        "g.co"
+            if segments.len() == 3
+                && segments[0] == "gemini"
+                && segments[1] == "share" =>
+        {
+            (SharedChatProvider::Gemini, segments[2], true)
+        }
+        "claude.ai" if segments.len() == 2 && segments[0] == "share" => {
+            (SharedChatProvider::Claude, segments[1], false)
+        }
+        _ => {
+            return Err(
+                "URL is not a recognized public ChatGPT, Gemini, or Claude share URL"
+                    .to_string(),
+            )
+        }
+    };
+    if !valid_shared_chat_token(token) {
+        return Err("shared-chat URL contains an invalid or truncated share identifier".to_string());
+    }
+    let token = token.to_string();
+
+    url.set_query(None);
+    url.set_fragment(None);
+    let normalized_path = match (provider, requires_gemini_redirect_validation) {
+        (SharedChatProvider::Gemini, true) => format!("/gemini/share/{token}"),
+        _ => format!("/share/{token}"),
+    };
+    url.set_path(&normalized_path);
+    Ok(ClassifiedSharedChatUrl {
+        provider,
+        normalized_url: url.as_str().to_string(),
+        requires_gemini_redirect_validation,
+    })
+}
+
+fn canonical_url_from_evidence(
+    classified: &ClassifiedSharedChatUrl,
+    record: &WebEvidenceRecord,
+) -> Result<String, SharedChatExtractionError> {
+    let candidates = record
+        .redirect_chain
+        .iter()
+        .map(|redirect| redirect.url.as_str())
+        .chain(record.final_url.as_deref())
+        .chain(std::iter::once(record.url.as_str()));
+
+    for candidate in candidates {
+        let Ok(destination) = classify_shared_chat_url(candidate) else {
+            continue;
+        };
+        let same_share = classified.requires_gemini_redirect_validation
+            || destination.normalized_url == classified.normalized_url;
+        if destination.provider == classified.provider
+            && !destination.requires_gemini_redirect_validation
+            && same_share
+        {
+            return Ok(destination.normalized_url);
+        }
+    }
+
+    if classified.requires_gemini_redirect_validation {
+        return Err(SharedChatExtractionError::Invalid(
+            "g.co Gemini share redirect did not resolve through a canonical gemini.google.com/share URL"
+                .to_string(),
+        ));
+    }
+    Err(SharedChatExtractionError::Insufficient(
+        "the collected page did not remain on the recognized provider share surface".to_string(),
+    ))
+}
+
+fn shared_chat_evidence_projection(record: &WebEvidenceRecord) -> SharedChatEvidenceProjection {
+    let source_url = classify_shared_chat_url(&record.url)
+        .map(|classified| classified.normalized_url)
+        .unwrap_or_default();
+    let final_url = record.final_url.as_deref().and_then(|value| {
+        classify_shared_chat_url(value)
+            .ok()
+            .map(|classified| classified.normalized_url)
+    });
+    SharedChatEvidenceProjection {
+        id: record.id.clone(),
+        source_url,
+        final_url,
+        sha256: record.sha256.clone(),
+        retrieved_at: record.retrieved_at.clone(),
+        access_mode: record.access_mode,
+        // Evidence records can contain diagnostic details intended only for the
+        // native log. Do not project those details (including possible local
+        // paths) across the IPC boundary.
+        notes: Vec::new(),
+    }
+}
+
+fn load_shared_chat_artifact(stored: &StoredWebEvidence) -> Result<(String, String), String> {
+    if stored.record.state != WebEvidenceState::Ready {
+        return Err("web evidence is not ready for shared-chat extraction".to_string());
+    }
+    let relative = stored
+        .content_path
+        .as_deref()
+        .ok_or_else(|| "web evidence has no persisted content artifact".to_string())?;
+    let path = checked_data_child_path(&evidence_dir()?.join(relative))?;
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let media_type = stored
+        .record
+        .content_type
+        .as_deref()
+        .unwrap_or_default()
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let kind = if media_type.contains("html") || extension == "html" {
+        "html"
+    } else if media_type.contains("markdown") || extension == "md" {
+        "markdown"
+    } else {
+        return Err(
+            "shared-chat extraction accepts only persisted HTML or Markdown evidence artifacts"
+                .to_string(),
+        );
+    };
+    let content = read_text_file(&path)?;
+    if content.is_empty() || content.len() > MAX_SHARED_CHAT_ARTIFACT_BYTES {
+        return Err(format!(
+            "shared-chat artifact must contain 1..={} UTF-8 bytes",
+            MAX_SHARED_CHAT_ARTIFACT_BYTES
+        ));
+    }
+    Ok((kind.to_string(), content))
+}
+
+fn decode_html_entities(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'&' {
+            let character = value[index..].chars().next().unwrap_or_default();
+            output.push(character);
+            index += character.len_utf8();
+            continue;
+        }
+        let Some(relative_end) = value[index..].find(';') else {
+            output.push('&');
+            index += 1;
+            continue;
+        };
+        if relative_end > 14 {
+            output.push('&');
+            index += 1;
+            continue;
+        }
+        let entity = &value[index + 1..index + relative_end];
+        let decoded = match entity {
+            "amp" => Some('&'),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "quot" => Some('"'),
+            "apos" | "#39" => Some('\''),
+            "nbsp" => Some(' '),
+            value if value.starts_with("#x") || value.starts_with("#X") => {
+                u32::from_str_radix(&value[2..], 16).ok().and_then(char::from_u32)
+            }
+            value if value.starts_with('#') => value[1..]
+                .parse::<u32>()
+                .ok()
+                .and_then(char::from_u32),
+            _ => None,
+        };
+        if let Some(character) = decoded {
+            output.push(character);
+            index += relative_end + 1;
+        } else {
+            output.push('&');
+            index += 1;
+        }
+    }
+    output
+}
+
+fn normalize_visible_text(value: &str) -> String {
+    let value = value.replace("\r\n", "\n").replace('\r', "\n");
+    let lines = value
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>();
+    let mut normalized = lines.join("\n");
+    while normalized.contains("\n\n\n") {
+        normalized = normalized.replace("\n\n\n", "\n\n");
+    }
+    redact_secrets(normalized.trim()).chars().take(MAX_SHARED_CHAT_TURN_BYTES).collect()
+}
+
+fn html_fragment_to_markdown(value: &str) -> String {
+    let without_active = Regex::new(r"(?is)<(?:script|style|noscript)\b[^>]*>.*?</(?:script|style|noscript)\s*>")
+        .map(|regex| regex.replace_all(value, " ").to_string())
+        .unwrap_or_else(|_| value.to_string());
+    let anchors = Regex::new(
+        r#"(?is)<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a\s*>"#,
+    )
+    .ok();
+    let with_links = anchors
+        .as_ref()
+        .map(|regex| {
+            regex
+                .replace_all(&without_active, |captures: &regex::Captures<'_>| {
+                    let label = Regex::new(r"(?is)<[^>]+>")
+                        .map(|tags| tags.replace_all(&captures[2], " ").to_string())
+                        .unwrap_or_else(|_| captures[2].to_string());
+                    let label = normalize_visible_text(&decode_html_entities(&label));
+                    let href = captures.get(1).map(|value| value.as_str()).unwrap_or_default();
+                    let safe_href = validate_public_url(href)
+                        .ok()
+                        .filter(|url| url.scheme() == "https")
+                        .map(|url| url.as_str().to_string());
+                    match (label.is_empty(), safe_href) {
+                        (false, Some(url)) => format!("[{label}]({url})"),
+                        (false, None) => label,
+                        (true, Some(url)) => url,
+                        (true, None) => String::new(),
+                    }
+                })
+                .to_string()
+        })
+        .unwrap_or(without_active);
+    let with_breaks = Regex::new(
+        r"(?is)<br\s*/?>|</(?:p|div|section|article|li|h[1-6]|blockquote|pre|tr)\s*>",
+    )
+    .map(|regex| regex.replace_all(&with_links, "\n").to_string())
+    .unwrap_or(with_links);
+    let with_lists = Regex::new(r"(?is)<li\b[^>]*>")
+        .map(|regex| regex.replace_all(&with_breaks, "- ").to_string())
+        .unwrap_or(with_breaks);
+    let without_tags = Regex::new(r"(?is)<[^>]+>")
+        .map(|regex| regex.replace_all(&with_lists, " ").to_string())
+        .unwrap_or(with_lists);
+    normalize_visible_text(&decode_html_entities(&without_tags))
+}
+
+fn json_title(object: &serde_json::Map<String, Value>) -> Option<String> {
+    ["title", "conversation_title", "name"]
+        .iter()
+        .filter_map(|key| object.get(*key).and_then(Value::as_str))
+        .map(|title| sanitize_text(title.trim(), 300))
+        .find(|title| !title.is_empty())
+}
+
+fn role_from_label(label: &str, provider: SharedChatProvider) -> Option<SharedChatRole> {
+    let role = label
+        .trim()
+        .to_ascii_lowercase()
+        .replace('-', " ")
+        .replace('_', " ");
+    match role.as_str() {
+        "user" | "human" | "prompt" => Some(SharedChatRole::User),
+        "assistant" => Some(SharedChatRole::Assistant),
+        "model" if provider == SharedChatProvider::Gemini => Some(SharedChatRole::Assistant),
+        "gemini" if provider == SharedChatProvider::Gemini => Some(SharedChatRole::Assistant),
+        "chatgpt" if provider == SharedChatProvider::ChatGpt => Some(SharedChatRole::Assistant),
+        "claude" if provider == SharedChatProvider::Claude => Some(SharedChatRole::Assistant),
+        _ => None,
+    }
+}
+
+fn role_from_json(
+    object: &serde_json::Map<String, Value>,
+    provider: SharedChatProvider,
+) -> Option<SharedChatRole> {
+    object
+        .get("role")
+        .and_then(Value::as_str)
+        .or_else(|| object.get("speaker").and_then(Value::as_str))
+        .or_else(|| {
+            object
+                .get("author")
+                .and_then(Value::as_object)
+                .and_then(|author| author.get("role"))
+                .and_then(Value::as_str)
+        })
+        .and_then(|role| role_from_label(role, provider))
+}
+
+fn collect_content_strings(value: &Value, depth: usize, output: &mut Vec<String>) {
+    if depth == 0 || output.len() >= 100 {
+        return;
+    }
+    match value {
+        Value::String(text) => output.push(text.clone()),
+        Value::Array(items) => {
+            for item in items.iter().take(100) {
+                collect_content_strings(item, depth - 1, output);
+            }
+        }
+        Value::Object(object) => {
+            for key in ["text", "content", "parts"] {
+                if let Some(item) = object.get(key) {
+                    collect_content_strings(item, depth - 1, output);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn message_content_from_json(object: &serde_json::Map<String, Value>) -> Option<String> {
+    let mut fragments = Vec::new();
+    for key in ["content", "parts", "text"] {
+        if let Some(value) = object.get(key) {
+            collect_content_strings(value, 5, &mut fragments);
+        }
+    }
+    let joined = fragments.join("\n\n");
+    let content = if joined.contains('<') && joined.contains('>') {
+        html_fragment_to_markdown(&joined)
+    } else {
+        normalize_visible_text(&joined)
+    };
+    (!content.is_empty()).then_some(content)
+}
+
+fn timestamp_hint_from_json(object: &serde_json::Map<String, Value>) -> Option<String> {
+    for key in ["timestamp", "timestamp_hint", "created_at", "create_time", "updated_at", "time"] {
+        let Some(value) = object.get(key) else {
+            continue;
+        };
+        let rendered = match value {
+            Value::String(text) => sanitize_text(text, 120),
+            Value::Number(number) => sanitize_text(&number.to_string(), 120),
+            _ => continue,
+        };
+        if !rendered.is_empty() {
+            return Some(rendered);
+        }
+    }
+    None
+}
+
+fn artifact_from_json(value: &Value) -> Option<SharedChatArtifact> {
+    let object = value.as_object()?;
+    if object.get("hidden").and_then(Value::as_bool) == Some(true)
+        || object.get("visible").and_then(Value::as_bool) == Some(false)
+    {
+        return None;
+    }
+    let kind = ["kind", "type", "media_type"]
+        .iter()
+        .filter_map(|key| object.get(*key).and_then(Value::as_str))
+        .map(|value| sanitize_short(value, 60))
+        .find(|value| !value.is_empty())
+        .unwrap_or_else(|| "artifact".to_string());
+    let name = ["name", "title", "filename"]
+        .iter()
+        .filter_map(|key| object.get(*key).and_then(Value::as_str))
+        .map(|value| sanitize_text(value.trim(), 240))
+        .find(|value| !value.is_empty());
+    let content = ["text", "content", "summary"]
+        .iter()
+        .filter_map(|key| object.get(*key).and_then(Value::as_str))
+        .map(|value| normalize_visible_text(value))
+        .find(|value| !value.is_empty());
+    let url = ["url", "href", "download_url"]
+        .iter()
+        .filter_map(|key| object.get(*key).and_then(Value::as_str))
+        .filter_map(|value| validate_public_url(value).ok())
+        .filter(|url| url.scheme() == "https")
+        .map(|url| url.as_str().to_string())
+        .next();
+    if name.is_none() && content.is_none() && url.is_none() {
+        return None;
+    }
+    Some(SharedChatArtifact {
+        kind,
+        name,
+        content,
+        url,
+    })
+}
+
+fn visible_artifacts_from_json(object: &serde_json::Map<String, Value>) -> Vec<SharedChatArtifact> {
+    let mut artifacts = Vec::new();
+    for key in ["artifacts", "attachments", "files"] {
+        let Some(value) = object.get(key) else {
+            continue;
+        };
+        match value {
+            Value::Array(items) => {
+                artifacts.extend(items.iter().take(50).filter_map(artifact_from_json));
+            }
+            Value::Object(_) => {
+                if let Some(artifact) = artifact_from_json(value) {
+                    artifacts.push(artifact);
+                }
+            }
+            _ => {}
+        }
+    }
+    artifacts.sort_by(|left, right| {
+        (&left.kind, &left.name, &left.url, &left.content)
+            .cmp(&(&right.kind, &right.name, &right.url, &right.content))
+    });
+    artifacts.dedup();
+    artifacts.truncate(50);
+    artifacts
+}
+
+fn turn_from_json(value: &Value, provider: SharedChatProvider) -> Option<SharedChatTurn> {
+    let outer = value.as_object()?;
+    let message = outer
+        .get("message")
+        .and_then(Value::as_object)
+        .unwrap_or(outer);
+    let role = role_from_json(message, provider).or_else(|| role_from_json(outer, provider))?;
+    let content_markdown = message_content_from_json(message).or_else(|| {
+        if std::ptr::eq(message, outer) {
+            None
+        } else {
+            message_content_from_json(outer)
+        }
+    })?;
+    let mut artifacts = visible_artifacts_from_json(message);
+    if !std::ptr::eq(message, outer) {
+        artifacts.extend(visible_artifacts_from_json(outer));
+        artifacts.sort_by(|left, right| {
+            (&left.kind, &left.name, &left.url, &left.content)
+                .cmp(&(&right.kind, &right.name, &right.url, &right.content))
+        });
+        artifacts.dedup();
+    }
+    Some(SharedChatTurn {
+        ordinal: 0,
+        role,
+        content_markdown,
+        artifacts,
+        timestamp_hint: timestamp_hint_from_json(message)
+            .or_else(|| timestamp_hint_from_json(outer)),
+    })
+}
+
+fn candidate_from_message_array(
+    messages: &[Value],
+    provider: SharedChatProvider,
+    title: Option<String>,
+) -> Option<SharedChatCandidate> {
+    let turns = messages
+        .iter()
+        .take(MAX_SHARED_CHAT_TURNS * 2)
+        .filter_map(|message| turn_from_json(message, provider))
+        .collect::<Vec<_>>();
+    (!turns.is_empty()).then_some(SharedChatCandidate { title, turns })
+}
+
+fn chatgpt_mapping_candidate(
+    object: &serde_json::Map<String, Value>,
+) -> Result<Option<SharedChatCandidate>, SharedChatExtractionError> {
+    let Some(mapping) = object.get("mapping").and_then(Value::as_object) else {
+        return Ok(None);
+    };
+    let Some(mut current) = object
+        .get("current_node")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return Ok(None);
+    };
+    let mut seen = BTreeSet::new();
+    let mut turns = Vec::new();
+    let mut reached_root = false;
+    for _ in 0..MAX_SHARED_CHAT_TURNS * 2 {
+        if !seen.insert(current.clone()) {
+            return Err(SharedChatExtractionError::Ambiguous(
+                "ChatGPT mapping contains a parent cycle".to_string(),
+            ));
+        }
+        let Some(node) = mapping.get(&current).and_then(Value::as_object) else {
+            return Err(SharedChatExtractionError::Ambiguous(
+                "ChatGPT mapping current_node chain is incomplete".to_string(),
+            ));
+        };
+        if let Some(turn) = turn_from_json(&Value::Object(node.clone()), SharedChatProvider::ChatGpt) {
+            turns.push(turn);
+        }
+        let Some(parent) = node.get("parent").and_then(Value::as_str) else {
+            reached_root = true;
+            break;
+        };
+        current = parent.to_string();
+    }
+    if !reached_root {
+        return Err(SharedChatExtractionError::Ambiguous(
+            "ChatGPT mapping exceeded the bounded parent-chain limit".to_string(),
+        ));
+    }
+    turns.reverse();
+    Ok((!turns.is_empty()).then_some(SharedChatCandidate {
+        title: json_title(object),
+        turns,
+    }))
+}
+
+fn collect_json_candidates(
+    value: &Value,
+    provider: SharedChatProvider,
+    depth: usize,
+    output: &mut Vec<SharedChatCandidate>,
+) -> Result<(), SharedChatExtractionError> {
+    if depth == 0 || output.len() >= 50 {
+        return Ok(());
+    }
+    match value {
+        Value::Object(object) => {
+            if provider == SharedChatProvider::ChatGpt {
+                if let Some(candidate) = chatgpt_mapping_candidate(object)? {
+                    output.push(candidate);
+                }
+            }
+            let title = json_title(object);
+            for key in ["messages", "turns"] {
+                if let Some(messages) = object.get(key).and_then(Value::as_array) {
+                    if let Some(candidate) =
+                        candidate_from_message_array(messages, provider, title.clone())
+                    {
+                        output.push(candidate);
+                    }
+                }
+            }
+            if let Some(messages) = object.get("conversation").and_then(Value::as_array) {
+                if let Some(candidate) =
+                    candidate_from_message_array(messages, provider, title.clone())
+                {
+                    output.push(candidate);
+                }
+            }
+            for nested in object.values() {
+                collect_json_candidates(nested, provider, depth - 1, output)?;
+            }
+        }
+        Value::Array(items) => {
+            for nested in items.iter().take(500) {
+                collect_json_candidates(nested, provider, depth - 1, output)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn candidates_from_embedded_json(
+    html: &str,
+    provider: SharedChatProvider,
+) -> Result<Vec<SharedChatCandidate>, SharedChatExtractionError> {
+    let scripts = Regex::new(r#"(?is)<script\b([^>]*)>(.*?)</script\s*>"#)
+        .map_err(|error| SharedChatExtractionError::Invalid(format!("invalid JSON script matcher: {error}")))?;
+    let mut candidates = Vec::new();
+    for captures in scripts.captures_iter(html).take(100) {
+        let attributes = captures.get(1).map(|value| value.as_str()).unwrap_or_default();
+        let attributes_lower = attributes.to_ascii_lowercase();
+        let is_json = attributes_lower.contains("application/json")
+            || attributes_lower.contains("__next_data__")
+            || attributes_lower.contains("__nuxt_data__");
+        if !is_json {
+            continue;
+        }
+        let body = captures.get(2).map(|value| value.as_str()).unwrap_or_default().trim();
+        if body.is_empty() || body.len() > MAX_SHARED_CHAT_ARTIFACT_BYTES {
+            continue;
+        }
+        let parsed = serde_json::from_str::<Value>(body)
+            .or_else(|_| serde_json::from_str::<Value>(&decode_html_entities(body)));
+        if let Ok(value) = parsed {
+            collect_json_candidates(&value, provider, 16, &mut candidates)?;
+        }
+    }
+    Ok(candidates)
+}
+
+fn balanced_html_element<'a>(
+    html: &'a str,
+    opening_end: usize,
+    tag: &str,
+) -> Option<&'a str> {
+    let token = Regex::new(&format!(r"(?is)</?{}\b[^>]*>", regex::escape(tag))).ok()?;
+    let mut depth = 1usize;
+    for item in token.find_iter(&html[opening_end..]) {
+        let rendered = item.as_str().trim_start();
+        if rendered.starts_with("</") {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(&html[opening_end..opening_end + item.start()]);
+            }
+        } else if !rendered.trim_end().ends_with("/>") {
+            depth = depth.saturating_add(1);
+        }
+    }
+    None
+}
+
+fn dom_marker_regex(provider: SharedChatProvider) -> Result<Regex, SharedChatExtractionError> {
+    let pattern = match provider {
+        SharedChatProvider::ChatGpt => {
+            r#"(?is)<(article|section|div)\b[^>]*\bdata-message-author-role\s*=\s*["'](user|assistant)["'][^>]*>"#
+        }
+        SharedChatProvider::Gemini => {
+            r#"(?is)<(article|section|div)\b[^>]*\bdata-message-role\s*=\s*["'](user|model)["'][^>]*>"#
+        }
+        SharedChatProvider::Claude => {
+            r#"(?is)<(article|section|div)\b[^>]*\bdata-testid\s*=\s*["'](user-message|assistant-message)["'][^>]*>"#
+        }
+    };
+    Regex::new(pattern)
+        .map_err(|error| SharedChatExtractionError::Invalid(format!("invalid DOM marker matcher: {error}")))
+}
+
+fn candidate_from_dom(
+    html: &str,
+    provider: SharedChatProvider,
+) -> Result<Option<SharedChatCandidate>, SharedChatExtractionError> {
+    let marker = dom_marker_regex(provider)?;
+    let mut turns = Vec::new();
+    for captures in marker.captures_iter(html).take(MAX_SHARED_CHAT_TURNS * 2) {
+        let Some(opening) = captures.get(0) else {
+            continue;
+        };
+        let tag = captures.get(1).map(|value| value.as_str()).unwrap_or_default();
+        let label = captures.get(2).map(|value| value.as_str()).unwrap_or_default();
+        let normalized_label = label.strip_suffix("-message").unwrap_or(label);
+        let Some(role) = role_from_label(normalized_label, provider) else {
+            continue;
+        };
+        let Some(fragment) = balanced_html_element(html, opening.end(), tag) else {
+            continue;
+        };
+        let content_markdown = html_fragment_to_markdown(fragment);
+        if content_markdown.is_empty() {
+            continue;
+        }
+        let artifacts = visible_artifacts_from_html(fragment);
+        let timestamp_hint = timestamp_hint_from_html(fragment);
+        turns.push(SharedChatTurn {
+            ordinal: 0,
+            role,
+            content_markdown,
+            artifacts,
+            timestamp_hint,
+        });
+    }
+    let title = Regex::new(r"(?is)<title\b[^>]*>(.*?)</title\s*>")
+        .ok()
+        .and_then(|regex| regex.captures(html))
+        .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+        .map(|value| html_fragment_to_markdown(&value))
+        .filter(|value| !value.is_empty());
+    Ok((!turns.is_empty()).then_some(SharedChatCandidate { title, turns }))
+}
+
+fn visible_artifacts_from_html(fragment: &str) -> Vec<SharedChatArtifact> {
+    let Ok(anchors) = Regex::new(
+        r#"(?is)<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a\s*>"#,
+    ) else {
+        return Vec::new();
+    };
+    let mut artifacts = anchors
+        .captures_iter(fragment)
+        .take(50)
+        .filter_map(|captures| {
+            let href = captures.get(1)?.as_str();
+            let url = validate_public_url(href)
+                .ok()
+                .filter(|url| url.scheme() == "https")?
+                .as_str()
+                .to_string();
+            let label = captures
+                .get(2)
+                .map(|value| html_fragment_to_markdown(value.as_str()))
+                .filter(|value| !value.is_empty());
+            Some(SharedChatArtifact {
+                kind: "link".to_string(),
+                name: label,
+                content: None,
+                url: Some(url),
+            })
+        })
+        .collect::<Vec<_>>();
+    artifacts.sort_by(|left, right| (&left.name, &left.url).cmp(&(&right.name, &right.url)));
+    artifacts.dedup();
+    artifacts
+}
+
+fn timestamp_hint_from_html(fragment: &str) -> Option<String> {
+    let datetime = Regex::new(
+        r#"(?is)<time\b[^>]*\bdatetime\s*=\s*["']([^"']+)["'][^>]*>"#,
+    )
+    .ok()
+    .and_then(|regex| regex.captures(fragment))
+    .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()));
+    let data_timestamp = Regex::new(
+        r#"(?is)\bdata-(?:timestamp|created-at)\s*=\s*["']([^"']+)["']"#,
+    )
+    .ok()
+    .and_then(|regex| regex.captures(fragment))
+    .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()));
+    datetime
+        .or(data_timestamp)
+        .map(|value| sanitize_text(&value, 120))
+        .filter(|value| !value.is_empty())
+}
+
+fn candidate_from_markdown(
+    markdown: &str,
+    provider: SharedChatProvider,
+) -> Result<Option<SharedChatCandidate>, SharedChatExtractionError> {
+    let heading = Regex::new(
+        r"(?i)^#{1,6}\s*(user|human|prompt|assistant|model|claude|chatgpt|gemini|usuário|usuario|assistente|pergunta|resposta)\s*:?[ \t]*$",
+    )
+    .map_err(|error| SharedChatExtractionError::Invalid(format!("invalid Markdown marker matcher: {error}")))?;
+    let mut turns = Vec::new();
+    let mut current_role = None;
+    let mut current_lines = Vec::new();
+
+    let flush = |role: Option<SharedChatRole>, lines: &mut Vec<&str>, turns: &mut Vec<SharedChatTurn>| {
+        let Some(role) = role else {
+            lines.clear();
+            return;
+        };
+        let content_markdown = normalize_visible_text(&lines.join("\n"));
+        lines.clear();
+        if !content_markdown.is_empty() {
+            turns.push(SharedChatTurn {
+                ordinal: 0,
+                role,
+                content_markdown,
+                artifacts: Vec::new(),
+                timestamp_hint: None,
+            });
+        }
+    };
+
+    for line in markdown.lines() {
+        if let Some(captures) = heading.captures(line.trim()) {
+            flush(current_role, &mut current_lines, &mut turns);
+            let label = captures.get(1).map(|value| value.as_str()).unwrap_or_default();
+            let lowercase_label = label.to_lowercase();
+            let translated = match lowercase_label.as_str() {
+                "usuário" | "usuario" | "pergunta" => "user",
+                "assistente" | "resposta" => "assistant",
+                other => other,
+            };
+            current_role = role_from_label(translated, provider);
+        } else if current_role.is_some() {
+            current_lines.push(line);
+        }
+    }
+    flush(current_role, &mut current_lines, &mut turns);
+    Ok((!turns.is_empty()).then_some(SharedChatCandidate { title: None, turns }))
+}
+
+fn normalize_shared_chat_candidate(
+    mut candidate: SharedChatCandidate,
+) -> Result<SharedChatCandidate, SharedChatExtractionError> {
+    if candidate.turns.len() > MAX_SHARED_CHAT_TURNS {
+        return Err(SharedChatExtractionError::Invalid(format!(
+            "shared conversation exceeds the {MAX_SHARED_CHAT_TURNS} turn limit"
+        )));
+    }
+    candidate.title = candidate
+        .title
+        .map(|title| sanitize_text(&redact_secrets(&title), 300))
+        .filter(|title| !title.is_empty());
+    let mut normalized = Vec::new();
+    let mut total_bytes = 0usize;
+    for mut turn in candidate.turns {
+        turn.content_markdown = normalize_visible_text(&turn.content_markdown);
+        if turn.content_markdown.is_empty() {
+            continue;
+        }
+        total_bytes = total_bytes
+            .saturating_add(turn.content_markdown.len())
+            .saturating_add(
+                turn.artifacts
+                    .iter()
+                    .map(|artifact| {
+                        artifact.kind.len()
+                            + artifact.name.as_ref().map(String::len).unwrap_or(0)
+                            + artifact.content.as_ref().map(String::len).unwrap_or(0)
+                            + artifact.url.as_ref().map(String::len).unwrap_or(0)
+                    })
+                    .sum::<usize>(),
+            );
+        turn.ordinal = normalized.len() + 1;
+        let duplicate = normalized.last().is_some_and(|previous: &SharedChatTurn| {
+            previous.role == turn.role
+                && previous.content_markdown == turn.content_markdown
+                && previous.artifacts == turn.artifacts
+        });
+        if !duplicate {
+            normalized.push(turn);
+        }
+    }
+    if total_bytes > MAX_SHARED_CHAT_OUTPUT_BYTES {
+        return Err(SharedChatExtractionError::Invalid(format!(
+            "shared conversation exceeds the {MAX_SHARED_CHAT_OUTPUT_BYTES} byte output limit"
+        )));
+    }
+    for (index, turn) in normalized.iter_mut().enumerate() {
+        turn.ordinal = index + 1;
+    }
+    let has_user = normalized.iter().any(|turn| turn.role == SharedChatRole::User);
+    let has_assistant = normalized
+        .iter()
+        .any(|turn| turn.role == SharedChatRole::Assistant);
+    let has_exchange = normalized.windows(2).any(|pair| {
+        pair[0].role == SharedChatRole::User && pair[1].role == SharedChatRole::Assistant
+    });
+    if normalized.len() < 2 || !has_user || !has_assistant || !has_exchange {
+        return Err(SharedChatExtractionError::Insufficient(
+            "no unequivocal user-to-assistant conversation was found in recognized provider markers"
+                .to_string(),
+        ));
+    }
+    candidate.turns = normalized;
+    Ok(candidate)
+}
+
+fn select_shared_chat_candidate(
+    candidates: Vec<SharedChatCandidate>,
+) -> Result<SharedChatCandidate, SharedChatExtractionError> {
+    let mut valid = Vec::new();
+    for candidate in candidates {
+        match normalize_shared_chat_candidate(candidate) {
+            Ok(candidate) if !valid.iter().any(|existing: &SharedChatCandidate| existing.turns == candidate.turns) => {
+                valid.push(candidate)
+            }
+            Ok(_) | Err(SharedChatExtractionError::Insufficient(_)) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    if valid.is_empty() {
+        return Err(SharedChatExtractionError::Insufficient(
+            "the artifact contains no complete conversation in recognized turn markers".to_string(),
+        ));
+    }
+    valid.sort_by(|left, right| right.turns.len().cmp(&left.turns.len()));
+    let selected = valid.remove(0);
+    if valid
+        .iter()
+        .any(|candidate| !selected.turns.starts_with(&candidate.turns))
+    {
+        return Err(SharedChatExtractionError::Ambiguous(
+            "the artifact contains multiple distinct conversations; import a single-conversation export"
+                .to_string(),
+        ));
+    }
+    Ok(selected)
+}
+
+fn extract_shared_chat_candidate(
+    kind: &str,
+    artifact: &str,
+    provider: SharedChatProvider,
+) -> Result<SharedChatCandidate, SharedChatExtractionError> {
+    if kind == "markdown" {
+        return select_shared_chat_candidate(
+            candidate_from_markdown(artifact, provider)?.into_iter().collect(),
+        );
+    }
+
+    let json_candidates = candidates_from_embedded_json(artifact, provider)?;
+    if !json_candidates.is_empty() {
+        match select_shared_chat_candidate(json_candidates) {
+            Ok(candidate) => return Ok(candidate),
+            Err(SharedChatExtractionError::Ambiguous(message)) => {
+                return Err(SharedChatExtractionError::Ambiguous(message))
+            }
+            Err(SharedChatExtractionError::Invalid(message)) => {
+                return Err(SharedChatExtractionError::Invalid(message))
+            }
+            Err(SharedChatExtractionError::Insufficient(_)) => {}
+        }
+    }
+    select_shared_chat_candidate(candidate_from_dom(artifact, provider)?.into_iter().collect())
+}
+
+fn markdown_plain_text(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for character in value.chars() {
+        if matches!(
+            character,
+            '\\' | '`' | '*' | '_' | '{' | '}' | '[' | ']' | '<' | '>' | '(' | ')' | '#'
+                | '+' | '-' | '.' | '!' | '|' | '~'
+        ) {
+            output.push('\\');
+        }
+        output.push(character);
+    }
+    output
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn render_shared_chat(
+    title: Option<&str>,
+    turns: &[SharedChatTurn],
+) -> Result<(String, String), SharedChatExtractionError> {
+    let mut markdown = String::new();
+    let mut html = String::from("<article data-maestro-shared-chat=\"v1\">");
+    if let Some(title) = title {
+        markdown.push_str("# ");
+        markdown.push_str(&markdown_plain_text(title));
+        markdown.push_str("\n\n");
+        html.push_str("<h2>");
+        html.push_str(&escape_html(title));
+        html.push_str("</h2>");
+    }
+    for turn in turns {
+        let (label, role) = match turn.role {
+            SharedChatRole::User => ("Prompt", "user"),
+            SharedChatRole::Assistant => ("Resposta", "assistant"),
+        };
+        markdown.push_str(&format!("## {label} {}\n\n", turn.ordinal));
+        markdown.push_str(&markdown_plain_text(&turn.content_markdown));
+        markdown.push_str("\n\n");
+        if let Some(timestamp) = turn.timestamp_hint.as_deref() {
+            markdown.push_str("_Horário informado pela fonte: ");
+            markdown.push_str(&markdown_plain_text(timestamp));
+            markdown.push_str("_\n\n");
+        }
+        html.push_str(&format!(
+            "<section data-role=\"{role}\"><h3>{label} {}</h3><p>",
+            turn.ordinal
+        ));
+        html.push_str(&escape_html(&turn.content_markdown).replace('\n', "<br>"));
+        html.push_str("</p>");
+        if let Some(timestamp) = turn.timestamp_hint.as_deref() {
+            html.push_str("<p><small>Horário informado pela fonte: ");
+            html.push_str(&escape_html(timestamp));
+            html.push_str("</small></p>");
+        }
+        if !turn.artifacts.is_empty() {
+            markdown.push_str("### Artefatos visíveis\n\n");
+            html.push_str("<h4>Artefatos visíveis</h4><ul>");
+            for artifact in &turn.artifacts {
+                let label = artifact.name.as_deref().unwrap_or(&artifact.kind);
+                markdown.push_str("- ");
+                markdown.push_str(&markdown_plain_text(label));
+                if let Some(url) = artifact.url.as_deref() {
+                    markdown.push_str(": <");
+                    markdown.push_str(url);
+                    markdown.push('>');
+                }
+                if let Some(content) = artifact.content.as_deref() {
+                    markdown.push_str(" — ");
+                    markdown.push_str(&markdown_plain_text(content));
+                }
+                markdown.push('\n');
+                html.push_str("<li>");
+                html.push_str(&escape_html(label));
+                if let Some(url) = artifact.url.as_deref() {
+                    html.push_str(" — <a rel=\"noopener noreferrer\" href=\"");
+                    html.push_str(&escape_html(url));
+                    html.push_str("\">abrir artefato</a>");
+                }
+                if let Some(content) = artifact.content.as_deref() {
+                    html.push_str(" — ");
+                    html.push_str(&escape_html(content));
+                }
+                html.push_str("</li>");
+            }
+            markdown.push('\n');
+            html.push_str("</ul>");
+        }
+        html.push_str("</section>");
+    }
+    html.push_str("</article>");
+    if markdown.len() > MAX_SHARED_CHAT_OUTPUT_BYTES || html.len() > MAX_SHARED_CHAT_OUTPUT_BYTES {
+        return Err(SharedChatExtractionError::Invalid(
+            "safe shared-chat rendering exceeded the output limit".to_string(),
+        ));
+    }
+    Ok((markdown, html))
+}
+
+fn persist_shared_chat(
+    classified: &ClassifiedSharedChatUrl,
+    canonical_url: &str,
+    stored: &StoredWebEvidence,
+    candidate: SharedChatCandidate,
+) -> Result<SharedChatImportResult, SharedChatExtractionError> {
+    let title = candidate
+        .title
+        .clone()
+        .or_else(|| {
+            stored
+                .record
+                .title
+                .as_deref()
+                .map(|title| sanitize_text(&redact_secrets(title), 300))
+        })
+        .filter(|title| !title.is_empty());
+    let (markdown, html) = render_shared_chat(title.as_deref(), &candidate.turns)?;
+    let conversation_bytes = serde_json::to_vec(&candidate.turns).map_err(|error| {
+        SharedChatExtractionError::Invalid(format!("failed to hash extracted conversation: {error}"))
+    })?;
+    let conversation_sha256 = sha256_bytes(&conversation_bytes);
+    let markdown_sha256 = sha256_bytes(markdown.as_bytes());
+    let html_sha256 = sha256_bytes(html.as_bytes());
+    let provenance_id = evidence_id(&format!(
+        "{}|{}|{}|{}|{}|{}",
+        SHARED_CHAT_SCHEMA_VERSION,
+        classified.provider.as_str(),
+        canonical_url,
+        stored.record.id,
+        stored.record.sha256.as_deref().unwrap_or_default(),
+        conversation_sha256
+    ));
+    let relative_dir = PathBuf::from("shared-chat-imports").join(&provenance_id);
+    let directory = checked_data_child_path(&data_dir().join(&relative_dir))
+        .map_err(SharedChatExtractionError::Invalid)?;
+    fs::create_dir_all(&directory).map_err(|error| {
+        SharedChatExtractionError::Invalid(format!("failed to create shared-chat data directory: {error}"))
+    })?;
+    let markdown_path = checked_data_child_path(&directory.join("conversation.md"))
+        .map_err(SharedChatExtractionError::Invalid)?;
+    let provenance_path = checked_data_child_path(&directory.join("provenance.json"))
+        .map_err(SharedChatExtractionError::Invalid)?;
+    let evidence = shared_chat_evidence_projection(&stored.record);
+    let provenance = SharedChatProvenance {
+        schema_version: SHARED_CHAT_SCHEMA_VERSION.to_string(),
+        provenance_id: provenance_id.clone(),
+        provider: classified.provider,
+        source_url: classified.normalized_url.clone(),
+        canonical_url: canonical_url.to_string(),
+        evidence: evidence.clone(),
+        title: title.clone(),
+        turns: candidate.turns,
+        conversation_sha256,
+        markdown_sha256,
+        html_sha256,
+        trust_classification: "operator-visible public shared conversation; untrusted content"
+            .to_string(),
+        created_at: Utc::now().to_rfc3339(),
+    };
+    let encoded = serde_json::to_string_pretty(&provenance).map_err(|error| {
+        SharedChatExtractionError::Invalid(format!("failed to serialize shared-chat provenance: {error}"))
+    })?;
+    let _guard = io_lock()
+        .lock()
+        .map_err(|_| SharedChatExtractionError::Invalid("web evidence I/O lock poisoned".to_string()))?;
+    // Markdown is written first; provenance is the final commit marker. Both
+    // helpers use temp-file + fsync + rename semantics.
+    write_text_file(&markdown_path, &markdown).map_err(SharedChatExtractionError::Invalid)?;
+    write_text_file(&provenance_path, &encoded).map_err(SharedChatExtractionError::Invalid)?;
+    if read_text_file(&markdown_path).map_err(SharedChatExtractionError::Invalid)? != markdown
+        || read_text_file(&provenance_path).map_err(SharedChatExtractionError::Invalid)? != encoded
+    {
+        return Err(SharedChatExtractionError::Invalid(
+            "shared-chat provenance readback did not match the atomic writes".to_string(),
+        ));
+    }
+    let relative = relative_dir.to_string_lossy().replace('\\', "/");
+    Ok(SharedChatImportResult::Ready {
+        title,
+        html,
+        provider: classified.provider,
+        evidence,
+        provenance_id,
+        markdown_path: format!("{relative}/conversation.md"),
+        provenance_path: format!("{relative}/provenance.json"),
+    })
+}
+
+fn process_shared_chat_evidence(
+    classified: &ClassifiedSharedChatUrl,
+    evidence_id_value: &str,
+) -> Result<SharedChatImportResult, SharedChatExtractionError> {
+    let stored = load_stored(evidence_id_value).map_err(SharedChatExtractionError::Invalid)?;
+    let canonical_url = canonical_url_from_evidence(classified, &stored.record)?;
+    let (kind, artifact) =
+        load_shared_chat_artifact(&stored).map_err(SharedChatExtractionError::Insufficient)?;
+    let candidate = extract_shared_chat_candidate(&kind, &artifact, classified.provider)?;
+    persist_shared_chat(classified, &canonical_url, &stored, candidate)
+}
+
+fn shared_chat_action_result(
+    provider: SharedChatProvider,
+    record: &WebEvidenceRecord,
+    reason: &str,
+) -> SharedChatImportResult {
+    let next_step = match record.access_mode {
+        WebEvidenceAccessMode::RenderedFetch => "Na janela isolada, confirme que a conversa pública está visível; exporte somente essa página como HTML ou Markdown, importe-a em Web Evidence com a URL canônica exibida e invoque import_shared_chat novamente informando o evidence_id retornado.",
+        _ => "No navegador aberto pelo operador, confirme que a conversa pública está visível; exporte somente essa página como HTML ou Markdown, importe-a em Web Evidence com a URL canônica exibida e invoque import_shared_chat novamente informando o evidence_id retornado.",
+    };
+    SharedChatImportResult::OperatorActionRequired {
+        provider,
+        evidence: shared_chat_evidence_projection(record),
+        action: SharedChatActionRequired {
+            kind: "rendered_or_operator_capture".to_string(),
+            reason: sanitize_text(reason, 800),
+            next_step: next_step.to_string(),
+        },
+    }
+}
+
+async fn begin_shared_chat_handoff(
+    app: tauri::AppHandle,
+    classified: &ClassifiedSharedChatUrl,
+    reason: &str,
+) -> Result<SharedChatImportResult, String> {
+    let request = WebEvidenceUrlRequest {
+        url: classified.normalized_url.clone(),
+    };
+    let record = match start_rendered_web_evidence(app.clone(), request).await {
+        Ok(record) => record,
+        Err(_rendered_error) => {
+            let fallback = open_web_evidence_in_default_browser(
+                app,
+                WebEvidenceUrlRequest {
+                    url: classified.normalized_url.clone(),
+                },
+            )
+            .await?;
+            let reason = format!(
+                "{reason} The isolated renderer was unavailable; a system-browser handoff was started."
+            );
+            return Ok(shared_chat_action_result(
+                classified.provider,
+                &fallback,
+                &reason,
+            ));
+        }
+    };
+    Ok(shared_chat_action_result(
+        classified.provider,
+        &record,
+        reason,
+    ))
+}
+
+/// Imports a public provider share into editor-safe HTML while preserving a
+/// local, hash-addressed provenance record. Static pages that do not expose an
+/// unequivocal conversation never become editor content.
+#[tauri::command]
+pub(crate) async fn import_shared_chat(
+    app: tauri::AppHandle,
+    request: SharedChatImportRequest,
+) -> Result<SharedChatImportResult, String> {
+    let classified = classify_shared_chat_url(&request.url)?;
+    if let Some(evidence_id_value) = request.evidence_id.as_deref() {
+        let stored = load_stored(evidence_id_value)?;
+        if stored.record.state != WebEvidenceState::Ready {
+            return Ok(shared_chat_action_result(
+                classified.provider,
+                &stored.record,
+                "The selected Web Evidence record does not contain a ready HTML or Markdown artifact.",
+            ));
+        }
+        return match process_shared_chat_evidence(&classified, evidence_id_value) {
+            Ok(result) => Ok(result),
+            Err(SharedChatExtractionError::Insufficient(message))
+                if stored.record.access_mode != WebEvidenceAccessMode::OperatorAssistedBrowserCapture =>
+            {
+                begin_shared_chat_handoff(app, &classified, &message).await
+            }
+            Err(error) => Err(error.message().to_string()),
+        };
+    }
+
+    let fetch_url = classified.normalized_url.clone();
+    let force_revalidate = request.force_revalidate;
+    let fetch_app = app.clone();
+    let record = tauri::async_runtime::spawn_blocking(move || {
+        fetch_web_evidence_inner(
+            Some(&fetch_app),
+            WebEvidenceFetchRequest {
+                url: fetch_url,
+                method: WebEvidenceMethod::Get,
+                force_revalidate,
+            },
+        )
+    })
+    .await
+    .map_err(|error| format!("shared-chat fetch worker failed: {error}"))??;
+
+    if record.state == WebEvidenceState::Ready {
+        match process_shared_chat_evidence(&classified, &record.id) {
+            Ok(result) => return Ok(result),
+            Err(SharedChatExtractionError::Insufficient(message)) => {
+                return begin_shared_chat_handoff(app, &classified, &message).await
+            }
+            Err(error) => return Err(error.message().to_string()),
+        }
+    }
+    let reason = if interaction_requires_operator(record.interaction_state) {
+        "The provider returned a CAPTCHA, login, consent, or other interaction boundary; navigation text was not imported."
+    } else {
+        "Static Web Evidence did not produce a ready provider conversation artifact."
+    };
+    begin_shared_chat_handoff(app, &classified, reason).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_chat_url_gate_accepts_only_exact_public_share_surfaces() {
+        let chatgpt = classify_shared_chat_url("https://chatgpt.com/share/abcdefgh?utm_source=test")
+            .expect("ChatGPT share should classify");
+        assert_eq!(chatgpt.provider, SharedChatProvider::ChatGpt);
+        assert_eq!(chatgpt.normalized_url, "https://chatgpt.com/share/abcdefgh");
+
+        let gemini = classify_shared_chat_url("https://g.co/gemini/share/abcdefgh")
+            .expect("Gemini short share should classify");
+        assert!(gemini.requires_gemini_redirect_validation);
+        assert_eq!(gemini.provider, SharedChatProvider::Gemini);
+
+        assert!(classify_shared_chat_url("http://chatgpt.com/share/abcdefgh").is_err());
+        assert!(classify_shared_chat_url("https://chatgpt.example/share/abcdefgh").is_err());
+        assert!(classify_shared_chat_url("https://claude.ai.evil.example/share/abcdefgh").is_err());
+        assert!(classify_shared_chat_url("https://gemini.google.com/app/abcdefgh").is_err());
+    }
+
+    #[test]
+    fn shared_chat_extracts_chatgpt_mapping_and_rejects_navigation_text() {
+        let fixture = r#"<script id="__NEXT_DATA__" type="application/json">{
+          "title":"Conversa de teste",
+          "current_node":"assistant-1",
+          "mapping":{
+            "user-1":{"parent":null,"message":{"author":{"role":"user"},"content":{"parts":["Qual é o resultado?"]}}},
+            "assistant-1":{"parent":"user-1","message":{"author":{"role":"assistant"},"content":{"parts":["O resultado é 42."]}}}
+          }
+        }</script>"#;
+        let candidate = extract_shared_chat_candidate("html", fixture, SharedChatProvider::ChatGpt)
+            .expect("recognized ChatGPT mapping should extract");
+        assert_eq!(candidate.title.as_deref(), Some("Conversa de teste"));
+        assert_eq!(candidate.turns.len(), 2);
+        assert_eq!(candidate.turns[0].role, SharedChatRole::User);
+        assert_eq!(candidate.turns[1].role, SharedChatRole::Assistant);
+
+        let navigation = "<html><nav>User Assistant Login Consent</nav><main>Choose a chat</main></html>";
+        assert!(matches!(
+            extract_shared_chat_candidate("html", navigation, SharedChatProvider::ChatGpt),
+            Err(SharedChatExtractionError::Insufficient(_))
+        ));
+    }
+
+    #[test]
+    fn shared_chat_extracts_gemini_json_and_claude_dom_markers() {
+        let gemini = r#"<script type="application/json">{"turns":[
+          {"role":"user","text":"Pergunta Gemini"},
+          {"role":"model","text":"Resposta Gemini"}
+        ]}</script>"#;
+        let candidate = extract_shared_chat_candidate("html", gemini, SharedChatProvider::Gemini)
+            .expect("recognized Gemini turn JSON should extract");
+        assert_eq!(candidate.turns.len(), 2);
+
+        let claude = r#"<main>
+          <div data-testid="user-message"><p>Pergunta Claude</p></div>
+          <div data-testid="assistant-message"><div><p>Resposta Claude</p></div></div>
+        </main>"#;
+        let candidate = extract_shared_chat_candidate("html", claude, SharedChatProvider::Claude)
+            .expect("recognized Claude DOM markers should extract");
+        assert_eq!(candidate.turns.len(), 2);
+        assert_eq!(candidate.turns[1].content_markdown, "Resposta Claude");
+    }
+
+    #[test]
+    fn shared_chat_markdown_requires_explicit_turn_headings() {
+        let fixture = "# Export\n\n## Prompt\n\nPergunta\n\n## Resposta\n\nResposta\n";
+        let candidate = extract_shared_chat_candidate(
+            "markdown",
+            fixture,
+            SharedChatProvider::Claude,
+        )
+        .expect("explicit Markdown turn headings should extract");
+        assert_eq!(candidate.turns.len(), 2);
+
+        assert!(matches!(
+            extract_shared_chat_candidate(
+                "markdown",
+                "Esta página menciona user e assistant na navegação.",
+                SharedChatProvider::Claude,
+            ),
+            Err(SharedChatExtractionError::Insufficient(_))
+        ));
+    }
+
+    #[test]
+    fn shared_chat_safe_html_never_reuses_active_source_markup() {
+        let candidate = normalize_shared_chat_candidate(SharedChatCandidate {
+            title: Some("<img src=x onerror=alert(1)>".to_string()),
+            turns: vec![
+                SharedChatTurn {
+                    ordinal: 0,
+                    role: SharedChatRole::User,
+                    content_markdown: "<script>alert(1)</script>".to_string(),
+                    artifacts: Vec::new(),
+                    timestamp_hint: None,
+                },
+                SharedChatTurn {
+                    ordinal: 0,
+                    role: SharedChatRole::Assistant,
+                    content_markdown: "Resposta segura".to_string(),
+                    artifacts: Vec::new(),
+                    timestamp_hint: None,
+                },
+            ],
+        })
+        .expect("fixture should normalize");
+        let (_, html) = render_shared_chat(candidate.title.as_deref(), &candidate.turns)
+            .expect("safe render should succeed");
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img"));
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    }
 
     #[test]
     fn public_url_gate_blocks_private_metadata_and_credentials() {

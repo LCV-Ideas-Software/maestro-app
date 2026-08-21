@@ -154,7 +154,7 @@ fn validate_editable_fields(request: &SaveMainSiteDraftRequest) -> Result<(), St
     Ok(())
 }
 
-fn validate_stored_draft(draft: &MainSiteDraft) -> Result<(), String> {
+pub(crate) fn validate_stored_draft(draft: &MainSiteDraft) -> Result<(), String> {
     if draft.schema_version != MAINSITE_DRAFT_SCHEMA_VERSION {
         return Err("unsupported or tampered MainSite draft schema_version".to_string());
     }

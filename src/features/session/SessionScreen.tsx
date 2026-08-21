@@ -16,6 +16,7 @@ import type { ChangeEventHandler } from "react";
 import { lazy, Suspense } from "react";
 import { finalArtifacts, initialAgentOptions, verbosityOptions } from "../../constants";
 import { logEvent } from "../../diagnostics";
+import type { SharedChatImporter } from "../../editor/posteditor/editor/sharedChatImport";
 import { attachmentDeliveryHint, formatBytes, humanizeRunStatus } from "../../helpers";
 import type {
   ActivityItem,
@@ -23,6 +24,8 @@ import type {
   AttachmentDeliveryPlan,
   DiscussionRound,
   InitialAgentKey,
+  MainSiteD1PublishPlan,
+  MainSiteD1PublishResult,
   OperationSnapshot,
   PhaseItem,
   PromptAttachmentPayload,
@@ -31,6 +34,7 @@ import type {
   ProviderMode,
   VerbosityMode,
 } from "../../types";
+import { MainSitePublishingPanel } from "./MainSitePublishingPanel";
 
 const PostEditor = lazy(() => import("../../editor/posteditor/PostEditor"));
 
@@ -59,6 +63,7 @@ type SessionScreenProps = {
   handlePromptAttachments: ChangeEventHandler<HTMLInputElement>;
   initialAgent: InitialAgentKey;
   initialAgentLabel: string;
+  importSharedChat: SharedChatImporter;
   isResumeLoading: boolean;
   isRunPreparing: boolean;
   isSavingPostEditor: boolean;
@@ -69,10 +74,16 @@ type SessionScreenProps = {
   mainSiteIsAboutSite: boolean;
   mainSiteIsPublished: boolean;
   mainSitePostId: number | null;
+  mainSitePublishBusy: boolean;
+  mainSitePublishError: string | null;
+  mainSitePublishPlan: MainSiteD1PublishPlan | null;
+  mainSitePublishResult: MainSiteD1PublishResult | null;
+  mainSitePublishTargetConfigured: boolean;
   maxSessionCostUsd: string;
   maxSessionMinutes: string;
   openPostEditor: () => void;
   openSessionLedger: () => void;
+  previewMainSitePublish: () => void;
   operation: OperationSnapshot;
   operationIndeterminate: boolean;
   operationProgressLabel: string;
@@ -84,6 +95,8 @@ type SessionScreenProps = {
   readyCount: number;
   removePromptAttachment: (name: string, sizeBytes: number) => void;
   requestResumeSession: () => void;
+  publishMainSiteDraft: () => void;
+  resetMainSitePublish: () => void;
   savePostEditorDraft: (
     title: string,
     author: string,
@@ -130,6 +143,7 @@ export function SessionScreen({
   handlePromptAttachments,
   initialAgent,
   initialAgentLabel,
+  importSharedChat,
   isResumeLoading,
   isRunPreparing,
   isSavingPostEditor,
@@ -140,10 +154,16 @@ export function SessionScreen({
   mainSiteIsAboutSite,
   mainSiteIsPublished,
   mainSitePostId,
+  mainSitePublishBusy,
+  mainSitePublishError,
+  mainSitePublishPlan,
+  mainSitePublishResult,
+  mainSitePublishTargetConfigured,
   maxSessionCostUsd,
   maxSessionMinutes,
   openPostEditor,
   openSessionLedger,
+  previewMainSitePublish,
   operation,
   operationIndeterminate,
   operationProgressLabel,
@@ -155,6 +175,8 @@ export function SessionScreen({
   readyCount,
   removePromptAttachment,
   requestResumeSession,
+  publishMainSiteDraft,
+  resetMainSitePublish,
   savePostEditorDraft,
   sessionLinks,
   sessionName,
@@ -604,6 +626,7 @@ export function SessionScreen({
               initialIsPublished={mainSiteIsPublished}
               initialIsAboutSite={mainSiteIsAboutSite}
               savingPost={isSavingPostEditor}
+              onImportSharedChat={importSharedChat}
               showNotification={(message, type) =>
                 void logEvent({
                   level: type === "error" ? "error" : "info",
@@ -617,6 +640,16 @@ export function SessionScreen({
             />
           </Suspense>
         )}
+        <MainSitePublishingPanel
+          busy={mainSitePublishBusy}
+          error={mainSitePublishError}
+          plan={mainSitePublishPlan}
+          result={mainSitePublishResult}
+          targetConfigured={mainSitePublishTargetConfigured}
+          onPreview={previewMainSitePublish}
+          onPublish={publishMainSiteDraft}
+          onReset={resetMainSitePublish}
+        />
       </section>
     </>
   );

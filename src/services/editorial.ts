@@ -2,10 +2,15 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   EditorialSessionResult,
   InitialAgentKey,
+  MainSiteD1ProbeResult,
+  MainSiteD1PublishPlan,
+  MainSiteD1PublishResult,
+  MainSiteD1Target,
   MainSiteDraft,
   PromptAttachmentPayload,
   ResumableSessionInfo,
   SaveMainSiteDraftRequest,
+  SharedChatImportResponse,
 } from "../types";
 
 export const MAIN_SITE_SANITIZER_PROFILE = "mainsite_post_html.v1";
@@ -54,3 +59,25 @@ export const loadMainSiteDraft = () => invoke<MainSiteDraft | null>("load_mainsi
 
 export const saveMainSiteDraft = (request: SaveMainSiteDraftRequest) =>
   invoke<MainSiteDraft>("save_mainsite_draft", { request });
+
+export const probeMainSiteD1 = (target: MainSiteD1Target) =>
+  invoke<MainSiteD1ProbeResult>("probe_mainsite_d1", { request: { target } });
+
+export const previewMainSiteD1Publish = (target: MainSiteD1Target, draft: MainSiteDraft) =>
+  invoke<MainSiteD1PublishPlan>("preview_mainsite_d1_publish", {
+    request: { target, draft },
+  });
+
+export const publishMainSiteD1 = (
+  target: MainSiteD1Target,
+  draft: MainSiteDraft,
+  preview: MainSiteD1PublishPlan,
+) =>
+  invoke<MainSiteD1PublishResult>("publish_mainsite_d1", {
+    request: { target, draft, preview, confirmed: true },
+  });
+
+export const importSharedChat = (url: string) =>
+  invoke<SharedChatImportResponse>("import_shared_chat", {
+    request: { url, evidence_id: null, force_revalidate: false },
+  });

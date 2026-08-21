@@ -43,6 +43,7 @@ mod human_logs;
 mod link_audit;
 mod link_integrity;
 mod logging;
+mod mainsite_d1;
 mod mainsite_draft;
 mod provider_config;
 mod provider_deepseek;
@@ -183,9 +184,21 @@ pub(crate) struct BootstrapConfig {
     pub(crate) cloudflare_api_token_source: String,
     pub(crate) cloudflare_api_token_env_var: String,
     pub(crate) cloudflare_persistence_database: String,
+    #[serde(default = "default_cloudflare_publication_database")]
+    pub(crate) cloudflare_publication_database: String,
+    #[serde(default = "default_cloudflare_publication_table")]
+    pub(crate) cloudflare_publication_table: String,
     pub(crate) cloudflare_secret_store: String,
     pub(crate) windows_env_prefix: String,
     pub(crate) updated_at: String,
+}
+
+fn default_cloudflare_publication_database() -> String {
+    "example_db".to_string()
+}
+
+fn default_cloudflare_publication_table() -> String {
+    "mainsite_posts".to_string()
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -755,6 +768,8 @@ impl Default for BootstrapConfig {
             cloudflare_api_token_source: "prompt_each_launch".to_string(),
             cloudflare_api_token_env_var: "MAESTRO_CLOUDFLARE_API_TOKEN".to_string(),
             cloudflare_persistence_database: "maestro_db".to_string(),
+            cloudflare_publication_database: default_cloudflare_publication_database(),
+            cloudflare_publication_table: default_cloudflare_publication_table(),
             cloudflare_secret_store: "maestro".to_string(),
             windows_env_prefix: "MAESTRO_".to_string(),
             updated_at: Utc::now().to_rfc3339(),
@@ -814,6 +829,9 @@ use crate::cloudflare_commands::{
     cloudflare_env_snapshot, dependency_preflight, verify_cloudflare_credentials,
 };
 use crate::abnt_citation::audit_abnt_citations;
+use crate::mainsite_d1::{
+    preview_mainsite_d1_publish, probe_mainsite_d1, publish_mainsite_d1,
+};
 use crate::mainsite_draft::{load_mainsite_draft, save_mainsite_draft};
 use crate::runtime_bootstrap::{
     execute_runtime_bootstrap_action, runtime_bootstrap_action_control,
@@ -834,8 +852,8 @@ use crate::tauri_commands::{
     write_log_event,
 };
 use crate::web_evidence::{
-    fetch_web_evidence, get_web_evidence, import_operator_evidence, list_web_evidence,
-    open_web_evidence_in_default_browser, replay_web_evidence,
+    fetch_web_evidence, get_web_evidence, import_operator_evidence, import_shared_chat,
+    list_web_evidence, open_web_evidence_in_default_browser, replay_web_evidence,
     resume_web_evidence_interaction, search_web_evidence, start_rendered_web_evidence,
 };
 
@@ -961,6 +979,9 @@ pub fn run() {
             propose_link_corrections,
             load_mainsite_draft,
             save_mainsite_draft,
+            probe_mainsite_d1,
+            preview_mainsite_d1_publish,
+            publish_mainsite_d1,
             open_data_file,
             cloudflare_env_snapshot,
             dependency_preflight,
@@ -980,6 +1001,7 @@ pub fn run() {
             start_rendered_web_evidence,
             open_web_evidence_in_default_browser,
             import_operator_evidence,
+            import_shared_chat,
             resume_web_evidence_interaction,
             get_web_evidence
         ])

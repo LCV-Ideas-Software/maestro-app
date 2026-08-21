@@ -25,7 +25,7 @@
     "mainsite-worker/src/lib/sanitize.ts": "b4286d4c2009ba43390f268d51302df99f18cb2cb814e460c4a087306aca685f"
   },
   "maestro_files": {
-    "src/editor/posteditor/PostEditor.tsx": "cd0e57d9e270aef80a1c29ef40026f1194335c808795503b6cebd7be4ed89c72",
+    "src/editor/posteditor/PostEditor.tsx": "723b6829447e011bf1cf476653d51f9b5edee2ce50ac442ec888a0eeacf93767",
     "src/editor/posteditor/README.md": "bab0dc8a5c54aa431fbe6a2917172da61c4e4e31fc19f368651eec1a034df007",
     "src/editor/posteditor/editor/BubbleMenu.tsx": "ca64d3af51bca65d6233d1a52363b67d64735059779d209bd58b3e2e9f968fb8",
     "src/editor/posteditor/editor/extensions.ts": "a0321cd72bc753e554aaf797a6aac4af57b4a4de25a6c231c4199c0fb54e88ff",
@@ -39,11 +39,14 @@
     "src/editor/posteditor/editor/SlashCommands.ts": "65b9edd5a787e1f0799022f0a4ba22465257d71a1b1e4558de315d4cc78debac",
     "src/editor/posteditor/editor/utils.ts": "16cd5cbbc1aa0e26187a21958950bc87a16c96244108f0036cd4ae1165abe36a",
     "src/editor/posteditor/editor/sanitizeFinalHtml.ts": "a346780ebf1adb7f4c03608c867af1ffa7325c5545f250203281499827c53f15",
-    "src/editor/posteditor/editor/finalHtmlFixtures.ts": "6700eac7871a1febe04fe9657ae05bac4351a11f49a051f679718ba976977670"
+    "src/editor/posteditor/editor/finalHtmlFixtures.ts": "6700eac7871a1febe04fe9657ae05bac4351a11f49a051f679718ba976977670",
+    "src/editor/posteditor/editor/sharedChatImport.ts": "ef2c31b2ee2b81b030803e9acf479c9a923ef57219a490ac7a8e6e7c35e7806e",
+    "src/editor/posteditor/editor/exportFinalContent.ts": "d97c29e5496e1e2db8967c7d8f3269e0422c651be435b0600457fa0e14fb7d84"
   },
   "intentional_divergences": [
     "All imported or AI-produced HTML is sanitized before entering TipTap.",
     "Link Integrity must clear every link before a durable save.",
-    "Maestro persists mainsite_draft.v1 locally; MAESTRO-7 owns remote D1 publication."
+    "Shared-chat imports and final exports keep provenance outside the public article HTML.",
+    "Remote D1 publication requires a read-only preview, explicit confirmation, optimistic concurrency guards, independent native validation, and post-write readback."
   ]
 }

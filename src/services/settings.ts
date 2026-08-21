@@ -19,6 +19,7 @@ export type CloudflareProbeRequest = {
   api_token_env_var: string;
   persistence_database: string;
   publication_database: string;
+  publication_table: string;
   secret_store: string;
 };
 

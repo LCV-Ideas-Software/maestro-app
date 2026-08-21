@@ -19,6 +19,8 @@ type CloudflareSettingsPanelProps = {
   cloudflareApiToken: string;
   cloudflareEnvSnapshot: CloudflareEnvSnapshot | null;
   cloudflarePermissionRows: CloudflarePermissionRow[];
+  cloudflarePublicationDatabase: string;
+  cloudflarePublicationTable: string;
   cloudflareTokenAvailable: boolean;
   cloudflareTokenEnvVar: string;
   credentialStorageMode: CredentialStorageMode;
@@ -26,6 +28,8 @@ type CloudflareSettingsPanelProps = {
   onAccountIdChange: (value: string) => void;
   onApiTokenChange: (value: string) => void;
   onChooseCredentialStorage: (mode: CredentialStorageMode) => void;
+  onPublicationDatabaseChange: (value: string) => void;
+  onPublicationTableChange: (value: string) => void;
   onVerify: () => void;
 };
 
@@ -35,6 +39,8 @@ export function CloudflareSettingsPanel({
   cloudflareApiToken,
   cloudflareEnvSnapshot,
   cloudflarePermissionRows,
+  cloudflarePublicationDatabase,
+  cloudflarePublicationTable,
   cloudflareTokenAvailable,
   cloudflareTokenEnvVar,
   credentialStorageMode,
@@ -42,6 +48,8 @@ export function CloudflareSettingsPanel({
   onAccountIdChange,
   onApiTokenChange,
   onChooseCredentialStorage,
+  onPublicationDatabaseChange,
+  onPublicationTableChange,
   onVerify,
 }: CloudflareSettingsPanelProps) {
   return (
@@ -113,6 +121,28 @@ export function CloudflareSettingsPanel({
             placeholder="nunca gravar em logs ou artefatos"
           />
         </div>
+        <div className="field-group">
+          <label htmlFor="cloudflare-publication-database">Banco D1 de publicacao</label>
+          <input
+            id="cloudflare-publication-database"
+            autoComplete="off"
+            spellCheck={false}
+            value={cloudflarePublicationDatabase}
+            onChange={(event) => onPublicationDatabaseChange(event.target.value)}
+            placeholder="example_db"
+          />
+        </div>
+        <div className="field-group">
+          <label htmlFor="cloudflare-publication-table">Tabela de posts</label>
+          <input
+            id="cloudflare-publication-table"
+            autoComplete="off"
+            spellCheck={false}
+            value={cloudflarePublicationTable}
+            onChange={(event) => onPublicationTableChange(event.target.value)}
+            placeholder="mainsite_posts"
+          />
+        </div>
         <div className="target-grid">
           <div>
             <span>Persistencia</span>
@@ -124,11 +154,11 @@ export function CloudflareSettingsPanel({
           </div>
           <div>
             <span>Publicacao</span>
-            <strong>bigdata_db</strong>
+            <strong>{cloudflarePublicationDatabase || "nao configurado"}</strong>
           </div>
           <div>
             <span>Tabela</span>
-            <strong>mainsite_posts</strong>
+            <strong>{cloudflarePublicationTable || "nao configurada"}</strong>
           </div>
         </div>
         <button
