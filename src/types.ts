@@ -378,6 +378,107 @@ export type LinkCorrectionProposalRequest = {
   limit?: number;
 };
 
+export type CitationType =
+  | "direct_quote"
+  | "indirect_quote"
+  | "paraphrase"
+  | "apud"
+  | "generic_mention";
+export type CitationSourceAccess =
+  | "full_document_opened"
+  | "excerpt_consulted"
+  | "consolidated_memory"
+  | "contextual_inference"
+  | "unverified_hypothesis";
+export type CitationVerificationStatus = "verified" | "needs_evidence" | "quarantined";
+export type CitationRisk = "low" | "medium" | "high";
+export type MaestroPeerStatus = "ready" | "not_ready" | "needs_evidence";
+export type CitationSourceType = "book" | "chapter" | "article" | "online" | "other";
+
+export type CitationAuditCitation = {
+  schema_version: "citation.v1";
+  claim_id: string;
+  citation_type: CitationType;
+  author_display: string;
+  author_key: string;
+  year: string;
+  locator: string | null;
+  source_id: string;
+  source_access: CitationSourceAccess;
+  verification_status: CitationVerificationStatus;
+  risk_if_wrong: CitationRisk;
+  original_text?: string | null;
+  normalized_text?: string | null;
+  normalized_footnote?: string | null;
+};
+
+export type CitationAuditBlocker = {
+  code: string;
+  message: string;
+  severity: string;
+  claim_id?: string | null;
+  source_id?: string | null;
+  excerpt?: string | null;
+  needs_evidence: boolean;
+};
+
+export type CitationAuthor = {
+  author_display: string;
+  author_key: string;
+};
+
+export type CitationSource = {
+  source_id: string;
+  source_type: CitationSourceType;
+  authors: CitationAuthor[];
+  title: string;
+  subtitle?: string | null;
+  edition?: string | null;
+  place?: string | null;
+  publisher?: string | null;
+  year: string;
+  container_title?: string | null;
+  volume?: string | null;
+  issue?: string | null;
+  pages?: string | null;
+  url?: string | null;
+  doi?: string | null;
+  accessed_at?: string | null;
+  verification_sha256?: string | null;
+  verification_status: CitationVerificationStatus;
+  prohibited?: boolean;
+  quarantine_reason?: string | null;
+};
+
+export type CitationManifest = {
+  schema_version: "citation_manifest.v1";
+  protocol_hash: string;
+  citations: CitationAuditCitation[];
+  sources: CitationSource[];
+};
+
+export type CitationAuditRequest = {
+  text: string;
+  protocol_hash?: string | null;
+  manifest?: CitationManifest | null;
+  previous_manifest?: CitationManifest | null;
+};
+
+export type CitationAuditResult = {
+  schema_version: string;
+  audit_id: string;
+  checked_at: string;
+  protocol_hash: string | null;
+  maestro_peer_status: MaestroPeerStatus;
+  citations: CitationAuditCitation[];
+  normalized_references: string[];
+  markdown_references: string[];
+  html_references: string[];
+  blockers: CitationAuditBlocker[];
+  audit_table_markdown: string;
+  semantic_diff: string;
+};
+
 export type WebEvidenceMethod = "GET" | "HEAD";
 export type WebEvidenceAccessMode =
   | "http_fetch"

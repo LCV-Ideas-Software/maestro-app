@@ -33,6 +33,10 @@ use std::path::{Path, PathBuf};
 use crate::app_paths::{
     checked_data_child_path, human_log_path_for, sanitize_path_segment, sessions_dir,
 };
+use crate::abnt_citation::{
+    audit_abnt_citations_inner, citation_manifests_from_attachments,
+    empty_citation_manifest, maestro_peer_blocks_release, AbntAuditRequest, CitationManifest,
+};
 use crate::editorial_agent_runners::run_editorial_agent_for_spec;
 use crate::editorial_content_lock::validate_revision_content_lock;
 use crate::editorial_helpers::{
@@ -325,12 +329,36 @@ pub(crate) fn run_editorial_session_core(
             }
         }
     }
-    let evidence = process_session_evidence(
+    let mut evidence = process_session_evidence(
         &session_dir,
         request.links.as_ref(),
         request.attachments.as_ref(),
         saved_contract.as_ref(),
     )?;
+    let citation_protocol_hash = if request.protocol_hash.trim().is_empty() {
+        None
+    } else {
+        Some(request.protocol_hash.trim().to_string())
+    };
+    let mut citation_manifests = citation_manifests_from_attachments(&evidence.attachments)?;
+    let citation_manifest_is_implicit = citation_manifests.current.is_none();
+    if citation_manifest_is_implicit {
+        citation_manifests.current = Some(empty_citation_manifest(
+            citation_protocol_hash.as_deref().unwrap_or_default(),
+        ));
+    }
+    if let Some(manifest) = citation_manifests.current.as_ref() {
+        evidence.block.push_str(&format!(
+            "\n## Manifesto deterministico de citacoes\n\nA sessao usa um `citation_manifest.v1` {} com {} citacao(oes) e {} fonte(s). Ele e a fonte de verdade mecanica para chaves de autoria, acesso, verificacao e formatacao. O texto final deve conter exatamente as citacoes e referencias normalizadas correspondentes. Nao invente metadados para satisfazer o gate; quando a evidencia fornecida for insuficiente, remova, restrinja ou coloque a afirmacao/fonte em quarentena e registre a necessidade do operador.\n",
+            if citation_manifest_is_implicit {
+                "vazio inicializado pelo Maestro porque nenhum manifesto foi anexado"
+            } else {
+                "anexado pelo operador"
+            },
+            manifest.citations.len(),
+            manifest.sources.len()
+        ));
+    }
     let contract = SessionContract {
         schema_version: 1,
         run_id: run_id.clone(),
@@ -922,13 +950,26 @@ pub(crate) fn run_editorial_session_core(
                 "TIME_LIMIT_REACHED",
             ));
         }
+        if let Some((reason, audit_context)) = citation_operator_evidence_failure(
+            &current_draft,
+            citation_protocol_hash.as_deref(),
+            citation_manifests.current.as_ref(),
+            citation_manifests.previous.as_ref(),
+        ) {
+            pause_final_reference_audit!(reason, audit_context);
+        }
         if current_version_has_all_independent_approvals(
             &round_turn_specs,
             current_draft_author_key.as_deref(),
             &stable_serial_approval_agents,
         ) {
             let final_text = strip_leading_maestro_status(&current_draft);
-            if let Some((reason, audit_context)) = final_release_audit_failure(&final_text) {
+            if let Some((reason, audit_context)) = final_release_audit_failure_with_citations(
+                &final_text,
+                citation_protocol_hash.as_deref(),
+                citation_manifests.current.as_ref(),
+                citation_manifests.previous.as_ref(),
+            ) {
                 pause_final_reference_audit!(reason, audit_context);
             }
             let path = session_dir.join("texto-final.md");
@@ -999,7 +1040,12 @@ pub(crate) fn run_editorial_session_core(
             selection_seed,
         ) else {
             let final_text = strip_leading_maestro_status(&current_draft);
-            if let Some((reason, audit_context)) = final_release_audit_failure(&final_text) {
+            if let Some((reason, audit_context)) = final_release_audit_failure_with_citations(
+                &final_text,
+                citation_protocol_hash.as_deref(),
+                citation_manifests.current.as_ref(),
+                citation_manifests.previous.as_ref(),
+            ) {
                 pause_final_reference_audit!(reason, audit_context);
             }
             let path = session_dir.join("texto-final.md");
@@ -1200,11 +1246,16 @@ pub(crate) fn run_editorial_session_core(
                 corrective_retry_count,
                 MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN
             ));
-            if let Some((reason, audit_context)) = final_release_audit_failure(&current_draft) {
+            if let Some((reason, audit_context)) = final_release_audit_failure_with_citations(
+                &current_draft,
+                citation_protocol_hash.as_deref(),
+                citation_manifests.current.as_ref(),
+                citation_manifests.previous.as_ref(),
+            ) {
                 let packet = serde_json::to_string_pretty(&audit_context)
                     .unwrap_or_else(|_| "{\"error\":\"audit packet unavailable\"}".to_string());
                 review_prompt.push_str(&format!(
-                    "\n## Current Mechanical Link-Integrity Packet\n\nReason: {}\n\n```json\n{}\n```\n\nTreat this packet as mechanical evidence, not as proof that a source supports a claim. Correct, remove, narrow, or quarantine every unresolved link. Do not invent a replacement. A semantically acceptable reachable link still requires an explicit recorded review against its current URL and hash before publication.\n",
+                    "\n## Current Deterministic Editorial Gate Packet\n\nReason: {}\n\n```json\n{}\n```\n\nTreat this packet as deterministic gate evidence, not as permission to invent bibliographic metadata or replacement links. Correct, format, verify, remove, narrow, or quarantine every unresolved item. When the gate requires operator-provided evidence or an updated citation_manifest.v1, state that requirement explicitly instead of fabricating it.\n",
                     sanitize_text(&reason, 300),
                     packet
                 ));
@@ -1687,14 +1738,31 @@ pub(crate) fn run_editorial_session_core(
             .get(&retry_key)
             .copied()
             .unwrap_or(0);
-        let unrevised_runtime_action = unrevised_serial_turn_runtime_action(
+        let current_release_audit_failure = if serial_output.final_text.is_none() {
+            final_release_audit_failure_with_citations(
+                &current_draft,
+                citation_protocol_hash.as_deref(),
+                citation_manifests.current.as_ref(),
+                citation_manifests.previous.as_ref(),
+            )
+        } else {
+            None
+        };
+        let unrevised_runtime_action = unrevised_serial_turn_runtime_action_with_release_failure(
             &result.status,
             &serial_output,
-            &current_draft,
             prior_retry_count,
+            current_release_audit_failure.clone(),
         );
-        let counts_as_valid_round_agent =
-            serial_turn_counts_as_valid_round_agent(&result.status, &serial_output, &current_draft);
+        let counts_as_valid_round_agent = if serial_output.final_text.is_none() {
+            result.status == "READY" && current_release_audit_failure.is_none()
+        } else {
+            serial_turn_counts_as_valid_round_agent(
+                &result.status,
+                &serial_output,
+                &current_draft,
+            )
+        };
         let Some(revised_text) = serial_output.final_text.as_ref() else {
             if let Some((action, reason, audit_context)) = unrevised_runtime_action {
                 match action {
@@ -1867,7 +1935,12 @@ pub(crate) fn run_editorial_session_core(
                     &stable_serial_approval_agents,
                 ) {
                     let final_text = strip_leading_maestro_status(&current_draft);
-                    if let Some((reason, audit_context)) = final_release_audit_failure(&final_text)
+                    if let Some((reason, audit_context)) = final_release_audit_failure_with_citations(
+                        &final_text,
+                        citation_protocol_hash.as_deref(),
+                        citation_manifests.current.as_ref(),
+                        citation_manifests.previous.as_ref(),
+                    )
                     {
                         pause_final_reference_audit!(reason, audit_context);
                     }
@@ -2110,7 +2183,12 @@ pub(crate) fn run_editorial_session_core(
                 &stable_serial_approval_agents,
             ) {
                 let final_text = strip_leading_maestro_status(&current_draft);
-                if let Some((reason, audit_context)) = final_release_audit_failure(&final_text) {
+                if let Some((reason, audit_context)) = final_release_audit_failure_with_citations(
+                    &final_text,
+                    citation_protocol_hash.as_deref(),
+                    citation_manifests.current.as_ref(),
+                    citation_manifests.previous.as_ref(),
+                ) {
                     pause_final_reference_audit!(reason, audit_context);
                 }
                 let path = session_dir.join("texto-final.md");
@@ -2578,18 +2656,47 @@ fn unrevised_serial_turn_audit_decision(
     serial_output: &SerialTurnOutput,
     current_draft: &str,
 ) -> Option<(UnrevisedSerialTurnAuditDecision, String, serde_json::Value)> {
-    if let Some((reason, audit_context)) =
-        ready_unchanged_release_audit_failure(status, serial_output, current_draft)
-    {
-        return Some((
-            UnrevisedSerialTurnAuditDecision::ReadyRejected,
-            reason,
-            audit_context,
-        ));
+    let release_failure = if serial_output.final_text.is_none() {
+        final_release_audit_failure(current_draft)
+    } else {
+        None
+    };
+    unrevised_serial_turn_audit_decision_with_release_failure(
+        status,
+        serial_output,
+        release_failure,
+    )
+}
+
+fn unrevised_serial_turn_audit_decision_with_release_failure(
+    status: &str,
+    serial_output: &SerialTurnOutput,
+    release_failure: Option<(String, serde_json::Value)>,
+) -> Option<(UnrevisedSerialTurnAuditDecision, String, serde_json::Value)> {
+    if serial_output.final_text.is_some() {
+        return None;
     }
-    if let Some((reason, audit_context)) =
-        not_ready_unchanged_release_audit_failure(status, serial_output, current_draft)
-    {
+    if status == "READY" {
+        return release_failure.map(|(reason, audit_context)| {
+            (
+                UnrevisedSerialTurnAuditDecision::ReadyRejected,
+                reason,
+                audit_context,
+            )
+        });
+    }
+    if status == "NOT_READY" {
+        let (reason, audit_context) = release_failure.unwrap_or_else(|| {
+            (
+                "NOT_READY unchanged is not a valid serial-review outcome: the reviewer must either return READY unchanged when no blocker remains, or return a revised complete text that resolves the concrete blocker.".to_string(),
+                json!({
+                    "kind": "not_ready_unchanged_without_corrective_text",
+                    "status": status,
+                    "has_operator_evidence_required": serial_output.operator_evidence_required,
+                    "policy": "detector_must_correct_or_approve_current_version"
+                }),
+            )
+        });
         return Some((
             UnrevisedSerialTurnAuditDecision::CorrectiveRetryRequired,
             reason,
@@ -2605,8 +2712,31 @@ fn unrevised_serial_turn_runtime_action(
     current_draft: &str,
     prior_retry_count: u32,
 ) -> Option<(UnrevisedSerialTurnRuntimeAction, String, serde_json::Value)> {
+    let release_failure = if serial_output.final_text.is_none() {
+        final_release_audit_failure(current_draft)
+    } else {
+        None
+    };
+    unrevised_serial_turn_runtime_action_with_release_failure(
+        status,
+        serial_output,
+        prior_retry_count,
+        release_failure,
+    )
+}
+
+fn unrevised_serial_turn_runtime_action_with_release_failure(
+    status: &str,
+    serial_output: &SerialTurnOutput,
+    prior_retry_count: u32,
+    release_failure: Option<(String, serde_json::Value)>,
+) -> Option<(UnrevisedSerialTurnRuntimeAction, String, serde_json::Value)> {
     let (decision, reason, audit_context) =
-        unrevised_serial_turn_audit_decision(status, serial_output, current_draft)?;
+        unrevised_serial_turn_audit_decision_with_release_failure(
+            status,
+            serial_output,
+            release_failure,
+        )?;
     let action = match decision {
         UnrevisedSerialTurnAuditDecision::ReadyRejected => {
             UnrevisedSerialTurnRuntimeAction::ReadyRejected
@@ -2792,12 +2922,116 @@ fn ascii_folded_alnum(character: char) -> Option<char> {
 }
 
 fn final_release_audit_failure(text: &str) -> Option<(String, serde_json::Value)> {
+    final_release_audit_failure_with_citations(text, None, None, None)
+}
+
+fn citation_operator_evidence_failure(
+    text: &str,
+    protocol_hash: Option<&str>,
+    manifest: Option<&CitationManifest>,
+    previous_manifest: Option<&CitationManifest>,
+) -> Option<(String, serde_json::Value)> {
+    let audit = audit_abnt_citations_inner(AbntAuditRequest {
+        text: text.to_string(),
+        protocol_hash: protocol_hash.map(str::to_string),
+        manifest: manifest.cloned(),
+        previous_manifest: previous_manifest.cloned(),
+    })
+    .ok()?;
+    let manifest_update_codes = [
+        "manifest_schema_invalid",
+        "manifest_protocol_hash_missing",
+        "protocol_hash_mismatch",
+        "manifest_capacity_exceeded",
+        "source_id_missing",
+        "source_id_duplicate",
+        "claim_id_missing",
+        "claim_id_duplicate",
+        "citation_schema_invalid",
+        "citation_source_missing",
+        "citation_canonical_author_mismatch",
+        "canonical_author_mismatch",
+        "canonical_author_key_malformed",
+        "canonical_author_display_mismatch",
+        "source_quarantined",
+        "prohibited_source",
+        "reference_without_body_use",
+        "reference_not_in_manifest",
+    ];
+    let needs_operator_evidence = audit.blockers.iter().any(|item| {
+        item.needs_evidence || manifest_update_codes.contains(&item.code.as_str())
+    });
+    if !needs_operator_evidence {
+        return None;
+    }
+    Some((
+        "citation gate requires operator evidence or an updated citation manifest".to_string(),
+        json!({
+            "gate": "abnt_citation_operator_evidence",
+            "audit_id": audit.audit_id,
+            "protocol_hash": audit.protocol_hash,
+            "maestro_peer_status": audit.maestro_peer_status,
+            "blockers": audit.blockers,
+            "normalized_references": audit.normalized_references,
+            "audit_table_markdown": audit.audit_table_markdown,
+            "semantic_diff": audit.semantic_diff,
+            "required_action": "attach_or_replace_citation_manifest_then_resume; do_not_spend_additional_peer_turns",
+            "policy": "operator_evidence_blockers_pause_before_the_next_paid_reviewer"
+        }),
+    ))
+}
+
+fn final_release_audit_failure_with_citations(
+    text: &str,
+    protocol_hash: Option<&str>,
+    manifest: Option<&CitationManifest>,
+    previous_manifest: Option<&CitationManifest>,
+) -> Option<(String, serde_json::Value)> {
     if let Err(reason) = validate_final_release_candidate(text) {
         return Some((
             reason,
             json!({
                 "gate": "bibliographic_integrity",
                 "policy": "final_text_must_not_hide_unverified_references"
+            }),
+        ));
+    }
+
+    let citation_audit = match audit_abnt_citations_inner(AbntAuditRequest {
+        text: text.to_string(),
+        protocol_hash: protocol_hash.map(str::to_string),
+        manifest: manifest.cloned(),
+        previous_manifest: previous_manifest.cloned(),
+    }) {
+        Ok(audit) => audit,
+        Err(error) => {
+            return Some((
+                "final candidate ABNT citation engine failed closed".to_string(),
+                json!({
+                    "gate": "abnt_citation_engine",
+                    "error": sanitize_text(&error, 500),
+                    "policy": "maestro_peer_must_be_observable_before_release"
+                }),
+            ));
+        }
+    };
+    if maestro_peer_blocks_release(&citation_audit) {
+        return Some((
+            "final candidate has unresolved deterministic citation evidence".to_string(),
+            json!({
+                "gate": "abnt_citation",
+                "audit_id": citation_audit.audit_id,
+                "protocol_hash": citation_audit.protocol_hash,
+                "maestro_peer_status": citation_audit.maestro_peer_status,
+                "citations": citation_audit.citations,
+                "normalized_references": citation_audit.normalized_references,
+                "markdown_references": citation_audit.markdown_references,
+                "html_references": citation_audit.html_references,
+                "blockers": citation_audit.blockers,
+                "audit_table_markdown": citation_audit.audit_table_markdown,
+                "semantic_diff": citation_audit.semantic_diff,
+                "required_action": "correct_format_verify_quarantine_or_supply_citation_manifest_then_revalidate",
+                "policy": "all_active_ai_peers_and_maestro_peer_must_be_ready"
             }),
         ));
     }

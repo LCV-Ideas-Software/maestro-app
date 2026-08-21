@@ -50,7 +50,7 @@ import {
   runEditorialSession,
   stopEditorialSession,
 } from "./services/editorial";
-import { auditLinks } from "./services/evidence";
+import { auditAbntCitations, auditLinks } from "./services/evidence";
 import {
   listenToNativeLogs,
   listenToRuntimeBootstrapProgress,
@@ -82,6 +82,8 @@ import type {
   AiProviderProbeRow,
   BootstrapCheckRow,
   BootstrapConfig,
+  CitationAuditResult,
+  CitationManifest,
   CloudflareEnvSnapshot,
   CloudflarePermissionRow,
   CloudflareProviderStorageRequest,
@@ -119,6 +121,54 @@ type ActiveAgentNow = {
 
 const agentIsApiOnly = (agent: InitialAgentKey) =>
   agent === "deepseek" || agent === "grok" || agent === "perplexity";
+
+function citationManifestsFromAttachments(attachments: PromptAttachmentPayload[]) {
+  let current: CitationManifest | null = null;
+  let previous: CitationManifest | null = null;
+  for (const attachment of attachments) {
+    const name = attachment.name.toLocaleLowerCase("pt-BR");
+    const mediaType = attachment.media_type?.toLocaleLowerCase("pt-BR") ?? "";
+    const explicitlyNamed =
+      name.includes("citation-manifest") ||
+      name.includes("citation_manifest") ||
+      name.includes("manifesto-citacoes") ||
+      name.includes("manifesto_citacoes");
+    if (!name.endsWith(".json") && mediaType !== "application/json" && !explicitlyNamed) {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      const binary = atob(attachment.data_base64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      parsed = JSON.parse(new TextDecoder().decode(bytes));
+    } catch (error) {
+      if (explicitlyNamed) {
+        throw new Error(`Manifesto de citacoes invalido: ${String(error)}`);
+      }
+      continue;
+    }
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      !("schema_version" in parsed) ||
+      parsed.schema_version !== "citation_manifest.v1"
+    ) {
+      if (explicitlyNamed) {
+        throw new Error("O manifesto de citacoes deve usar citation_manifest.v1.");
+      }
+      continue;
+    }
+    const isPrevious = name.includes("previous") || name.includes("anterior");
+    if (isPrevious) {
+      if (previous) throw new Error("Mais de um manifesto de citacoes anterior foi anexado.");
+      previous = parsed as CitationManifest;
+    } else {
+      if (current) throw new Error("Mais de um manifesto de citacoes atual foi anexado.");
+      current = parsed as CitationManifest;
+    }
+  }
+  return { current, previous };
+}
 
 export function App() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -202,6 +252,7 @@ export function App() {
   const [activeAgentNow, setActiveAgentNow] = useState<ActiveAgentNow | null>(null);
   const [evidenceRows, setEvidenceRows] = useState<EvidenceRow[]>(initialEvidenceRows);
   const [linkAuditRows, setLinkAuditRows] = useState<LinkAuditResult["rows"]>([]);
+  const [citationAuditResult, setCitationAuditResult] = useState<CitationAuditResult | null>(null);
   const [protocolGateItems, setProtocolGateItems] = useState<ProtocolReadingGate[]>(
     initialProtocolReadingGates,
   );
@@ -719,16 +770,46 @@ export function App() {
 
   async function auditEvidenceNow() {
     const sourceText = [editorialPrompt, protocolText, mainSiteHtml].join("\n\n");
+    const citationSourceText = mainSiteHtml.trim() || editorialPrompt.trim();
+    const pinnedProtocolHash = /^[a-f0-9]{64}$/i.test(protocol.hash) ? protocol.hash : null;
     setIsAuditingEvidence(true);
     setLinkAuditRows([]);
+    setCitationAuditResult(null);
     setEvidenceRows((current) =>
       current.map((row) =>
-        row.label === "Links" ? { ...row, value: "verificando links", tone: "info" } : row,
+        row.label === "Links"
+          ? { ...row, value: "verificando links", tone: "info" }
+          : row.label === "ABNT"
+            ? { ...row, value: "auditando citacoes", tone: "info" }
+            : row,
       ),
     );
 
+    let citationAuditPromise: Promise<CitationAuditResult>;
     try {
-      const result = await auditLinks(sourceText);
+      const citationManifests = citationManifestsFromAttachments(promptAttachments);
+      citationAuditPromise = auditAbntCitations({
+        text: citationSourceText,
+        protocol_hash: pinnedProtocolHash,
+        manifest: citationManifests.current,
+        previous_manifest: citationManifests.previous,
+      });
+    } catch (error) {
+      citationAuditPromise = Promise.reject(error);
+      void logEvent({
+        level: "error",
+        category: "citation.manifest.invalid",
+        message: "citation manifest attachment could not be parsed",
+        context: { error },
+      });
+    }
+    const [linkOutcome, citationOutcome] = await Promise.allSettled([
+      auditLinks(sourceText),
+      citationAuditPromise,
+    ]);
+
+    if (linkOutcome.status === "fulfilled") {
+      const result = linkOutcome.value;
       const failedLinkLabel =
         result.failed === 1
           ? "1 link com problema"
@@ -792,7 +873,7 @@ export function App() {
           })),
         },
       });
-    } catch (error) {
+    } else {
       setLinkAuditRows([]);
       setEvidenceRows((current) =>
         current.map((row) =>
@@ -803,11 +884,72 @@ export function App() {
         level: "error",
         category: "evidence.audit.failed",
         message: "link evidence audit failed",
-        context: { error },
+        context: { error: linkOutcome.reason },
       });
-    } finally {
-      setIsAuditingEvidence(false);
     }
+
+    if (citationOutcome.status === "fulfilled") {
+      const result = citationOutcome.value;
+      const needsEvidence = result.blockers.filter((blocker) => blocker.needs_evidence).length;
+      setCitationAuditResult(result);
+      setEvidenceRows((current) =>
+        current.map((row) => {
+          if (row.label !== "ABNT") return row;
+          if (result.maestro_peer_status === "ready" && result.blockers.length === 0) {
+            return { ...row, value: "auditoria mecanica sem blocker", tone: "ok" };
+          }
+          if (result.maestro_peer_status === "ready") {
+            return { ...row, value: "READY inconsistente com blockers", tone: "danger" };
+          }
+          if (result.maestro_peer_status === "needs_evidence") {
+            return {
+              ...row,
+              value: `${needsEvidence.toLocaleString("pt-BR")} pendencia(s) de evidencia`,
+              tone: "warn",
+            };
+          }
+          return {
+            ...row,
+            value: `${result.blockers.length.toLocaleString("pt-BR")} blocker(s) mecanico(s)`,
+            tone: "danger",
+          };
+        }),
+      );
+      appendActivity({
+        level: result.maestro_peer_status === "ready" ? "detail" : "diagnostic",
+        title: `MaestroPeer: ${result.maestro_peer_status.toUpperCase()}`,
+        detail: `${result.citations.length.toLocaleString("pt-BR")} citacao(oes), ${result.normalized_references.length.toLocaleString("pt-BR")} referencia(s) normalizada(s), ${result.blockers.length.toLocaleString("pt-BR")} blocker(s). Veredito mecanico; nao equivale a aprovacao por consenso de IA.`,
+      });
+      void logEvent({
+        level: result.maestro_peer_status === "ready" ? "info" : "warn",
+        category: "citation.audit.completed",
+        message: "deterministic ABNT citation audit completed",
+        context: {
+          audit_id: result.audit_id,
+          protocol_hash: result.protocol_hash,
+          maestro_peer_status: result.maestro_peer_status,
+          citations: result.citations.length,
+          normalized_references: result.normalized_references.length,
+          blockers: result.blockers.length,
+          needs_evidence: needsEvidence,
+        },
+      });
+    } else {
+      setCitationAuditResult(null);
+      setEvidenceRows((current) =>
+        current.map((row) =>
+          row.label === "ABNT" ? { ...row, value: "falha na auditoria", tone: "danger" } : row,
+        ),
+      );
+      void logEvent({
+        level: "error",
+        category: "citation.audit.failed",
+        message: "deterministic ABNT citation audit failed",
+        context: { error: citationOutcome.reason },
+      });
+    }
+
+    setIsAuditingEvidence(false);
   }
 
   function createRunId() {
@@ -1944,7 +2086,10 @@ export function App() {
             active_agents: runOptions?.activeAgents ?? null,
             max_session_cost_usd: runOptions?.maxSessionCostUsd ?? null,
             max_session_minutes: runOptions?.maxSessionMinutes ?? null,
-            attachments: runOptions?.attachments ?? [],
+            attachments:
+              runOptions?.attachments && runOptions.attachments.length > 0
+                ? runOptions.attachments
+                : null,
             links: runOptions?.links ?? null,
           })
         : await runEditorialSession({
@@ -1982,15 +2127,19 @@ export function App() {
           value: "revisado pelos agentes",
           tone: result.consensus_ready ? "ok" : "warn",
         },
-        { label: "Links", value: "exige motor mecanico dedicado", tone: "warn" },
+        {
+          label: "Links",
+          value: result.consensus_ready ? "gate mecanico aprovado" : "gate nao liberado",
+          tone: result.consensus_ready ? "ok" : "warn",
+        },
         {
           label: "ABNT",
-          value: "revisado pelos agentes",
+          value: result.consensus_ready ? "MaestroPeer READY" : "MaestroPeer nao liberado",
           tone: result.consensus_ready ? "ok" : "warn",
         },
         {
           label: "Quarentena",
-          value: result.consensus_ready ? "liberado por unanimidade" : "texto bloqueado",
+          value: result.consensus_ready ? "sem blocker deterministico" : "texto bloqueado",
           tone: result.consensus_ready ? "ok" : "danger",
         },
       ]);
@@ -2623,6 +2772,7 @@ export function App() {
           <EvidenceScreen
             evidenceRows={evidenceRows}
             linkAuditRows={linkAuditRows}
+            citationAuditResult={citationAuditResult}
             isAuditing={isAuditingEvidence}
             onAudit={() => void auditEvidenceNow()}
           />

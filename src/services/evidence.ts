@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  CitationAuditRequest,
+  CitationAuditResult,
   LinkAuditResult,
   LinkCorrectionProposalRequest,
   LinkIntegrityListRequest,
@@ -17,6 +19,9 @@ import type {
 
 export const auditLinks = (text: string) =>
   invoke<LinkAuditResult>("audit_links", { request: { text } });
+
+export const auditAbntCitations = (request: CitationAuditRequest) =>
+  invoke<CitationAuditResult>("audit_abnt_citations", { request });
 
 export const listLinkIntegrityRecords = (request: LinkIntegrityListRequest = {}) =>
   invoke<LinkIntegrityListResult>("list_link_integrity_records", { request });

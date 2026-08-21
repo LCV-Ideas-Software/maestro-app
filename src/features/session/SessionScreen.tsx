@@ -354,6 +354,10 @@ export function SessionScreen({
                 {formatBytes(attachmentTotalBytes)}
               </span>
             </div>
+            <small className="field-hint">
+              Para citações verificadas, anexe `citation-manifest.json` com schema
+              `citation_manifest.v1`; o mesmo arquivo é preservado ao retomar a sessão.
+            </small>
             {promptAttachments.length > 0 && (
               <div className="attachment-list">
                 {attachmentDeliveryPlans.map((plan) => {

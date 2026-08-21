@@ -1,0 +1,39 @@
+{
+  "schema_version": "citation_manifest.v1",
+  "protocol_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "citations": [
+    {
+      "schema_version": "citation.v1",
+      "claim_id": "claim-001",
+      "citation_type": "direct_quote",
+      "author_display": "Silva, Maria",
+      "author_key": "SILVA",
+      "year": "2026",
+      "locator": "p. 12",
+      "source_id": "source-001",
+      "source_access": "full_document_opened",
+      "verification_status": "verified",
+      "risk_if_wrong": "medium",
+      "original_text": "Trecho literal comprovado pelo operador."
+    }
+  ],
+  "sources": [
+    {
+      "source_id": "source-001",
+      "source_type": "book",
+      "authors": [
+        {
+          "author_display": "Silva, Maria",
+          "author_key": "SILVA"
+        }
+      ],
+      "title": "Obra de exemplo",
+      "place": "Sao Paulo",
+      "publisher": "Editora Exemplo",
+      "year": "2026",
+      "verification_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "verification_status": "verified",
+      "prohibited": false
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import {
   stopEditorialSession,
 } from "./editorial";
 import {
+  auditAbntCitations,
   auditLinks,
   fetchWebEvidence,
   getWebEvidence,
@@ -76,6 +77,19 @@ describe("Tauri service facades", () => {
     expect(invokeMock).toHaveBeenNthCalledWith(4, "audit_links", {
       request: { text: "https://example.com" },
     });
+  });
+
+  it("keeps the deterministic citation audit request explicit and null-safe", async () => {
+    const request = {
+      text: "Texto com citação (SILVA, 2026, p. 12).",
+      protocol_hash: "sha256-protocol",
+      manifest: null,
+      previous_manifest: null,
+    };
+
+    await auditAbntCitations(request);
+
+    expect(invokeMock).toHaveBeenCalledWith("audit_abnt_citations", { request });
   });
 
   it("keeps all read command names stable", async () => {

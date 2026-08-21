@@ -22,6 +22,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use tauri::{Emitter, Manager};
 
 mod ai_probes;
+mod abnt_citation;
 mod api_payloads;
 mod app_init;
 mod app_paths;
@@ -811,6 +812,7 @@ pub(crate) struct RuntimeProfile {
 use crate::cloudflare_commands::{
     cloudflare_env_snapshot, dependency_preflight, verify_cloudflare_credentials,
 };
+use crate::abnt_citation::audit_abnt_citations;
 use crate::runtime_bootstrap::{
     execute_runtime_bootstrap_action, runtime_bootstrap_action_control,
     runtime_bootstrap_plan,
@@ -951,6 +953,7 @@ pub fn run() {
             write_ai_provider_config,
             verify_ai_provider_credentials,
             audit_links,
+            audit_abnt_citations,
             list_link_integrity_records,
             review_link_integrity,
             propose_link_corrections,

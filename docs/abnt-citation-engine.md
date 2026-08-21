@@ -1,7 +1,7 @@
 # ABNT Citation Engine
 
-Status: implementation contract.
-Date: 2026-04-26.
+Status: implemented; Rust validation runs in GitHub Actions for the consolidated release PR.
+Last updated: 2026-08-21.
 
 Maestro must apply the active editorial protocol as executable citation policy. The first profile is based on the attached Protocolo Editorial v1.10.0 and must treat ABNT formatting as a machine-checkable workflow, not as an optional style pass.
 
@@ -44,6 +44,18 @@ Each citation candidate should be represented as structured data before formatti
 
 No direct quote may become publishable without a valid locator and a verified or explicitly operator-provided source.
 
+The complete session manifest uses `citation_manifest.v1`, pins the same protocol hash as the session, and contains `citations` plus `sources`. Verified sources require a SHA-256 verification fingerprint; online sources also require URL and access date. Source metadata is always operator/evidence supplied. The engine never fills a missing author, title, year, publisher, locator, URL, access date, or verification fingerprint by inference.
+
+## Session transport
+
+Attach the current manifest to the session as UTF-8 JSON. The recommended name is `citation-manifest.json`; `manifesto-citacoes.json` is also recognized. An optional prior version named with `previous` or `anterior` is used only for semantic diff.
+
+Start from [`docs/examples/citation-manifest.example.json`](examples/citation-manifest.example.json). Replace both placeholder SHA-256 values with the real hash of the session protocol and the verified source before attaching it; do not copy placeholder metadata into production evidence.
+
+The attachment is persisted in the existing session evidence ledger and reused on resume. Exactly one current and at most one previous manifest are accepted. A file explicitly named as a citation manifest fails closed when its JSON or schema is invalid. Other JSON attachments remain unrelated evidence and are ignored by this engine.
+
+When an article contains author-date citations but no structured manifest, the standalone raw-text command still reports citation/reference shape defects and emits a machine-readable `structured_manifest_missing` blocker. In a production session, Maestro initializes a protocol-pinned empty manifest when none is attached. Text without bibliographic apparatus can then pass; any detected author-date citation, final reference, note marker, `apud`, or HTML citation/quotation must have a matching manifest entry or the session pauses before the next paid reviewer. This is intentional: raw prose cannot prove source access or verification.
+
 ## Outputs
 
 The engine must generate:
@@ -57,6 +69,8 @@ The engine must generate:
 - Citation semantic diff.
 - Machine-readable blockers.
 
+The implemented command is `audit_abnt_citations`. It returns `maestro_peer.v1`, a stable audit ID, normalized in-text citation and footnote candidates per citation, normalized references, Markdown, escaped MainSite-compatible HTML list items, blockers, an audit table, and a semantic diff. Free-text detection is conservative; authoritative normalization and verification use the attached manifest.
+
 ## Maestro as Fourth Peer
 
 Maestro is not only an orchestrator. It acts as a deterministic fourth peer:
@@ -66,6 +80,8 @@ Maestro is not only an orchestrator. It acts as a deterministic fourth peer:
 - Final delivery requires unanimity across the active AI peers and `MaestroPeer: READY`.
 
 If Maestro finds a protocol/citation/evidence blocker, it must mark its own peer status as `NOT_READY` or `NEEDS_EVIDENCE` and create the next round even if all three AIs say `READY`.
+
+The production session gate now evaluates this result before `texto-final.md` is written. An unchanged `READY` answer cannot count while the deterministic gate still fails. Correctable text-only blockers use the same bounded corrective-review path. A blocker marked `needs_evidence`, or one whose correction necessarily mutates the immutable manifest, pauses the session before another reviewer is charged and instructs the operator to attach or replace the manifest, then resume; agents are never asked to mutate an attachment or invent metadata.
 
 ## Required Blockers
 
@@ -81,7 +97,7 @@ Maestro must block publication when:
 - A weak link is used only to satisfy a count.
 - The public final text contains protocol self-reference.
 
-## Future Tests
+## CI fixtures
 
 Golden fixtures must cover:
 
@@ -97,3 +113,5 @@ Golden fixtures must cover:
 - Prohibited source.
 - Markdown export.
 - MainSite HTML export.
+
+Frontend command/panel coverage runs locally without invoking the Rust toolchain. Rust unit, clippy, and build validation are reserved for GitHub Actions on the consolidated PR.

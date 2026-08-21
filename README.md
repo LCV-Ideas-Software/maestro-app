@@ -175,7 +175,7 @@ Shared chat import, Markdown/PDF support, and Cloudflare D1 integration are plan
 
 Web fetch, curl-compatible replay, web search, isolated WebView2 rendering, and human-assisted browser capture are implemented under `docs/web-evidence-engine.md`; native Rust validation runs in GitHub Actions.
 
-ABNT citation/reference formatting and Maestro's deterministic fourth-peer role are planned under `docs/abnt-citation-engine.md`.
+ABNT citation/reference formatting and Maestro's deterministic fourth-peer release gate are implemented under `docs/abnt-citation-engine.md`; structured source verification is supplied through a session `citation_manifest.v1` attachment, can start from `docs/examples/citation-manifest.example.json`, and is never inferred.
 
 Persistent link checking, MainSite-safe sanitization, explicit editorial decisions, correction proposals, and final-release escalation are implemented under `docs/link-integrity-engine.md`; native Rust validation runs in GitHub Actions.
 

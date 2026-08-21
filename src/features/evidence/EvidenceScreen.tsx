@@ -26,6 +26,7 @@ import {
 } from "../../services/evidence";
 import { listenToWebEvidenceProgress } from "../../services/nativeEvents";
 import type {
+  CitationAuditResult,
   EvidenceRow,
   LinkAuditResult,
   WebEvidenceMethod,
@@ -33,11 +34,13 @@ import type {
   WebEvidenceRecord,
   WebEvidenceState,
 } from "../../types";
+import { CitationAuditPanel } from "./CitationAuditPanel";
 import { LinkIntegrityPanel } from "./LinkIntegrityPanel";
 
 type EvidenceScreenProps = {
   evidenceRows: EvidenceRow[];
   linkAuditRows: LinkAuditResult["rows"];
+  citationAuditResult: CitationAuditResult | null;
   isAuditing: boolean;
   onAudit: () => void;
 };
@@ -144,6 +147,7 @@ function mergeEvidence(current: WebEvidenceRecord[], incoming: WebEvidenceRecord
 export function EvidenceScreen({
   evidenceRows,
   linkAuditRows,
+  citationAuditResult,
   isAuditing,
   onAudit,
 }: EvidenceScreenProps) {
@@ -483,7 +487,7 @@ export function EvidenceScreen({
             aria-busy={isAuditing}
           >
             {isAuditing ? <RefreshCw size={18} /> : <Link2 size={18} />}
-            {isAuditing ? "Auditando" : "Auditar links do texto"}
+            {isAuditing ? "Auditando" : "Auditar links e citações"}
           </button>
         </div>
 
@@ -509,6 +513,8 @@ export function EvidenceScreen({
           </div>
         )}
       </div>
+
+      <CitationAuditPanel result={citationAuditResult} isAuditing={isAuditing} />
 
       <div className="panel evidence-collect-panel">
         <div className="panel-heading">

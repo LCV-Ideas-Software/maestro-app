@@ -30,7 +30,7 @@ export type ResumeEditorialSessionRequest = {
   active_agents: InitialAgentKey[] | null;
   max_session_cost_usd: number | null;
   max_session_minutes: number | null;
-  attachments: PromptAttachmentPayload[];
+  attachments: PromptAttachmentPayload[] | null;
   links: string[] | null;
 };
 
