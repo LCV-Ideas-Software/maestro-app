@@ -4,6 +4,18 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **MAESTRO-17 — official Linear Release writer.** The continuous release
+  workflow now uses Linear's official action, immutably pinned to its signed
+  v0.16.0 commit, and explicitly selects CLI v0.16.0 while preserving the
+  existing environment, least-privilege token, complete Git history and
+  serialized `main` synchronization. Writer failures are now visible instead
+  of being converted into a successful run; the official installer's missing
+  artifact-integrity check remains disclosed in the upstream issue.
+- Agent guidance now names only the current `cross-review` service and exempts
+  simple mechanical action replacements from a heavyweight cross-review gate.
+
 ## [v0.5.58] - 2026-08-21
 
 ### Added
