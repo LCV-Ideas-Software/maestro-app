@@ -30,10 +30,11 @@ cargo clippy --locked --no-deps --all-targets --manifest-path src-tauri/Cargo.to
 ## Workspace Policy
 
 Follow the workspace-root `AGENTS.md` directives of the private workspace that
-hosts this checkout (not versioned in this public repository). In
-particular: no self-review in cross-review gates, `ultrabrain` plus
-`cross-review-v2` before substantive closure, `cross-review-v1` only as fallback
-for v2, `main` as the deployment branch, and Commit & Sync only after final
+hosts this checkout (not versioned in this public repository). In particular:
+no self-review in cross-review gates; use `ultrabrain` for every change and the
+single `cross-review` service for substantive work (simple mechanical changes,
+such as replacing an action without changing product behavior, are exempt);
+use `main` as the deployment branch; and Commit & Sync only after the final
 audit when requested.
 
 ## Registro de trabalho (GitHub Projects, Issues e Discussions)
