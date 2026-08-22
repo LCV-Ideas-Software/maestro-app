@@ -135,7 +135,7 @@ describe("Official CodeQL workflow governance", () => {
     expect(initializeStepIndex).toBeGreaterThanOrEqual(0);
     expect(analyzeStepIndex).toBeGreaterThan(initializeStepIndex);
     expect(initializeStep?.uses).toBe(
-      "github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd",
+      "github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28",
     );
     expect(initializeStep?.if).toBeUndefined();
     expect(initializeStep?.["continue-on-error"] ?? false).toBe(false);
@@ -179,7 +179,7 @@ describe("Official CodeQL workflow governance", () => {
     expect(analyzeStep).toBeDefined();
     expect(analyzeStep?.name).toBe("Perform CodeQL analysis");
     expect(analyzeStep?.uses).toBe(
-      "github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd",
+      "github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28",
     );
     expect(analyzeStep?.if).toBeUndefined();
     expect(analyzeStep?.["continue-on-error"] ?? false).toBe(false);
