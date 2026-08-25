@@ -22,7 +22,11 @@ type LinearReleaseWorkflow = {
   name?: string;
   on?: { push?: { branches?: string[] } };
   permissions?: Record<string, string>;
-  concurrency?: { group?: string; "cancel-in-progress"?: boolean };
+  concurrency?: {
+    group?: string;
+    queue?: string;
+    "cancel-in-progress"?: boolean;
+  };
   jobs?: {
     linear_release?: {
       environment?: string;
@@ -50,10 +54,12 @@ describe("Official Linear Release workflow", () => {
     expect(workflow.permissions).toEqual({});
     expect(workflow.concurrency).toEqual({
       group: ["linear-release-", "$", "{{ github.ref }}"].join(""),
-      "cancel-in-progress": false,
+      queue: "max",
     });
     expect(workflow.jobs?.linear_release?.environment).toBe("linear-release");
-    expect(workflow.jobs?.linear_release?.permissions).toEqual({ contents: "read" });
+    expect(workflow.jobs?.linear_release?.permissions).toEqual({
+      contents: "read",
+    });
   });
 
   it("uses only full-history checkout and the exact official action pin", () => {
@@ -81,10 +87,9 @@ describe("Official Linear Release workflow", () => {
   it("locks the direct action to the signed v0.16.0 commit", () => {
     const dependency = `linear/linear-release-action@${LINEAR_ACTION_SHA}`;
 
-    expect(actionsLock.workflows?.[".github/workflows/linear-release.yml"]).toEqual([
-      `actions/checkout@${CHECKOUT_SHA}`,
-      dependency,
-    ]);
+    expect(
+      actionsLock.workflows?.[".github/workflows/linear-release.yml"],
+    ).toEqual([`actions/checkout@${CHECKOUT_SHA}`, dependency]);
     expect(actionsLock.dependencies?.[dependency]).toEqual({
       ref: "v0.16.0",
       commit: `sha1-${LINEAR_ACTION_SHA}`,
