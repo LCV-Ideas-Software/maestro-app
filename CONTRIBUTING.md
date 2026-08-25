@@ -20,7 +20,7 @@ Maestro is an operational stable-baseline project. Contributions should preserve
 
 ## Security reports
 
-Do not open public issues for suspected vulnerabilities, credential leaks, private editorial material exposure, authentication bypasses, executable-supply-chain issues, or deployment misconfiguration. Use [SECURITY.md](./SECURITY.md) and report privately to `lcv@lcv.dev`.
+Do not open public issues for suspected vulnerabilities, credential leaks, private editorial material exposure, authentication bypasses, executable-supply-chain issues, or deployment misconfiguration. Use [SECURITY.md](./SECURITY.md) and report privately to `security@lcv.dev`.
 
 ## Conduct
 
