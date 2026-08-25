@@ -87,9 +87,10 @@ describe("Official Linear Release workflow", () => {
   it("locks the direct action to the signed v0.16.0 commit", () => {
     const dependency = `linear/linear-release-action@${LINEAR_ACTION_SHA}`;
 
-    expect(
-      actionsLock.workflows?.[".github/workflows/linear-release.yml"],
-    ).toEqual([`actions/checkout@${CHECKOUT_SHA}`, dependency]);
+    expect(actionsLock.workflows?.[".github/workflows/linear-release.yml"]).toEqual([
+      `actions/checkout@${CHECKOUT_SHA}`,
+      dependency,
+    ]);
     expect(actionsLock.dependencies?.[dependency]).toEqual({
       ref: "v0.16.0",
       commit: `sha1-${LINEAR_ACTION_SHA}`,
