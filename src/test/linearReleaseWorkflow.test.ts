@@ -22,7 +22,11 @@ type LinearReleaseWorkflow = {
   name?: string;
   on?: { push?: { branches?: string[] } };
   permissions?: Record<string, string>;
-  concurrency?: { group?: string; "cancel-in-progress"?: boolean };
+  concurrency?: {
+    group?: string;
+    queue?: string;
+    "cancel-in-progress"?: boolean;
+  };
   jobs?: {
     linear_release?: {
       environment?: string;
@@ -50,10 +54,12 @@ describe("Official Linear Release workflow", () => {
     expect(workflow.permissions).toEqual({});
     expect(workflow.concurrency).toEqual({
       group: ["linear-release-", "$", "{{ github.ref }}"].join(""),
-      "cancel-in-progress": false,
+      queue: "max",
     });
     expect(workflow.jobs?.linear_release?.environment).toBe("linear-release");
-    expect(workflow.jobs?.linear_release?.permissions).toEqual({ contents: "read" });
+    expect(workflow.jobs?.linear_release?.permissions).toEqual({
+      contents: "read",
+    });
   });
 
   it("uses only full-history checkout and the exact official action pin", () => {

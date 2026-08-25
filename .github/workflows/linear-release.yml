@@ -8,14 +8,11 @@ on:
 # Política enterprise (Discussion #150): sem write-all. Conjunto vazio no escopo do
 # workflow e grant mínimo declarado no job.
 permissions: {}
-# Agrupamento intencional: o CLI varre todos os commits desde a última release
-# (fetch-depth: 0). Se um run pendente for substituído por um push mais novo, os
-# commits dele embarcam na release do run seguinte — nada se perde; releases
-# agrupam pushes em rajada por desenho, e o grupo evita corrida entre duas
-# criações de release simultâneas.
+# Fila integral: o grupo serializa as criações de release e queue: max preserva
+# todos os runs pendentes suportados, sem substituir pushes intermediários.
 concurrency:
   group: linear-release-${{ github.ref }}
-  cancel-in-progress: false
+  queue: max
 jobs:
   linear_release:
     name: Linear Release
