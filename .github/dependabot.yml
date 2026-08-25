@@ -9,7 +9,8 @@ updates:
     cooldown:
       default-days: 7
       exclude:
-        - "*"
+        - "actions/*"
+        - "github/*"
     labels:
       - "dependencies"
       - "github-actions"
