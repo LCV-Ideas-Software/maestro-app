@@ -63,10 +63,13 @@ Direct dependencies declared by this repository:
 
 ## Rust components
 
-The versions below are resolved by `src-tauri/Cargo.lock`. License expressions
-were cross-checked against the exact-version metadata in the official
-[crates.io registry](https://crates.io/) and the repository's SPDX-compatible
+The versions below are resolved by `src-tauri/Cargo.lock`. The package/version
+graph was cross-checked against the repository's SPDX-compatible
 [GitHub dependency graph SBOM](https://docs.github.com/en/rest/dependency-graph/sboms).
+License expressions were verified against checksum-matched, exact-version
+artifacts from the official [crates.io registry](https://crates.io/); the SBOM
+identifies the graph but does not currently populate `licenseDeclared` for
+these Cargo packages.
 
 | Component | Version | License | Scope | Source |
 | --- | --- | --- | --- | --- |
@@ -85,27 +88,47 @@ were cross-checked against the exact-version metadata in the official
 
 ### Transitive Rust license review
 
-At these locked versions, the GitHub SBOM reports 478 Rust package-version
-entries. The following weak-copyleft or multi-license entries require explicit
-treatment; no GPL, AGPL, SSPL, or unresolved license expression remains in the
-observed Rust graph.
+At these locked versions, the GitHub SBOM reports 478 registry-backed Rust
+package-version entries. A complete scan of their exact-version Cargo manifests
+resolved every license expression and found no GPL, AGPL, SSPL, or unresolved
+license term. The entries below require explicit operational treatment because
+they are weak-copyleft, offer a weak-copyleft alternative, or combine license
+terms conjunctively.
 
 | Component | Version | License | Treatment | Source |
 | --- | --- | --- | --- | --- |
-| cssparser | 0.36.0 | MPL-2.0 | MPL file-level obligations apply to modifications of covered files. | https://crates.io/crates/cssparser/0.36.0 |
-| cssparser-macros | 0.6.1 | MPL-2.0 | MPL file-level obligations apply to modifications of covered files. | https://crates.io/crates/cssparser-macros/0.6.1 |
-| dtoa-short | 0.3.5 | MPL-2.0 | MPL file-level obligations apply to modifications of covered files. | https://crates.io/crates/dtoa-short/0.3.5 |
-| option-ext | 0.2.0 | MPL-2.0 | MPL file-level obligations apply to modifications of covered files. | https://crates.io/crates/option-ext/0.2.0 |
-| selectors | 0.36.1 | MPL-2.0 | MPL file-level obligations apply to modifications of covered files. | https://crates.io/crates/selectors/0.36.1 |
+| cssparser | 0.36.0 | MPL-2.0 | Exhibit B applies: keep Covered Software under MPL and use only the Larger Work combination described below. | https://crates.io/crates/cssparser/0.36.0 |
+| cssparser-macros | 0.6.1 | MPL-2.0 | Exhibit B applies: keep Covered Software under MPL and use only the Larger Work combination described below. | https://crates.io/crates/cssparser-macros/0.6.1 |
+| dtoa-short | 0.3.5 | MPL-2.0 | Exhibit B applies: keep Covered Software under MPL and use only the Larger Work combination described below. | https://crates.io/crates/dtoa-short/0.3.5 |
+| option-ext | 0.2.0 | MPL-2.0 | Exhibit B applies: keep Covered Software under MPL and use only the Larger Work combination described below. | https://crates.io/crates/option-ext/0.2.0 |
+| selectors | 0.36.1 | MPL-2.0 | No Exhibit B notice was found in the exact artifact; retain the MPL source and executable distribution duties below. | https://crates.io/crates/selectors/0.36.1 |
 | r-efi | 5.3.0 and 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | The `OR` expression permits compliance under either permissive option. | [5.3.0](https://crates.io/crates/r-efi/5.3.0), [6.0.0](https://crates.io/crates/r-efi/6.0.0) |
+| ring | 0.17.14 | Apache-2.0 AND ISC | Both permissive terms apply; preserve their copyright and license notices. | https://crates.io/crates/ring/0.17.14 |
 
 This repository does not vendor or patch those crates. Under the
 [MPL 2.0 file-level model](https://www.mozilla.org/en-US/MPL/2.0/), the
-MPL-covered files remain subject to MPL obligations if modified and
-distributed, while separate files in the larger AGPL-3.0-or-later application
-remain under their own applicable terms. MPL 2.0 expressly recognizes
-AGPL-3.0-or-later as a Secondary License for compatible covered software.
-Cargo interprets `OR` as a license choice, as documented in the official
+MPL-covered source files, including any modifications, must remain available
+under the MPL with their license notices when source is distributed. When an
+executable containing those files is distributed, the corresponding MPL source
+must also remain available and recipients must be told how to obtain it, even
+when the covered files were not modified. The exact artifacts for `cssparser`,
+`cssparser-macros`, `dtoa-short`, and `option-ext` carry the Exhibit B notice and
+therefore cannot use an MPL Secondary License. They remain MPL-covered files in
+a Larger Work under MPL section 3.3; separate files in the application remain
+under AGPL-3.0-or-later. The exact `selectors` artifact carries no Exhibit B
+notice, but this inventory conservatively keeps it under MPL rather than
+relicensing it through the Secondary License mechanism.
+
+`ring` is reached on the configured runtime path through direct dependency
+`reqwest` 0.12.28 and `rustls` 0.23.39. Its exact crates.io artifact matches the
+`Cargo.lock` SHA-256 checksum
+`a4689e6c2294d81e88dc6261c768b63bc4fcdb852be6d1352498b114f61383b7`
+and declares `Apache-2.0 AND ISC`; both terms apply. Its root `LICENSE` also
+identifies the accompanying BoringSSL and once_cell notice files, which must be
+preserved with the applicable per-file notices in distributions.
+
+Cargo interprets `OR` as a license choice and `AND` as simultaneous compliance,
+as documented in the official
 [Cargo manifest reference](https://doc.rust-lang.org/cargo/reference/manifest.html#the-license-and-license-file-fields).
 
 No material license incompatibility with the repository's
