@@ -1,11 +1,30 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const INVENTORY = "THIRDPARTY.md";
-const NODE_HEADER = ["Component", "Version", "License", "Scope", "Source"];
+const COMPONENT_HEADER = [
+  "Component",
+  "Version",
+  "License",
+  "Scope",
+  "Modified?",
+  "Source",
+];
+const TRACKED_DEPENDENCY_FILES = [
+  "package-lock.json",
+  "package.json",
+  "src-tauri/Cargo.lock",
+  "src-tauri/Cargo.toml",
+];
+
+// A locally patched or vendored component must be declared here with the exact
+// text expected in the Modified? column. Absence means the locked upstream
+// artifact is consumed unchanged.
+const MODIFICATION_OVERRIDES = new Map();
 
 function normalizeCell(value) {
   return value.trim().replace(/^`|`$/gu, "");
@@ -24,28 +43,50 @@ function parseTable(markdown, heading, label) {
     (line, index) =>
       index > headingIndex &&
       index < boundary &&
-      line.trim() === `| ${NODE_HEADER.join(" | ")} |`,
+      line.trim() === `| ${COMPONENT_HEADER.join(" | ")} |`,
   );
   assert.notEqual(headerIndex, -1, `${label} table header is missing`);
+  assert.ok(
+    lines
+      .slice(headingIndex + 1, headerIndex)
+      .every((line) => !line.trim().startsWith("|")),
+    `${label} contains an unexpected table before its canonical header`,
+  );
+  assert.equal(
+    lines[headerIndex + 1]?.trim(),
+    `| ${COMPONENT_HEADER.map(() => "---").join(" | ")} |`,
+    `${label} table separator is invalid`,
+  );
 
   const rows = [];
   for (const line of lines.slice(headerIndex + 2, boundary)) {
-    if (!line.startsWith("|")) break;
-    const cells = line.split("|").slice(1, -1).map(normalizeCell);
+    const trimmedLine = line.trim();
+    if (!trimmedLine.startsWith("|")) continue;
+    const cells = trimmedLine.split("|").slice(1, -1).map(normalizeCell);
     assert.equal(
       cells.length,
-      NODE_HEADER.length,
+      COMPONENT_HEADER.length,
       `invalid ${label} row: ${line}`,
     );
-    const [name, version, license, scope, source] = cells;
-    rows.push({ name, version, license, scope, source });
+    const [name, version, license, scope, modified, source] = cells;
+    rows.push({ name, version, license, scope, modified, source });
   }
   assert.ok(rows.length > 0, `${label} table is empty`);
   return rows;
 }
 
+function modificationStatus(ecosystem, name, version) {
+  return (
+    MODIFICATION_OVERRIDES.get(`${ecosystem}:${name}@${version}`) ??
+    MODIFICATION_OVERRIDES.get(`${ecosystem}:${name}`) ??
+    "No"
+  );
+}
+
 function assertUniqueComponents(rows, label) {
-  const components = rows.map(({ name, scope }) => `${name}\0${scope}`);
+  const components = rows.map(
+    ({ name, version, scope }) => `${name}\0${version}\0${scope}`,
+  );
   assert.equal(
     new Set(components).size,
     components.length,
@@ -64,6 +105,28 @@ function expectedNodeRows(packageJson, packageLock) {
     ["peerDependencies", "peer"],
   ];
   const rows = [];
+  const peerDependenciesMeta = packageJson.peerDependenciesMeta ?? {};
+  assert.deepEqual(
+    packageLock.packages?.[""]?.peerDependenciesMeta ?? {},
+    peerDependenciesMeta,
+    "peerDependenciesMeta differs between package.json and package-lock.json",
+  );
+  for (const [name, metadata] of Object.entries(peerDependenciesMeta)) {
+    assert.ok(
+      Object.hasOwn(packageJson.peerDependencies ?? {}, name),
+      `${name} has peerDependenciesMeta without a peerDependency`,
+    );
+    assert.deepEqual(
+      Object.keys(metadata).sort(),
+      ["optional"],
+      `${name} has unsupported peerDependenciesMeta`,
+    );
+    assert.equal(
+      typeof metadata.optional,
+      "boolean",
+      `${name} peerDependenciesMeta.optional must be boolean`,
+    );
+  }
 
   for (const [manifestKey, scope] of scopes) {
     const declaredDependencies = packageJson[manifestKey] ?? {};
@@ -93,6 +156,13 @@ function expectedNodeRows(packageJson, packageLock) {
         `${name} uses an npm alias and needs an explicit inventory source contract`,
       );
       const lockEntry = packageLock.packages?.[`node_modules/${name}`];
+      if (
+        scope === "peer" &&
+        peerDependenciesMeta[name]?.optional === true &&
+        !lockEntry
+      ) {
+        continue;
+      }
       assert.ok(lockEntry, `${name} is missing from package-lock.json`);
       assert.equal(
         typeof lockEntry.version,
@@ -127,147 +197,12 @@ function expectedNodeRows(packageJson, packageLock) {
         version: lockEntry.version,
         license: lockEntry.license,
         scope,
+        modified: modificationStatus("npm", name, lockEntry.version),
         source: `https://www.npmjs.com/package/${name}`,
       });
     }
   }
   return rows;
-}
-
-function parseCargoManifest(cargoToml) {
-  const rows = [];
-  let scope = null;
-
-  for (const sourceLine of cargoToml.split(/\r?\n/u)) {
-    const line = sourceLine.trim();
-    if (line === "[build-dependencies]") {
-      scope = "build";
-      continue;
-    }
-    if (line === "[dependencies]") {
-      scope = "runtime";
-      continue;
-    }
-    if (line.startsWith("[")) {
-      assert.ok(
-        !/dependencies/u.test(line),
-        `unsupported Cargo dependency section: ${line}`,
-      );
-      scope = null;
-      continue;
-    }
-    if (!scope || !line || line.startsWith("#")) continue;
-
-    const declaration = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(.+)$/u);
-    assert.ok(
-      declaration,
-      `unsupported Cargo dependency declaration: ${sourceLine}`,
-    );
-    const [, name, value] = declaration;
-    const version =
-      value.match(/^"([^"]+)"/u)?.[1] ??
-      value.match(/\bversion\s*=\s*"([^"]+)"/u)?.[1];
-    assert.ok(version, `${name} lacks an explicit Cargo version requirement`);
-    rows.push({ name, requirement: version, scope });
-  }
-  return rows;
-}
-
-function parseCargoPackage(cargoToml) {
-  let section = null;
-  let name;
-  let version;
-
-  for (const sourceLine of cargoToml.split(/\r?\n/u)) {
-    const line = sourceLine.trim();
-    if (line.startsWith("[")) {
-      section = line === "[package]" ? "package" : null;
-      continue;
-    }
-    if (section !== "package" || !line || line.startsWith("#")) continue;
-    name ??= line.match(/^name\s*=\s*"([^"]+)"\s*$/u)?.[1];
-    version ??= line.match(/^version\s*=\s*"([^"]+)"\s*$/u)?.[1];
-  }
-
-  assert.ok(name, "Cargo package name is missing");
-  assert.ok(version, "Cargo package version is missing");
-  return { name, version };
-}
-
-function parseCargoLockDependencies(block) {
-  const list = block.match(/^dependencies\s*=\s*\[([\s\S]*?)^\]\s*$/mu)?.[1];
-  if (list === undefined) return [];
-
-  return list
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const match = line.match(/^"([^"]+)",?$/u);
-      assert.ok(match, `unsupported Cargo.lock dependency edge: ${line}`);
-      return match[1];
-    });
-}
-
-function parseCargoLock(cargoLock) {
-  return cargoLock
-    .split(/^\[\[package\]\]\s*$/mu)
-    .slice(1)
-    .map((block) => ({
-      name: block.match(/^name\s*=\s*"([^"]+)"\s*$/mu)?.[1],
-      version: block.match(/^version\s*=\s*"([^"]+)"\s*$/mu)?.[1],
-      source: block.match(/^source\s*=\s*"([^"]+)"\s*$/mu)?.[1],
-      dependencies: parseCargoLockDependencies(block),
-    }))
-    .filter(({ name, version }) => name && version);
-}
-
-function parseCargoLockPackageId(serialized) {
-  const match = serialized.match(
-    /^([^ ]+)(?: (\d[^ ]*))?(?: \(([^)]+)\))?$/u,
-  );
-  assert.ok(match, `unsupported Cargo.lock package ID: ${serialized}`);
-  const [, name, version, source] = match;
-  return { name, version, source };
-}
-
-function numericVersion(version, label) {
-  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:\+.*)?$/u);
-  assert.ok(match, `unsupported ${label} version: ${version}`);
-  return match.slice(1).map(Number);
-}
-
-function cargoRequirementMatches(requirement, version) {
-  const cleaned = requirement.replace(/^\^/u, "");
-  assert.match(
-    cleaned,
-    /^\d+(?:\.\d+){0,2}$/u,
-    `unsupported Cargo requirement: ${requirement}`,
-  );
-  const parts = cleaned.split(".").map(Number);
-  const [major, minor = 0, patch = 0] = parts;
-  if (/^\d+\.\d+\.\d+-/u.test(version)) return false;
-  const [candidateMajor, candidateMinor, candidatePatch] = numericVersion(
-    version,
-    "Cargo lock",
-  );
-
-  const atOrAboveFloor =
-    candidateMajor > major ||
-    (candidateMajor === major && candidateMinor > minor) ||
-    (candidateMajor === major &&
-      candidateMinor === minor &&
-      candidatePatch >= patch);
-  if (!atOrAboveFloor) return false;
-  if (parts.length === 1) return candidateMajor === major;
-  if (major > 0) return candidateMajor === major;
-  if (parts.length === 2) {
-    return candidateMajor === 0 && candidateMinor === minor;
-  }
-  if (minor > 0) return candidateMajor === 0 && candidateMinor === minor;
-  return (
-    candidateMajor === 0 && candidateMinor === 0 && candidatePatch === patch
-  );
 }
 
 function normalizedCargoLockSha256(cargoLock) {
@@ -290,67 +225,108 @@ function documentedCargoLockSha256(inventory) {
   return matches[0][1];
 }
 
-function expectedRustRows(cargoToml, cargoLock) {
-  const locked = parseCargoLock(cargoLock);
-  const rootCoordinate = parseCargoPackage(cargoToml);
-  const roots = locked.filter(
-    ({ name, version, source }) =>
-      name === rootCoordinate.name &&
-      version === rootCoordinate.version &&
-      source === undefined,
+function expectedRustRows(cargoMetadata) {
+  assert.equal(cargoMetadata.version, 1, "unsupported cargo metadata format");
+  assert.ok(cargoMetadata.resolve?.root, "cargo metadata root is missing");
+  const packagesById = new Map(
+    cargoMetadata.packages.map((packageMetadata) => [
+      packageMetadata.id,
+      packageMetadata,
+    ]),
   );
   assert.equal(
-    roots.length,
-    1,
-    "Cargo.lock must contain exactly one package matching the manifest root",
+    packagesById.size,
+    cargoMetadata.packages.length,
+    "cargo metadata contains duplicate package IDs",
   );
-  const [root] = roots;
+  const rootNodes = cargoMetadata.resolve.nodes.filter(
+    ({ id }) => id === cargoMetadata.resolve.root,
+  );
+  assert.equal(rootNodes.length, 1, "cargo metadata root node is ambiguous");
 
-  return parseCargoManifest(cargoToml).map(({ name, requirement, scope }) => {
-    const edges = root.dependencies
-      .map(parseCargoLockPackageId)
-      .filter((edge) => edge.name === name);
-    assert.equal(
-      edges.length,
-      1,
-      `${name} must have exactly one direct edge from the Cargo.lock root package`,
-    );
-    const [edge] = edges;
-    const candidates = locked.filter(
-      (entry) =>
-        entry.name === edge.name &&
-        (!edge.version || entry.version === edge.version) &&
-        (!edge.source || entry.source === edge.source),
-    );
-    assert.equal(
-      candidates.length,
-      1,
-      `${name} root edge must resolve to exactly one package in Cargo.lock`,
-    );
-    const [{ version, source }] = candidates;
+  const rows = [];
+  for (const dependency of rootNodes[0].deps) {
+    const packageMetadata = packagesById.get(dependency.pkg);
     assert.ok(
-      cargoRequirementMatches(requirement, version),
-      `${name} root edge does not satisfy Cargo.toml requirement ${requirement}`,
+      packageMetadata,
+      `${dependency.pkg} is missing from cargo metadata packages`,
     );
     assert.equal(
-      source,
+      packageMetadata.source,
       "registry+https://github.com/rust-lang/crates.io-index",
-      `${name} is not resolved from the crates.io registry`,
+      `${packageMetadata.name} is not resolved from the crates.io registry`,
     );
-    return {
-      name,
-      version,
-      scope,
-      source: `https://crates.io/crates/${name}/${version}`,
-    };
-  });
+    assert.equal(
+      typeof packageMetadata.license,
+      "string",
+      `${packageMetadata.name} lacks reviewed Cargo license metadata`,
+    );
+    assert.ok(
+      packageMetadata.license.trim(),
+      `${packageMetadata.name} has an empty Cargo license expression`,
+    );
+    assert.ok(
+      dependency.dep_kinds.length > 0,
+      `${packageMetadata.name} lacks a Cargo dependency kind`,
+    );
+    for (const { kind } of dependency.dep_kinds) {
+      const scope =
+        kind === null
+          ? "runtime"
+          : kind === "build"
+            ? "build"
+            : kind === "dev"
+              ? "development"
+              : null;
+      assert.ok(scope, `${packageMetadata.name} has unsupported Cargo kind`);
+      rows.push({
+        name: packageMetadata.name,
+        version: packageMetadata.version,
+        license: packageMetadata.license,
+        scope,
+        modified: modificationStatus(
+          "cargo",
+          packageMetadata.name,
+          packageMetadata.version,
+        ),
+        source: `https://crates.io/crates/${packageMetadata.name}/${packageMetadata.version}`,
+      });
+    }
+  }
+
+  const uniqueRows = new Map();
+  for (const row of rows) {
+    const key = `${row.name}\0${row.version}\0${row.scope}`;
+    const existing = uniqueRows.get(key);
+    if (existing) {
+      assert.deepEqual(
+        row,
+        existing,
+        `${row.name} has conflicting Cargo metadata for one inventory scope`,
+      );
+    } else {
+      uniqueRows.set(key, row);
+    }
+  }
+
+  const scopeOrder = new Map([
+    ["build", 0],
+    ["runtime", 1],
+    ["development", 2],
+  ]);
+  return [...uniqueRows.values()].sort(
+    (left, right) =>
+      scopeOrder.get(left.scope) - scopeOrder.get(right.scope) ||
+      left.name.localeCompare(right.name) ||
+      left.version.localeCompare(right.version),
+  );
 }
 
 export function verifyThirdPartyInventory({
   packageJson,
   packageLock,
-  cargoToml,
   cargoLock,
+  cargoMetadata,
   inventory,
 }) {
   assert.equal(
@@ -377,31 +353,56 @@ export function verifyThirdPartyInventory({
     "Rust inventory",
   );
   assertUniqueComponents(rustRows, "Rust inventory");
-  for (const row of rustRows) {
-    assert.ok(row.license, `${row.name} has an empty Rust license expression`);
-  }
   assert.deepEqual(
-    rustRows.map(({ license: _license, ...row }) => row),
-    expectedRustRows(cargoToml, cargoLock),
+    rustRows,
+    expectedRustRows(cargoMetadata),
     "Rust inventory does not match direct manifest and lockfile metadata",
   );
 }
 
 async function main() {
   const root = process.cwd();
-  const [packageJson, packageLock, cargoToml, cargoLock, inventory] =
-    await Promise.all([
-      readFile(resolve(root, "package.json"), "utf8").then(JSON.parse),
-      readFile(resolve(root, "package-lock.json"), "utf8").then(JSON.parse),
-      readFile(resolve(root, "src-tauri/Cargo.toml"), "utf8"),
-      readFile(resolve(root, "src-tauri/Cargo.lock"), "utf8"),
-      readFile(resolve(root, INVENTORY), "utf8"),
-    ]);
+  const trackedDependencyFiles = execFileSync("git", ["ls-files", "-z"], {
+    cwd: root,
+    encoding: "utf8",
+  })
+    .split("\0")
+    .filter(Boolean)
+    .filter((path) =>
+      /(^|\/)(?:package(?:-lock)?\.json|Cargo\.(?:toml|lock))$/u.test(path),
+    )
+    .sort();
+  assert.deepEqual(
+    trackedDependencyFiles,
+    TRACKED_DEPENDENCY_FILES,
+    "tracked dependency manifests/lockfiles changed; extend the THIRDPARTY verifier explicitly",
+  );
+  const cargoMetadata = JSON.parse(
+    execFileSync(
+      "cargo",
+      [
+        "metadata",
+        "--locked",
+        "--all-features",
+        "--format-version",
+        "1",
+        "--manifest-path",
+        "src-tauri/Cargo.toml",
+      ],
+      { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+    ),
+  );
+  const [packageJson, packageLock, cargoLock, inventory] = await Promise.all([
+    readFile(resolve(root, "package.json"), "utf8").then(JSON.parse),
+    readFile(resolve(root, "package-lock.json"), "utf8").then(JSON.parse),
+    readFile(resolve(root, "src-tauri/Cargo.lock"), "utf8"),
+    readFile(resolve(root, INVENTORY), "utf8"),
+  ]);
   verifyThirdPartyInventory({
     packageJson,
     packageLock,
-    cargoToml,
     cargoLock,
+    cargoMetadata,
     inventory,
   });
   console.log(
