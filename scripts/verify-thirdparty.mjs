@@ -54,17 +54,11 @@ function assertUniqueComponents(rows, label) {
 }
 
 function expectedNodeRows(packageJson, packageLock) {
-  for (const unsupported of ["optionalDependencies", "peerDependencies"]) {
-    assert.deepEqual(
-      packageJson[unsupported] ?? {},
-      {},
-      `${unsupported} must be added explicitly to the THIRDPARTY contract before use`,
-    );
-  }
-
   const scopes = [
     ["dependencies", "runtime"],
     ["devDependencies", "development"],
+    ["optionalDependencies", "optional"],
+    ["peerDependencies", "peer"],
   ];
   const rows = [];
 

@@ -168,19 +168,63 @@ test("rejects a registry-backed npm alias", () => {
   );
 });
 
-test("rejects unsupported direct Node dependency classes", () => {
-  const changedPackageJson = {
-    ...packageJson,
-    optionalDependencies: { optional: "1.0.0" },
+test("inventories installed optional and peer Node dependencies", () => {
+  const changedPackageJson = structuredClone(packageJson);
+  changedPackageJson.optionalDependencies = { epsilon: "^3.0.0" };
+  changedPackageJson.peerDependencies = { zeta: "^4.0.0" };
+  const changedPackageLock = structuredClone(packageLock);
+  changedPackageLock.packages[""].optionalDependencies = {
+    epsilon: "^3.0.0",
   };
-  assert.throws(
-    () =>
-      verifyThirdPartyInventory({
-        ...inputs,
-        packageJson: changedPackageJson,
-        inventory,
-      }),
-    /optionalDependencies/u,
+  changedPackageLock.packages[""].peerDependencies = { zeta: "^4.0.0" };
+  changedPackageLock.packages["node_modules/epsilon"] = {
+    version: "3.1.0",
+    license: "MIT",
+    optional: true,
+    resolved: "https://registry.npmjs.org/epsilon/-/epsilon-3.1.0.tgz",
+  };
+  changedPackageLock.packages["node_modules/zeta"] = {
+    version: "4.2.0",
+    license: "Apache-2.0",
+    peer: true,
+    resolved: "https://registry.npmjs.org/zeta/-/zeta-4.2.0.tgz",
+  };
+  const changedInventory = inventory.replace(
+    "| beta | 2.0.4 | ISC | development | https://www.npmjs.com/package/beta |",
+    `| beta | 2.0.4 | ISC | development | https://www.npmjs.com/package/beta |
+| epsilon | 3.1.0 | MIT | optional | https://www.npmjs.com/package/epsilon |
+| zeta | 4.2.0 | Apache-2.0 | peer | https://www.npmjs.com/package/zeta |`,
+  );
+  assert.doesNotThrow(() =>
+    verifyThirdPartyInventory({
+      ...inputs,
+      packageJson: changedPackageJson,
+      packageLock: changedPackageLock,
+      inventory: changedInventory,
+    }),
+  );
+});
+
+test("rejects an omitted direct optional Node dependency", () => {
+  const changedPackageJson = structuredClone(packageJson);
+  changedPackageJson.optionalDependencies = { epsilon: "^3.0.0" };
+  const changedPackageLock = structuredClone(packageLock);
+  changedPackageLock.packages[""].optionalDependencies = {
+    epsilon: "^3.0.0",
+  };
+  changedPackageLock.packages["node_modules/epsilon"] = {
+    version: "3.1.0",
+    license: "MIT",
+    optional: true,
+    resolved: "https://registry.npmjs.org/epsilon/-/epsilon-3.1.0.tgz",
+  };
+  assert.throws(() =>
+    verifyThirdPartyInventory({
+      ...inputs,
+      packageJson: changedPackageJson,
+      packageLock: changedPackageLock,
+      inventory,
+    }),
   );
 });
 
