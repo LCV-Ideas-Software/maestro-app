@@ -92,18 +92,20 @@ At these locked versions, the GitHub SBOM reports 478 registry-backed Rust
 package-version entries. A complete scan of their exact-version Cargo manifests
 resolved every license expression and found no GPL, AGPL, SSPL, or unresolved
 license term. The entries below require explicit operational treatment because
-they are weak-copyleft, offer a weak-copyleft alternative, or combine license
-terms conjunctively.
+they are weak-copyleft, offer a weak-copyleft alternative, or are the complete
+set of conjunctive license expressions in the locked graph.
 
 | Component | Version | License | Treatment | Source |
 | --- | --- | --- | --- | --- |
-| cssparser | 0.36.0 | MPL-2.0 | Exhibit B applies: keep Covered Software under MPL and use only the Larger Work combination described below. | https://crates.io/crates/cssparser/0.36.0 |
-| cssparser-macros | 0.6.1 | MPL-2.0 | Exhibit B applies: keep Covered Software under MPL and use only the Larger Work combination described below. | https://crates.io/crates/cssparser-macros/0.6.1 |
-| dtoa-short | 0.3.5 | MPL-2.0 | Exhibit B applies: keep Covered Software under MPL and use only the Larger Work combination described below. | https://crates.io/crates/dtoa-short/0.3.5 |
-| option-ext | 0.2.0 | MPL-2.0 | Exhibit B applies: keep Covered Software under MPL and use only the Larger Work combination described below. | https://crates.io/crates/option-ext/0.2.0 |
-| selectors | 0.36.1 | MPL-2.0 | No Exhibit B notice was found in the exact artifact; retain the MPL source and executable distribution duties below. | https://crates.io/crates/selectors/0.36.1 |
+| cssparser | 0.36.0 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/cssparser/0.36.0 |
+| cssparser-macros | 0.6.1 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/cssparser-macros/0.6.1 |
+| dtoa-short | 0.3.5 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/dtoa-short/0.3.5 |
+| option-ext | 0.2.0 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/option-ext/0.2.0 |
+| selectors | 0.36.1 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/selectors/0.36.1 |
 | r-efi | 5.3.0 and 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | The `OR` expression permits compliance under either permissive option. | [5.3.0](https://crates.io/crates/r-efi/5.3.0), [6.0.0](https://crates.io/crates/r-efi/6.0.0) |
+| dpi | 0.1.2 | Apache-2.0 AND MIT | Both permissive terms apply; preserve both sets of notices. | https://crates.io/crates/dpi/0.1.2 |
 | ring | 0.17.14 | Apache-2.0 AND ISC | Both permissive terms apply; preserve their copyright and license notices. | https://crates.io/crates/ring/0.17.14 |
+| unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | Choose MIT or Apache-2.0 and also comply with Unicode-3.0; preserve the selected notices. | https://crates.io/crates/unicode-ident/1.0.24 |
 
 This repository does not vendor or patch those crates. Under the
 [MPL 2.0 file-level model](https://www.mozilla.org/en-US/MPL/2.0/), the
@@ -111,13 +113,11 @@ MPL-covered source files, including any modifications, must remain available
 under the MPL with their license notices when source is distributed. When an
 executable containing those files is distributed, the corresponding MPL source
 must also remain available and recipients must be told how to obtain it, even
-when the covered files were not modified. The exact artifacts for `cssparser`,
-`cssparser-macros`, `dtoa-short`, and `option-ext` carry the Exhibit B notice and
-therefore cannot use an MPL Secondary License. They remain MPL-covered files in
-a Larger Work under MPL section 3.3; separate files in the application remain
-under AGPL-3.0-or-later. The exact `selectors` artifact carries no Exhibit B
-notice, but this inventory conservatively keeps it under MPL rather than
-relicensing it through the Secondary License mechanism.
+when the covered files were not modified. No crate-specific Exhibit B notice
+was identified outside the standard MPL license text in these exact artifacts.
+This inventory nevertheless does not rely on the Secondary License mechanism:
+the crates remain MPL-covered files in a Larger Work under MPL section 3.3,
+while separate files in the application remain under AGPL-3.0-or-later.
 
 `ring` is reached on the configured runtime path through direct dependency
 `reqwest` 0.12.28 and `rustls` 0.23.39. Its exact crates.io artifact matches the
