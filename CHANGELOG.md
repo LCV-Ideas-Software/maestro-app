@@ -6,6 +6,18 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Changed
 
+- **MAESTRO-20 — dependency inventory contract.** The Node and Rust sections in
+  `THIRDPARTY.md` now match the current manifests and lockfiles. CI validates
+  every direct component's locked version, license expression, scope,
+  modification status and official package source. Node metadata comes from
+  `package-lock.json`; Rust identities, aliases, kinds, target edges and license
+  expressions come from Cargo's official locked metadata graph. Missing,
+  duplicate or stale rows fail before another dependency update can merge.
+- The same gate rejects direct Node packages that are not resolved from the
+  npmjs registry, applies npm's optional-dependency and optional-peer semantics,
+  inventories every tracked manifest/lockfile, and fingerprints the complete
+  normalized `Cargo.lock`, so any transitive Rust change invalidates the
+  recorded legal review.
 - **MAESTRO-17 — official Linear Release writer.** The continuous release
   workflow now uses Linear's official action, immutably pinned to its signed
   v0.16.0 commit, and explicitly selects CLI v0.16.0 while preserving the
