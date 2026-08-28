@@ -260,9 +260,30 @@ test("rejects prerelease locks for stable Cargo requirements", () => {
           cargoLock: changedCargoLock,
           inventory: changedInventory,
         }),
-      /unsupported Cargo lock version/u,
+      /must resolve to exactly one matching package/u,
     );
   }
+});
+
+test("ignores a transitive prerelease when a stable Cargo candidate matches", () => {
+  const prereleaseBlock = `[[package]]
+name = "gamma"
+version = "2.6.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+`;
+  const changedCargoLock = `${prereleaseBlock}${cargoLock}`;
+  const changedInventory = inventory.replace(
+    cargoLockSha256(cargoLock),
+    cargoLockSha256(changedCargoLock),
+  );
+  assert.doesNotThrow(() =>
+    verifyThirdPartyInventory({
+      ...inputs,
+      cargoLock: changedCargoLock,
+      inventory: changedInventory,
+    }),
+  );
 });
 
 test("rejects a transitive-only Cargo.lock change", () => {

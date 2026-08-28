@@ -191,6 +191,7 @@ function cargoRequirementMatches(requirement, version) {
   );
   const parts = cleaned.split(".").map(Number);
   const [major, minor = 0, patch = 0] = parts;
+  if (/^\d+\.\d+\.\d+-/u.test(version)) return false;
   const [candidateMajor, candidateMinor, candidatePatch] = numericVersion(
     version,
     "Cargo lock",
