@@ -44,11 +44,11 @@ function parseTable(markdown, heading, label) {
   return rows;
 }
 
-function assertUniqueNames(rows, label) {
-  const names = rows.map(({ name }) => name);
+function assertUniqueComponents(rows, label) {
+  const components = rows.map(({ name, scope }) => `${name}\0${scope}`);
   assert.equal(
-    new Set(names).size,
-    names.length,
+    new Set(components).size,
+    components.length,
     `${label} contains duplicate components`,
   );
 }
@@ -164,6 +164,42 @@ function parseCargoManifest(cargoToml) {
   return rows;
 }
 
+function parseCargoPackage(cargoToml) {
+  let section = null;
+  let name;
+  let version;
+
+  for (const sourceLine of cargoToml.split(/\r?\n/u)) {
+    const line = sourceLine.trim();
+    if (line.startsWith("[")) {
+      section = line === "[package]" ? "package" : null;
+      continue;
+    }
+    if (section !== "package" || !line || line.startsWith("#")) continue;
+    name ??= line.match(/^name\s*=\s*"([^"]+)"\s*$/u)?.[1];
+    version ??= line.match(/^version\s*=\s*"([^"]+)"\s*$/u)?.[1];
+  }
+
+  assert.ok(name, "Cargo package name is missing");
+  assert.ok(version, "Cargo package version is missing");
+  return { name, version };
+}
+
+function parseCargoLockDependencies(block) {
+  const list = block.match(/^dependencies\s*=\s*\[([\s\S]*?)^\]\s*$/mu)?.[1];
+  if (list === undefined) return [];
+
+  return list
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^"([^"]+)",?$/u);
+      assert.ok(match, `unsupported Cargo.lock dependency edge: ${line}`);
+      return match[1];
+    });
+}
+
 function parseCargoLock(cargoLock) {
   return cargoLock
     .split(/^\[\[package\]\]\s*$/mu)
@@ -172,8 +208,18 @@ function parseCargoLock(cargoLock) {
       name: block.match(/^name\s*=\s*"([^"]+)"\s*$/mu)?.[1],
       version: block.match(/^version\s*=\s*"([^"]+)"\s*$/mu)?.[1],
       source: block.match(/^source\s*=\s*"([^"]+)"\s*$/mu)?.[1],
+      dependencies: parseCargoLockDependencies(block),
     }))
     .filter(({ name, version }) => name && version);
+}
+
+function parseCargoLockPackageId(serialized) {
+  const match = serialized.match(
+    /^([^ ]+)(?: (\d[^ ]*))?(?: \(([^)]+)\))?$/u,
+  );
+  assert.ok(match, `unsupported Cargo.lock package ID: ${serialized}`);
+  const [, name, version, source] = match;
+  return { name, version, source };
 }
 
 function numericVersion(version, label) {
@@ -237,18 +283,46 @@ function documentedCargoLockSha256(inventory) {
 
 function expectedRustRows(cargoToml, cargoLock) {
   const locked = parseCargoLock(cargoLock);
+  const rootCoordinate = parseCargoPackage(cargoToml);
+  const roots = locked.filter(
+    ({ name, version, source }) =>
+      name === rootCoordinate.name &&
+      version === rootCoordinate.version &&
+      source === undefined,
+  );
+  assert.equal(
+    roots.length,
+    1,
+    "Cargo.lock must contain exactly one package matching the manifest root",
+  );
+  const [root] = roots;
+
   return parseCargoManifest(cargoToml).map(({ name, requirement, scope }) => {
+    const edges = root.dependencies
+      .map(parseCargoLockPackageId)
+      .filter((edge) => edge.name === name);
+    assert.equal(
+      edges.length,
+      1,
+      `${name} must have exactly one direct edge from the Cargo.lock root package`,
+    );
+    const [edge] = edges;
     const candidates = locked.filter(
       (entry) =>
-        entry.name === name &&
-        cargoRequirementMatches(requirement, entry.version),
+        entry.name === edge.name &&
+        (!edge.version || entry.version === edge.version) &&
+        (!edge.source || entry.source === edge.source),
     );
     assert.equal(
       candidates.length,
       1,
-      `${name} must resolve to exactly one matching package in Cargo.lock`,
+      `${name} root edge must resolve to exactly one package in Cargo.lock`,
     );
     const [{ version, source }] = candidates;
+    assert.ok(
+      cargoRequirementMatches(requirement, version),
+      `${name} root edge does not satisfy Cargo.toml requirement ${requirement}`,
+    );
     assert.equal(
       source,
       "registry+https://github.com/rust-lang/crates.io-index",
@@ -281,7 +355,7 @@ export function verifyThirdPartyInventory({
     "# Third-Party Components",
     "Node inventory",
   );
-  assertUniqueNames(nodeRows, "Node inventory");
+  assertUniqueComponents(nodeRows, "Node inventory");
   assert.deepEqual(
     nodeRows,
     expectedNodeRows(packageJson, packageLock),
@@ -293,7 +367,7 @@ export function verifyThirdPartyInventory({
     "## Rust components",
     "Rust inventory",
   );
-  assertUniqueNames(rustRows, "Rust inventory");
+  assertUniqueComponents(rustRows, "Rust inventory");
   for (const row of rustRows) {
     assert.ok(row.license, `${row.name} has an empty Rust license expression`);
   }

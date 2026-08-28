@@ -25,13 +25,25 @@ const packageLock = {
     },
   },
 };
-const cargoToml = `[build-dependencies]
+const cargoToml = `[package]
+name = "fixture"
+version = "1.0.0"
+
+[build-dependencies]
 gamma = "2.6.2"
 
 [dependencies]
 delta = { version = "0.12", features = [] }
 `;
 const cargoLock = `[[package]]
+name = "fixture"
+version = "1.0.0"
+dependencies = [
+ "delta",
+ "gamma",
+]
+
+[[package]]
 name = "gamma"
 version = "2.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -260,7 +272,7 @@ test("rejects prerelease locks for stable Cargo requirements", () => {
           cargoLock: changedCargoLock,
           inventory: changedInventory,
         }),
-      /must resolve to exactly one matching package/u,
+      /root edge does not satisfy Cargo\.toml requirement/u,
     );
   }
 });
@@ -272,7 +284,10 @@ version = "2.6.3-alpha.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 `;
-  const changedCargoLock = `${prereleaseBlock}${cargoLock}`;
+  const changedCargoLock = `${prereleaseBlock}${cargoLock.replace(
+    ' "gamma",',
+    ' "gamma 2.6.3",',
+  )}`;
   const changedInventory = inventory.replace(
     cargoLockSha256(cargoLock),
     cargoLockSha256(changedCargoLock),
@@ -281,6 +296,134 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
     verifyThirdPartyInventory({
       ...inputs,
       cargoLock: changedCargoLock,
+      inventory: changedInventory,
+    }),
+  );
+});
+
+test("uses the root Cargo edge when two compatible versions are locked", () => {
+  const secondGammaBlock = `[[package]]
+name = "gamma"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+`;
+  const changedCargoToml = cargoToml.replace(
+    'gamma = "2.6.2"',
+    'gamma = "2"',
+  );
+  const changedCargoLock = `${secondGammaBlock}${cargoLock.replace(
+    ' "gamma",',
+    ' "gamma 2.6.3",',
+  )}`;
+  const changedInventory = inventory.replace(
+    cargoLockSha256(cargoLock),
+    cargoLockSha256(changedCargoLock),
+  );
+  assert.doesNotThrow(() =>
+    verifyThirdPartyInventory({
+      ...inputs,
+      cargoToml: changedCargoToml,
+      cargoLock: changedCargoLock,
+      inventory: changedInventory,
+    }),
+  );
+});
+
+test("rejects inventory for the wrong version selected by the root Cargo edge", () => {
+  const secondGammaBlock = `[[package]]
+name = "gamma"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+`;
+  const changedCargoToml = cargoToml.replace(
+    'gamma = "2.6.2"',
+    'gamma = "2"',
+  );
+  const changedCargoLock = `${secondGammaBlock}${cargoLock.replace(
+    ' "gamma",',
+    ' "gamma 2.6.3",',
+  )}`;
+  const changedInventory = inventory
+    .replace(cargoLockSha256(cargoLock), cargoLockSha256(changedCargoLock))
+    .replace("| gamma | 2.6.3 |", "| gamma | 2.7.0 |")
+    .replace("/gamma/2.6.3 |", "/gamma/2.7.0 |");
+  assert.throws(() =>
+    verifyThirdPartyInventory({
+      ...inputs,
+      cargoToml: changedCargoToml,
+      cargoLock: changedCargoLock,
+      inventory: changedInventory,
+    }),
+  );
+});
+
+test("uses a source-qualified root Cargo edge to disambiguate packages", () => {
+  const secondGammaBlock = `[[package]]
+name = "gamma"
+version = "2.6.3"
+source = "git+https://example.invalid/gamma"
+
+`;
+  const qualifiedCargoLock = `${secondGammaBlock}${cargoLock.replace(
+    ' "gamma",',
+    ' "gamma 2.6.3 (registry+https://github.com/rust-lang/crates.io-index)",',
+  )}`;
+  const qualifiedInventory = inventory.replace(
+    cargoLockSha256(cargoLock),
+    cargoLockSha256(qualifiedCargoLock),
+  );
+  assert.doesNotThrow(() =>
+    verifyThirdPartyInventory({
+      ...inputs,
+      cargoLock: qualifiedCargoLock,
+      inventory: qualifiedInventory,
+    }),
+  );
+});
+
+test("rejects a source-qualified root Cargo edge outside crates.io", () => {
+  const secondGammaBlock = `[[package]]
+name = "gamma"
+version = "2.6.3"
+source = "git+https://example.invalid/gamma"
+
+`;
+  const qualifiedCargoLock = `${secondGammaBlock}${cargoLock.replace(
+    ' "gamma",',
+    ' "gamma 2.6.3 (git+https://example.invalid/gamma)",',
+  )}`;
+  const qualifiedInventory = inventory.replace(
+    cargoLockSha256(cargoLock),
+    cargoLockSha256(qualifiedCargoLock),
+  );
+  assert.throws(
+    () =>
+      verifyThirdPartyInventory({
+        ...inputs,
+        cargoLock: qualifiedCargoLock,
+        inventory: qualifiedInventory,
+      }),
+    /crates\.io registry/u,
+  );
+});
+
+test("accepts one direct crate in runtime and build scopes", () => {
+  const changedCargoToml = cargoToml.replace(
+    "[dependencies]\n",
+    '[dependencies]\ngamma = "2.6.2"\n',
+  );
+  const runtimeRow =
+    "| gamma | 2.6.3 | MIT | runtime | https://crates.io/crates/gamma/2.6.3 |\n";
+  const changedInventory = inventory.replace(
+    "| delta | 0.12.28 |",
+    `${runtimeRow}| delta | 0.12.28 |`,
+  );
+  assert.doesNotThrow(() =>
+    verifyThirdPartyInventory({
+      ...inputs,
+      cargoToml: changedCargoToml,
       inventory: changedInventory,
     }),
   );
