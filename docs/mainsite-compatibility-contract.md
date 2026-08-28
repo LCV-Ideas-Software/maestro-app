@@ -93,7 +93,7 @@ The current backend allowlist does not preserve every TipTap editing-time style.
 - Sanitizes with DOMPurify.
 - Adds `iframe` support.
 - Allows `target`, `rel`, `data-type`, `data-checked`, and `style`.
-- Converts internal links for known LCV domains into relative paths.
+- Converts internal links for known LCV Ideas & Software domains into relative paths.
 - Restores external non-YouTube links to open in a new tab.
 - Renders HTML inside `.html-content`.
 
