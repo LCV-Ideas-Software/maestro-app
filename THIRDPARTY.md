@@ -60,3 +60,78 @@ Direct dependencies declared by this repository:
 | typescript | 6.0.3 | Apache-2.0 | development | https://www.npmjs.com/package/typescript |
 | vite | 8.0.13 | MIT | development | https://www.npmjs.com/package/vite |
 | vitest | ^4.1.7 | MIT | development | https://www.npmjs.com/package/vitest |
+
+## Rust components
+
+The versions below are resolved by `src-tauri/Cargo.lock`. The package/version
+graph was cross-checked against the repository's SPDX-compatible
+[GitHub dependency graph SBOM](https://docs.github.com/en/rest/dependency-graph/sboms).
+License expressions were verified against checksum-matched, exact-version
+artifacts from the official [crates.io registry](https://crates.io/); the SBOM
+identifies the graph but does not currently populate `licenseDeclared` for
+these Cargo packages.
+
+| Component | Version | License | Scope | Source |
+| --- | --- | --- | --- | --- |
+| tauri-build | 2.6.3 | Apache-2.0 OR MIT | build | https://crates.io/crates/tauri-build/2.6.3 |
+| base64 | 0.23.1 | MIT OR Apache-2.0 | runtime | https://crates.io/crates/base64/0.23.1 |
+| chrono | 0.4.45 | MIT OR Apache-2.0 | runtime | https://crates.io/crates/chrono/0.4.45 |
+| reqwest | 0.12.28 | MIT OR Apache-2.0 | runtime | https://crates.io/crates/reqwest/0.12.28 |
+| regex | 1.13.1 | MIT OR Apache-2.0 | runtime | https://crates.io/crates/regex/1.13.1 |
+| serde | 1.0.229 | MIT OR Apache-2.0 | runtime | https://crates.io/crates/serde/1.0.229 |
+| serde_json | 1.0.151 | MIT OR Apache-2.0 | runtime | https://crates.io/crates/serde_json/1.0.151 |
+| sha2 | 0.11.0 | MIT OR Apache-2.0 | runtime | https://crates.io/crates/sha2/0.11.0 |
+| portable-pty | 0.9.0 | MIT | runtime | https://crates.io/crates/portable-pty/0.9.0 |
+| tauri | 2.11.5 | Apache-2.0 OR MIT | runtime | https://crates.io/crates/tauri/2.11.5 |
+| tokio | 1.53.1 | MIT | runtime | https://crates.io/crates/tokio/1.53.1 |
+| tokio-util | 0.7.19 | MIT | runtime | https://crates.io/crates/tokio-util/0.7.19 |
+
+### Transitive Rust license review
+
+At these locked versions, the GitHub SBOM reports 478 registry-backed Rust
+package-version entries. A complete scan of their exact-version Cargo manifests
+resolved every license expression and found no GPL, AGPL, SSPL, or unresolved
+license term. The entries below require explicit operational treatment because
+they are weak-copyleft, offer a weak-copyleft alternative, or are the complete
+set of conjunctive license expressions in the locked graph.
+
+| Component | Version | License | Treatment | Source |
+| --- | --- | --- | --- | --- |
+| cssparser | 0.36.0 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/cssparser/0.36.0 |
+| cssparser-macros | 0.6.1 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/cssparser-macros/0.6.1 |
+| dtoa-short | 0.3.5 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/dtoa-short/0.3.5 |
+| option-ext | 0.2.0 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/option-ext/0.2.0 |
+| selectors | 0.36.1 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/selectors/0.36.1 |
+| r-efi | 5.3.0 and 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | The `OR` expression permits compliance under either permissive option. | [5.3.0](https://crates.io/crates/r-efi/5.3.0), [6.0.0](https://crates.io/crates/r-efi/6.0.0) |
+| dpi | 0.1.2 | Apache-2.0 AND MIT | Both permissive terms apply; preserve both sets of notices. | https://crates.io/crates/dpi/0.1.2 |
+| ring | 0.17.14 | Apache-2.0 AND ISC | Both permissive terms apply; preserve their copyright and license notices. | https://crates.io/crates/ring/0.17.14 |
+| unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | Choose MIT or Apache-2.0 and also comply with Unicode-3.0; preserve the selected notices. | https://crates.io/crates/unicode-ident/1.0.24 |
+
+This repository does not vendor or patch those crates. Under the
+[MPL 2.0 file-level model](https://www.mozilla.org/en-US/MPL/2.0/), the
+MPL-covered source files, including any modifications, must remain available
+under the MPL with their license notices when source is distributed. When an
+executable containing those files is distributed, the corresponding MPL source
+must also remain available and recipients must be told how to obtain it, even
+when the covered files were not modified. No crate-specific Exhibit B notice
+was identified outside the standard MPL license text in these exact artifacts.
+This inventory nevertheless does not rely on the Secondary License mechanism:
+the crates remain MPL-covered files in a Larger Work under MPL section 3.3,
+while separate files in the application remain under AGPL-3.0-or-later.
+
+`ring` is reached on the configured runtime path through direct dependency
+`reqwest` 0.12.28 and `rustls` 0.23.39. Its exact crates.io artifact matches the
+`Cargo.lock` SHA-256 checksum
+`a4689e6c2294d81e88dc6261c768b63bc4fcdb852be6d1352498b114f61383b7`
+and declares `Apache-2.0 AND ISC`; both terms apply. Its root `LICENSE` also
+identifies the accompanying BoringSSL and once_cell notice files, which must be
+preserved with the applicable per-file notices in distributions.
+
+Cargo interprets `OR` as a license choice and `AND` as simultaneous compliance,
+as documented in the official
+[Cargo manifest reference](https://doc.rust-lang.org/cargo/reference/manifest.html#the-license-and-license-file-fields).
+
+No material license incompatibility with the repository's
+AGPL-3.0-or-later license was observed in the locked Rust graph. This is a
+technical compliance inventory, not legal advice, and must be refreshed when
+`src-tauri/Cargo.lock` changes.
