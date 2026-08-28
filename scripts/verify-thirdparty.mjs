@@ -177,7 +177,7 @@ function parseCargoLock(cargoLock) {
 }
 
 function numericVersion(version, label) {
-  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/u);
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:\+.*)?$/u);
   assert.ok(match, `unsupported ${label} version: ${version}`);
   return match.slice(1).map(Number);
 }

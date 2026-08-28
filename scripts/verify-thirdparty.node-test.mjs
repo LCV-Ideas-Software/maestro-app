@@ -235,6 +235,36 @@ test("accepts Cargo 0.0 caret updates when only two components are declared", ()
   );
 });
 
+test("rejects prerelease locks for stable Cargo requirements", () => {
+  for (const [requirement, stableVersion, prereleaseVersion] of [
+    ["1.0.0", "2.6.3", "1.0.0-alpha.1"],
+    ["0.0.3", "2.6.3", "0.0.3-alpha.1"],
+  ]) {
+    const changedCargoToml = cargoToml.replace(
+      'gamma = "2.6.2"',
+      `gamma = "${requirement}"`,
+    );
+    const changedCargoLock = cargoLock.replace(
+      `version = "${stableVersion}"`,
+      `version = "${prereleaseVersion}"`,
+    );
+    const changedInventory = inventory
+      .replace(cargoLockSha256(cargoLock), cargoLockSha256(changedCargoLock))
+      .replace("| gamma | 2.6.3 |", `| gamma | ${prereleaseVersion} |`)
+      .replace("/gamma/2.6.3 |", `/gamma/${prereleaseVersion} |`);
+    assert.throws(
+      () =>
+        verifyThirdPartyInventory({
+          ...inputs,
+          cargoToml: changedCargoToml,
+          cargoLock: changedCargoLock,
+          inventory: changedInventory,
+        }),
+      /unsupported Cargo lock version/u,
+    );
+  }
+});
+
 test("rejects a transitive-only Cargo.lock change", () => {
   const changedCargoLock = `${cargoLock}\n[[package]]\nname = "transitive"\nversion = "1.0.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n`;
   assert.throws(
