@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -77,7 +78,11 @@ function expectedNodeRows(packageJson, packageLock) {
     const dependencies = Object.entries(declaredDependencies).sort(
       ([left], [right]) => (left < right ? -1 : left > right ? 1 : 0),
     );
-    for (const [name] of dependencies) {
+    for (const [name, requirement] of dependencies) {
+      assert.ok(
+        !requirement.startsWith("npm:"),
+        `${name} uses an npm alias and needs an explicit inventory source contract`,
+      );
       const lockEntry = packageLock.packages?.[`node_modules/${name}`];
       assert.ok(lockEntry, `${name} is missing from package-lock.json`);
       assert.equal(
@@ -93,6 +98,20 @@ function expectedNodeRows(packageJson, packageLock) {
       assert.ok(
         lockEntry.license.trim(),
         `${name} has an empty lockfile license`,
+      );
+      assert.equal(
+        lockEntry.link,
+        undefined,
+        `${name} is a linked dependency and needs an explicit inventory source contract`,
+      );
+      assert.match(
+        lockEntry.resolved ?? "",
+        /^https:\/\/registry\.npmjs\.org\//u,
+        `${name} is not resolved from the npmjs registry`,
+      );
+      assert.ok(
+        !lockEntry.name || lockEntry.name === name,
+        `${name} resolves as the npm alias ${lockEntry.name}`,
       );
       rows.push({
         name,
@@ -177,10 +196,6 @@ function cargoRequirementMatches(requirement, version) {
     "Cargo lock",
   );
 
-  if (parts.length === 1) return candidateMajor === major;
-  if (parts.length === 2)
-    return candidateMajor === major && candidateMinor === minor;
-
   const atOrAboveFloor =
     candidateMajor > major ||
     (candidateMajor === major && candidateMinor > minor) ||
@@ -188,11 +203,35 @@ function cargoRequirementMatches(requirement, version) {
       candidateMinor === minor &&
       candidatePatch >= patch);
   if (!atOrAboveFloor) return false;
+  if (parts.length === 1) return candidateMajor === major;
   if (major > 0) return candidateMajor === major;
+  if (parts.length === 2) {
+    return candidateMajor === 0 && candidateMinor === minor;
+  }
   if (minor > 0) return candidateMajor === 0 && candidateMinor === minor;
   return (
     candidateMajor === 0 && candidateMinor === 0 && candidatePatch === patch
   );
+}
+
+function normalizedCargoLockSha256(cargoLock) {
+  return createHash("sha256")
+    .update(cargoLock.replace(/\r\n/gu, "\n"))
+    .digest("hex");
+}
+
+function documentedCargoLockSha256(inventory) {
+  const matches = [
+    ...inventory.matchAll(
+      /^Normalized `Cargo\.lock` SHA-256: `([0-9a-f]{64})`$/gmu,
+    ),
+  ];
+  assert.equal(
+    matches.length,
+    1,
+    "THIRDPARTY must contain exactly one normalized Cargo.lock SHA-256",
+  );
+  return matches[0][1];
 }
 
 function expectedRustRows(cargoToml, cargoLock) {
@@ -230,6 +269,12 @@ export function verifyThirdPartyInventory({
   cargoLock,
   inventory,
 }) {
+  assert.equal(
+    documentedCargoLockSha256(inventory),
+    normalizedCargoLockSha256(cargoLock),
+    "the transitive Rust review does not match the current Cargo.lock",
+  );
+
   const nodeRows = parseTable(
     inventory,
     "# Third-Party Components",

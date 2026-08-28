@@ -13,6 +13,10 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   remain an explicit, non-empty inventory that is reverified against crates.io
   when a locked version changes. Missing, duplicate or stale rows fail before
   another dependency update can merge.
+- The same gate rejects direct Node packages that are not resolved from the
+  npmjs registry, applies Cargo's documented caret compatibility rules, and
+  fingerprints the complete normalized `Cargo.lock`, so any transitive Rust
+  change invalidates the recorded legal review.
 - **MAESTRO-17 — official Linear Release writer.** The continuous release
   workflow now uses Linear's official action, immutably pinned to its signed
   v0.16.0 commit, and explicitly selects CLI v0.16.0 while preserving the

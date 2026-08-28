@@ -72,6 +72,12 @@ artifacts from the official [crates.io registry](https://crates.io/); the SBOM
 identifies the graph but does not currently populate `licenseDeclared` for
 these Cargo packages.
 
+Normalized `Cargo.lock` SHA-256: `49fdf991438f7ca22a702d83d6d99fbb184f3fd0fc9545b866e9c11fcf9146fe`
+
+This fingerprint is computed after normalizing CRLF to LF. Any direct or
+transitive lockfile change invalidates this review and must update the Rust
+inventory and obligations before CI can pass.
+
 | Component | Version | License | Scope | Source |
 | --- | --- | --- | --- | --- |
 | tauri-build | 2.6.3 | Apache-2.0 OR MIT | build | https://crates.io/crates/tauri-build/2.6.3 |

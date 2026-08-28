@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { verifyThirdPartyInventory } from "./verify-thirdparty.mjs";
 
@@ -12,8 +13,16 @@ const packageLock = {
       dependencies: { alpha: "1.2.3" },
       devDependencies: { beta: "^2.0.0" },
     },
-    "node_modules/alpha": { version: "1.2.3", license: "MIT" },
-    "node_modules/beta": { version: "2.0.4", license: "ISC" },
+    "node_modules/alpha": {
+      version: "1.2.3",
+      license: "MIT",
+      resolved: "https://registry.npmjs.org/alpha/-/alpha-1.2.3.tgz",
+    },
+    "node_modules/beta": {
+      version: "2.0.4",
+      license: "ISC",
+      resolved: "https://registry.npmjs.org/beta/-/beta-2.0.4.tgz",
+    },
   },
 };
 const cargoToml = `[build-dependencies]
@@ -32,6 +41,11 @@ name = "delta"
 version = "0.12.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 `;
+function cargoLockSha256(value) {
+  return createHash("sha256")
+    .update(value.replace(/\r\n/gu, "\n"))
+    .digest("hex");
+}
 const inventory = `# Third-Party Components
 
 | Component | Version | License | Scope | Source |
@@ -40,6 +54,8 @@ const inventory = `# Third-Party Components
 | beta | 2.0.4 | ISC | development | https://www.npmjs.com/package/beta |
 
 ## Rust components
+
+Normalized \`Cargo.lock\` SHA-256: \`${cargoLockSha256(cargoLock)}\`
 
 | Component | Version | License | Scope | Source |
 | --- | --- | --- | --- | --- |
@@ -104,6 +120,42 @@ test("rejects an incorrect Node source", () => {
   );
 });
 
+test("rejects a non-registry Node lock source", () => {
+  const changedPackageLock = structuredClone(packageLock);
+  changedPackageLock.packages["node_modules/alpha"].resolved =
+    "git+https://example.invalid/alpha.git#0123456789abcdef";
+  assert.throws(
+    () =>
+      verifyThirdPartyInventory({
+        ...inputs,
+        packageLock: changedPackageLock,
+        inventory,
+      }),
+    /npmjs registry/u,
+  );
+});
+
+test("rejects a registry-backed npm alias", () => {
+  const changedPackageJson = structuredClone(packageJson);
+  changedPackageJson.dependencies.alpha = "npm:beta@2.0.4";
+  const changedPackageLock = structuredClone(packageLock);
+  changedPackageLock.packages[""].dependencies.alpha = "npm:beta@2.0.4";
+  changedPackageLock.packages["node_modules/alpha"].name = "beta";
+  changedPackageLock.packages["node_modules/alpha"].version = "2.0.4";
+  changedPackageLock.packages["node_modules/alpha"].resolved =
+    "https://registry.npmjs.org/beta/-/beta-2.0.4.tgz";
+  assert.throws(
+    () =>
+      verifyThirdPartyInventory({
+        ...inputs,
+        packageJson: changedPackageJson,
+        packageLock: changedPackageLock,
+        inventory,
+      }),
+    /npm alias/u,
+  );
+});
+
 test("rejects unsupported direct Node dependency classes", () => {
   const changedPackageJson = {
     ...packageJson,
@@ -134,6 +186,65 @@ test("rejects a stale direct Rust version", () => {
   const changed = inventory.replace("| gamma | 2.6.3 |", "| gamma | 2.6.2 |");
   assert.throws(() =>
     verifyThirdPartyInventory({ ...inputs, inventory: changed }),
+  );
+});
+
+test("accepts Cargo caret updates across a nonzero minor version", () => {
+  const changedCargoToml = cargoToml.replace(
+    'gamma = "2.6.2"',
+    'gamma = "2.6"',
+  );
+  const changedCargoLock = cargoLock.replace(
+    'version = "2.6.3"',
+    'version = "2.7.0"',
+  );
+  const changedInventory = inventory
+    .replace(cargoLockSha256(cargoLock), cargoLockSha256(changedCargoLock))
+    .replace("| gamma | 2.6.3 |", "| gamma | 2.7.0 |")
+    .replace("/gamma/2.6.3 |", "/gamma/2.7.0 |");
+  assert.doesNotThrow(() =>
+    verifyThirdPartyInventory({
+      ...inputs,
+      cargoToml: changedCargoToml,
+      cargoLock: changedCargoLock,
+      inventory: changedInventory,
+    }),
+  );
+});
+
+test("accepts Cargo 0.0 caret updates when only two components are declared", () => {
+  const changedCargoToml = cargoToml.replace(
+    'gamma = "2.6.2"',
+    'gamma = "0.0"',
+  );
+  const changedCargoLock = cargoLock.replace(
+    'version = "2.6.3"',
+    'version = "0.0.5"',
+  );
+  const changedInventory = inventory
+    .replace(cargoLockSha256(cargoLock), cargoLockSha256(changedCargoLock))
+    .replace("| gamma | 2.6.3 |", "| gamma | 0.0.5 |")
+    .replace("/gamma/2.6.3 |", "/gamma/0.0.5 |");
+  assert.doesNotThrow(() =>
+    verifyThirdPartyInventory({
+      ...inputs,
+      cargoToml: changedCargoToml,
+      cargoLock: changedCargoLock,
+      inventory: changedInventory,
+    }),
+  );
+});
+
+test("rejects a transitive-only Cargo.lock change", () => {
+  const changedCargoLock = `${cargoLock}\n[[package]]\nname = "transitive"\nversion = "1.0.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n`;
+  assert.throws(
+    () =>
+      verifyThirdPartyInventory({
+        ...inputs,
+        cargoLock: changedCargoLock,
+        inventory,
+      }),
+    /transitive Rust review/u,
   );
 });
 
@@ -199,12 +310,16 @@ test("rejects non-crates.io registry sources", () => {
     "registry+https://github.com/rust-lang/crates.io-index",
     "registry+https://example.invalid/index",
   );
+  const changedInventory = inventory.replace(
+    cargoLockSha256(cargoLock),
+    cargoLockSha256(changedCargoLock),
+  );
   assert.throws(
     () =>
       verifyThirdPartyInventory({
         ...inputs,
         cargoLock: changedCargoLock,
-        inventory,
+        inventory: changedInventory,
       }),
     /crates.io registry/u,
   );
