@@ -54,6 +54,9 @@ function assertUniqueComponents(rows, label) {
 }
 
 function expectedNodeRows(packageJson, packageLock) {
+  const optionalDependencyNames = new Set(
+    Object.keys(packageJson.optionalDependencies ?? {}),
+  );
   const scopes = [
     ["dependencies", "runtime"],
     ["devDependencies", "development"],
@@ -69,7 +72,19 @@ function expectedNodeRows(packageJson, packageLock) {
       declaredDependencies,
       `${manifestKey} differs between package.json and package-lock.json`,
     );
-    const dependencies = Object.entries(declaredDependencies).sort(
+    // npm gives optionalDependencies precedence over dependencies when the
+    // same package name appears in both sections. Inventory that package once,
+    // with its effective optional scope, while still validating both manifest
+    // sections against the root package-lock entry above.
+    const effectiveDependencies =
+      manifestKey === "dependencies"
+        ? Object.fromEntries(
+            Object.entries(declaredDependencies).filter(
+              ([name]) => !optionalDependencyNames.has(name),
+            ),
+          )
+        : declaredDependencies;
+    const dependencies = Object.entries(effectiveDependencies).sort(
       ([left], [right]) => (left < right ? -1 : left > right ? 1 : 0),
     );
     for (const [name, requirement] of dependencies) {

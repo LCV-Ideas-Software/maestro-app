@@ -205,6 +205,57 @@ test("inventories installed optional and peer Node dependencies", () => {
   );
 });
 
+test("uses optional scope when optionalDependencies overrides dependencies", () => {
+  const changedPackageJson = structuredClone(packageJson);
+  changedPackageJson.dependencies.alpha = "^1.0.0";
+  changedPackageJson.optionalDependencies = { alpha: "^1.2.0" };
+  const changedPackageLock = structuredClone(packageLock);
+  changedPackageLock.packages[""].dependencies.alpha = "^1.0.0";
+  changedPackageLock.packages[""].optionalDependencies = {
+    alpha: "^1.2.0",
+  };
+  changedPackageLock.packages["node_modules/alpha"].optional = true;
+  const changedInventory = inventory
+    .replace(
+      "| alpha | 1.2.3 | MIT | runtime | https://www.npmjs.com/package/alpha |\n",
+      "",
+    )
+    .replace(
+      "| beta | 2.0.4 | ISC | development | https://www.npmjs.com/package/beta |",
+      `| beta | 2.0.4 | ISC | development | https://www.npmjs.com/package/beta |
+| alpha | 1.2.3 | MIT | optional | https://www.npmjs.com/package/alpha |`,
+    );
+  assert.doesNotThrow(() =>
+    verifyThirdPartyInventory({
+      ...inputs,
+      packageJson: changedPackageJson,
+      packageLock: changedPackageLock,
+      inventory: changedInventory,
+    }),
+  );
+});
+
+test("inventories the same package in development and peer scopes", () => {
+  const changedPackageJson = structuredClone(packageJson);
+  changedPackageJson.peerDependencies = { beta: "^2.0.0" };
+  const changedPackageLock = structuredClone(packageLock);
+  changedPackageLock.packages[""].peerDependencies = { beta: "^2.0.0" };
+  changedPackageLock.packages["node_modules/beta"].peer = true;
+  const changedInventory = inventory.replace(
+    "| beta | 2.0.4 | ISC | development | https://www.npmjs.com/package/beta |",
+    `| beta | 2.0.4 | ISC | development | https://www.npmjs.com/package/beta |
+| beta | 2.0.4 | ISC | peer | https://www.npmjs.com/package/beta |`,
+  );
+  assert.doesNotThrow(() =>
+    verifyThirdPartyInventory({
+      ...inputs,
+      packageJson: changedPackageJson,
+      packageLock: changedPackageLock,
+      inventory: changedInventory,
+    }),
+  );
+});
+
 test("rejects an omitted direct optional Node dependency", () => {
   const changedPackageJson = structuredClone(packageJson);
   changedPackageJson.optionalDependencies = { epsilon: "^3.0.0" };
