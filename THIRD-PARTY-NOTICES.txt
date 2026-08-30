@@ -9,6 +9,7 @@ Componentes cobertos: 438
   cargo ...................: 297
   texto do proprio artefato: 425
   texto vendorizado .......: 12
+  artefato + complemento ..: 1
 
 Dependencias de desenvolvimento nao constam: nao sao incorporadas ao executavel.
 Gerado por scripts/generate-notices.mjs a partir de package-lock.json e de
@@ -39933,7 +39934,7 @@ DEALINGS IN THE SOFTWARE.
 
 serial2 0.2.37  (cargo)
 Licenca declarada: BSD-2-Clause OR Apache-2.0
-Licenca eleita: BSD-2-Clause (ordem de preferencia da politica)
+Licenca eleita: BSD-2-Clause (registrada na politica)
 
 --- LICENSE-APACHE ---
 

@@ -700,6 +700,37 @@ test("every explicit licence election records what was chosen and why", async ()
     assert.ok(eleicao.expression, `${id} must record the expression it resolves`);
     assert.ok(eleicao.elected, `${id} must record the elected licence`);
     assert.ok(eleicao.rationale, `${id} must record why that licence was chosen`);
+    // `mandatory` names the terms the expression imposes regardless of choice.
+    // Without it the generator could only check that the elected licence is
+    // offered, never that the election covers every obligation.
+    assert.ok(
+      Array.isArray(eleicao.mandatory),
+      `${id} must declare which terms are not optional (empty array when the expression only offers a choice)`,
+    );
+    for (const termo of eleicao.mandatory) {
+      assert.ok(
+        eleicao.expression.includes(termo),
+        `${id} lists ${termo} as mandatory but "${eleicao.expression}" does not contain it`,
+      );
+      assert.ok(
+        eleicao.elected.includes(termo),
+        `${id} lists ${termo} as mandatory but the election "${eleicao.elected}" drops it`,
+      );
+    }
+  }
+});
+
+// BSD-2-Clause is BSD-3-Clause minus the non-endorsement clause, so every
+// substring that identifies BSD-2 also occurs verbatim in BSD-3. Leaving it in
+// the preference order would let a component offering both, but shipping only
+// the BSD-3 text, corroborate a BSD-2 election that no file supports.
+test("licences whose text is a subset of another are not elected automatically", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  for (const subconjunto of ["MIT-0", "0BSD", "BSD-2-Clause"]) {
+    assert.ok(
+      !POLICY.licenseElectionPreference.includes(subconjunto),
+      `${subconjunto} has no marker that distinguishes it from the licence that contains it, so it must require an explicit election`,
+    );
   }
 });
 
