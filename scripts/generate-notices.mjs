@@ -186,9 +186,14 @@ let plataformaExcluidos = [];
 // maquina que executa: filtrar pelo host faria o conjunto de avisos mudar
 // conforme onde o comando roda.
 function plataformaExcluida(meta) {
-  const casa = (lista, atual) => {
+  // `semValorReprova`: quando o pacote restringe um atributo que o alvo NAO
+  // tem — `libc` num alvo Windows —, o npm o trata como incompativel e nao o
+  // instala (npm-install-checks: `libcOk = false` quando `target.libc` existe
+  // e a libc corrente e desconhecida). Aceita-lo aqui faria o gate exigir um
+  // artefato que o proprio npm, corretamente, deixou de fora.
+  const casa = (lista, atual, semValorReprova) => {
     if (!Array.isArray(lista) || !lista.length) return true;
-    if (atual === null || atual === undefined) return true;
+    if (atual === null || atual === undefined) return !semValorReprova;
     const negados = lista.filter((v) => v.startsWith("!")).map((v) => v.slice(1));
     const permitidos = lista.filter((v) => !v.startsWith("!"));
     if (negados.includes(atual)) return false;
@@ -196,9 +201,9 @@ function plataformaExcluida(meta) {
   };
   const alvo = POLICY.scope.npm;
   return (
-    !casa(meta.os, alvo.targetOs) ||
-    !casa(meta.cpu, alvo.targetCpu) ||
-    !casa(meta.libc, alvo.targetLibc)
+    !casa(meta.os, alvo.targetOs, false) ||
+    !casa(meta.cpu, alvo.targetCpu, false) ||
+    !casa(meta.libc, alvo.targetLibc, true)
   );
 }
 
@@ -323,8 +328,10 @@ function componentesNpm() {
       // De onde o pacote veio de fato. Um fallback so pode valer para o
       // artefato do registro canonico: trocar a dependencia por um git, um
       // `file:` ou outro registro mantendo nome e versao nao pode herdar a
-      // proveniencia travada de outro pacote.
-      origemPacote: meta.resolved || null,
+      // proveniencia travada de outro pacote. Num link, a origem e o caminho
+      // do proprio link — o alvo de um workspace nao tem `resolved`, e dois
+      // links para alvos distintos sairiam ambos como "nao declarada".
+      origemPacote: origemDaIdentidade || null,
       diretorio: acharDiretorioNpm(chave, nome, versao),
     });
   }
@@ -367,9 +374,11 @@ function analisarExpressao(expressao) {
 }
 
 // Uma folha e uma licenca — com a excecao acoplada, quando ha `WITH`, porque
-// `Apache-2.0 WITH LLVM-exception` e uma unica licenca efetiva, nao duas.
+// `Apache-2.0 WITH LLVM-exception` e uma unica licenca efetiva, nao duas; e com
+// o modificador `+` preservado, porque `GPL-2.0+` ("ou posterior") e um termo
+// juridicamente distinto de `GPL-2.0`, e o parser o representa a parte.
 const folhaComoTexto = (no) =>
-  no.exception ? `${no.license} WITH ${no.exception}` : no.license;
+  `${no.license}${no.plus ? "+" : ""}${no.exception ? ` WITH ${no.exception}` : ""}`;
 
 function folhasDaExpressao(no) {
   if (no.license) return [folhaComoTexto(no)];
@@ -490,10 +499,18 @@ function elegerLicencas(componentes) {
         );
         continue;
       }
-      // Uma unica pergunta no lugar de tres: o conjunto eleito satisfaz a
-      // expressao? Se satisfaz, nao cita licenca que ela nao ofereca e nao
-      // deixa de fora nenhum termo obrigatorio — as duas coisas decorrem da
-      // definicao de satisfacao, nao de uma conferencia a parte.
+      // Satisfazer a expressao garante que nenhum termo obrigatorio ficou de
+      // fora, mas NAO que todo termo eleito foi oferecido: "MIT OR Zlib" eleito
+      // para "MIT OR Apache-2.0" satisfaz pela MIT e ainda assim publicaria a
+      // Zlib, que o pacote nunca ofereceu. As duas conferencias sao distintas.
+      const oferecidas = new Set(folhas);
+      const forasteiras = [...eleitas.licencas].filter((l) => !oferecidas.has(l));
+      if (forasteiras.length) {
+        pendentes.push(
+          `${c.id}: a eleicao registrada "${explicita.elected}" cita ${forasteiras.join(", ")}, que a expressao "${c.licencaDeclarada}" nao oferece`,
+        );
+        continue;
+      }
       if (!satisfaz(ast, eleitas.licencas)) {
         const obrigatorias = [...licencasObrigatorias(ast)];
         pendentes.push(
@@ -722,6 +739,16 @@ function corroborarLicencaUnica(componentes) {
       if (inspecionada.declared !== declarada) {
         pendentes.push(
           `${c.id} (${c.ecossistema}): a politica registra a declaracao "${inspecionada.declared}" mas o pacote declara "${declarada}"`,
+        );
+        continue;
+      }
+      // A inspecao foi feita sobre UM artefato: o do registro canonico. Um
+      // fork em git ou `file:` com o mesmo nome, versao e declaracao nao herda
+      // a leitura humana feita sobre outro texto — mesma amarra do fallback e
+      // do complemento.
+      if (!vemDoRegistroCanonico(inspecionada.ecosystem, c.origemPacote)) {
+        pendentes.push(
+          `${c.id} (${c.ecossistema}): tem inspecao manual registrada, mas o lockfile resolve para "${c.origemPacote ?? "origem ausente"}", que nao e o registro canonico; a inspecao nao se aplica a esse artefato`,
         );
       }
       continue;

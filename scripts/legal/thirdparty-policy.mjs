@@ -183,6 +183,7 @@ export const POLICY = Object.freeze({
   // o que o texto empacotado de fato e e a data em que foi lido.
   unverifiableLicenseDeclarations: Object.freeze({
     "duck@0.1.12": Object.freeze({
+      ecosystem: "npm",
       declared: "BSD",
       rationale:
         "O pacote declara apenas BSD, que nao e identificador SPDX: nao distingue BSD-2-Clause de BSD-3-Clause nem das demais variantes, e portanto nenhum marcador pode confirma-lo. Inspecionado a mao em 30/08/2026: o LICENSE empacotado traz o texto BSD de duas clausulas, com as duas condicoes numeradas de redistribuicao e sem a clausula de nao-endosso, sob copyright de Michael Williamson (2013). O texto acompanha o artefato integralmente; o que falta e a precisao do identificador declarado pelo publicador, nao o aviso.",
