@@ -6,6 +6,16 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Changed
 
+- **MAESTRO-22 — explicit licence decisions are now unambiguous and
+  artefact-bound.** A recorded election may retain mandatory `AND` terms, but
+  may not contain `OR`: the production SPDX AST must identify the alternative
+  actually chosen. Every election is bound to the package ecosystem and the
+  exact origin resolved by npm or Cargo, so a same-name/version git or path
+  replacement cannot inherit an audit made against the registry artefact.
+  MPL-2.0 corroboration now requires a phrase from the licence body instead of
+  accepting its title or URL. The vendored `siphasher` notice separately pins
+  the MIT text to SPDX `license-list-data` and its copyright lines to the
+  crate's own `COPYING`, and the generated notice prints both provenances.
 - **MAESTRO-22 — notice scope now follows the package managers' exact
   resolution.** npm platform restrictions use the official
   `npm-install-checks` implementation after resolving linked packages, including

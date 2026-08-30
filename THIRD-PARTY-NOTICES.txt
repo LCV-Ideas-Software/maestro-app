@@ -41681,28 +41681,33 @@ SOFTWARE.
 siphasher 1.0.2  (cargo)
 Licenca declarada: MIT/Apache-2.0
 Licenca eleita: MIT (registrada na politica)
-Origem do texto: https://github.com/jedisct1/rust-siphash @ db8172048a1c9bdef0dcec782d965c236161af13
-Motivo do texto vendorizado: O crate empacota apenas um COPYING de 281 bytes que APONTA para LICENSE-APACHE e LICENSE-MIT sem incluir nenhum dos dois, e no commit fixado o repositorio de origem tambem so publica esse mesmo ponteiro. Ponteiro nao cumpre a exigencia de reproduzir o texto na distribuicao. Texto canonico da MIT obtido da SPDX, precedido das linhas de copyright que o COPYING declara.
+Origem do texto: https://github.com/spdx/license-list-data @ c4a7237ec8f4654e867546f9f409749300f1bf4c (text/MIT.txt)
+Origem do aviso de copyright: https://github.com/jedisct1/rust-siphash @ db8172048a1c9bdef0dcec782d965c236161af13 (COPYING)
+Motivo do texto vendorizado: O crate empacota apenas um COPYING de 281 bytes que APONTA para LICENSE-APACHE e LICENSE-MIT sem incluir nenhum dos dois, e na revisao fixada para o copyright o repositorio do crate tambem so publica esse mesmo ponteiro. Ponteiro nao cumpre a exigencia de reproduzir o texto na distribuicao. O texto canonico MIT vem do caminho e commit fixos da lista oficial SPDX; as linhas de copyright vem separadamente do COPYING do crate.
 
 --- scripts/legal/siphasher-mit.txt ---
 
 Aplica-se a: siphasher 1.0.2
 Licenca declarada em Cargo.toml: MIT/Apache-2.0
 Alcance: dependencia transitiva no grafo Rust distribuido
-Origem: https://github.com/jedisct1/rust-siphash
-Commit inspecionado: db8172048a1c9bdef0dcec782d965c236161af13
+Origem do texto MIT: https://github.com/spdx/license-list-data
+Commit do texto: c4a7237ec8f4654e867546f9f409749300f1bf4c
+Caminho do texto: text/MIT.txt
+Origem do aviso de copyright: https://github.com/jedisct1/rust-siphash
+Commit do aviso: db8172048a1c9bdef0dcec782d965c236161af13
+Caminho do aviso: COPYING
 
 O UPSTREAM PUBLICA APENAS UM PONTEIRO, NAO O TEXTO. Verificado em 30/08/2026:
 o crate empacota somente um arquivo COPYING de 281 bytes que remete a
 LICENSE-APACHE e LICENSE-MIT, e nenhum dos dois acompanha o pacote. No commit
-acima o repositorio de origem tambem nao publica LICENSE-MIT, LICENSE-APACHE
-nem LICENSE: so o mesmo COPYING.
+do aviso, o repositorio de origem tambem nao publica LICENSE-MIT,
+LICENSE-APACHE nem LICENSE: so o mesmo COPYING.
 
 Um ponteiro nao cumpre a exigencia da MIT de reproduzir o texto e o aviso de
 copyright na distribuicao. Elege-se MIT, primeira da ordem de preferencia entre
-as duas oferecidas, e reproduz-se abaixo o texto canonico obtido da fonte
-oficial SPDX (https://spdx.org/licenses/MIT.json), precedido das linhas de
-copyright que o proprio COPYING declara, transcritas sem alteracao:
+as duas oferecidas, e reproduz-se abaixo o texto canonico obtido do caminho e
+commit fixos da lista oficial SPDX registrados acima, precedido das linhas de
+copyright que o COPYING do crate declara, transcritas sem alteracao:
 
   Copyright 2012-2016 The Rust Project Developers.
   Copyright 2016-2026 Frank Denis.

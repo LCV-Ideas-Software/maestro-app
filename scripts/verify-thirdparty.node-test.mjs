@@ -707,6 +707,15 @@ test("every explicit licence election records what was chosen and why", async ()
     assert.ok(eleicao.expression, `${id} must record the expression it resolves`);
     assert.ok(eleicao.elected, `${id} must record the elected licence`);
     assert.ok(eleicao.rationale, `${id} must record why that licence was chosen`);
+    assert.match(
+      eleicao.ecosystem ?? "",
+      /^(?:npm|cargo)$/u,
+      `${id} must bind the election to its package ecosystem`,
+    );
+    assert.ok(
+      eleicao.source,
+      `${id} must bind the election to the exact resolved artifact origin`,
+    );
     // This is the production predicate, not a test-side reimplementation: it
     // checks both satisfiability and that every elected leaf was offered.
     assert.ok(
@@ -716,11 +725,39 @@ test("every explicit licence election records what was chosen and why", async ()
   }
 });
 
-test("production election validation rejects foreign leaves and preserves GPL plus", () => {
-  const forasteira = validarEleicao("MIT OR Apache-2.0", "MIT OR Zlib");
+test("production election validation rejects OR, foreign leaves and preserves required AND and GPL plus", () => {
+  const ambigua = validarEleicao(
+    "MIT OR Apache-2.0",
+    "MIT OR Apache-2.0",
+  );
+  assert.equal(ambigua.ok, false);
+  assert.equal(ambigua.tipo, "eleicao-ambigua");
+  const ambiguaAninhada = validarEleicao(
+    "MIT AND (Apache-2.0 OR GPL-2.0-only)",
+    "MIT AND (Apache-2.0 OR GPL-2.0-only)",
+  );
+  assert.equal(ambiguaAninhada.ok, false);
+  assert.equal(ambiguaAninhada.tipo, "eleicao-ambigua");
+
+  const forasteira = validarEleicao(
+    "MIT AND Apache-2.0",
+    "MIT AND Zlib",
+  );
   assert.equal(forasteira.ok, false);
   assert.equal(forasteira.tipo, "forasteiras");
   assert.deepEqual(forasteira.forasteiras, ["Zlib"]);
+
+  assert.equal(
+    validarEleicao("MIT AND Apache-2.0", "MIT AND Apache-2.0").ok,
+    true,
+  );
+  assert.equal(
+    validarEleicao(
+      "GPL-2.0-only WITH Classpath-exception-2.0",
+      "GPL-2.0-only WITH Classpath-exception-2.0",
+    ).ok,
+    true,
+  );
 
   const perdeuOuPosterior = validarEleicao("GPL-2.0+", "GPL-2.0");
   assert.equal(perdeuOuPosterior.ok, false);
@@ -915,6 +952,49 @@ test("Unicode corroboration requires licence body, not a title or URL pointer", 
   );
 });
 
+test("MPL-2.0 corroboration requires licence body, not a title or URL pointer", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  assert.equal(
+    corroboradas(
+      ["MPL-2.0"],
+      [
+        {
+          texto:
+            "Mozilla Public License 2.0: https://www.mozilla.org/MPL/2.0/",
+        },
+      ],
+      POLICY.licenseTextMarkers,
+    ).ok,
+    false,
+  );
+  assert.equal(
+    corroboradas(
+      ["MPL-2.0"],
+      [
+        {
+          texto:
+            "This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.",
+        },
+      ],
+      POLICY.licenseTextMarkers,
+    ).ok,
+    false,
+  );
+  assert.equal(
+    corroboradas(
+      ["MPL-2.0"],
+      [
+        {
+          texto:
+            "All distribution of Covered Software in Source Code Form, including any Modifications that You create or to which You contribute, must be under the terms of this License.",
+        },
+      ],
+      POLICY.licenseTextMarkers,
+    ).ok,
+    true,
+  );
+});
+
 test("every declared supplement pins immutable provenance", async () => {
   const { POLICY } = await import("./legal/thirdparty-policy.mjs");
   for (const [id, suplemento] of Object.entries(
@@ -969,18 +1049,29 @@ test("every declared fallback resolves to an existing fragment", async () => {
       `${id} must pin an exact version so the exception cannot outlive an upgrade`,
     );
     assert.ok(fallback.rationale, `${id} must record why the text is vendored`);
-    assert.ok(
-      fallback.sourceRepository,
-      `${id} must record where the text came from`,
-    );
+    const textSourceRepository =
+      fallback.textSourceRepository ?? fallback.sourceRepository;
+    const textRevision = fallback.textRevision ?? fallback.revision;
+    assert.ok(textSourceRepository, `${id} must record where the text came from`);
     // A branch or tag name is not provenance: both can move, which would make
     // the recorded origin irreproducible for anyone auditing a released
     // archive later. Only a full commit id is accepted.
     assert.match(
-      fallback.revision ?? "",
+      textRevision ?? "",
       /^[0-9a-f]{40}$/u,
-      `${id} must pin a full commit id, not a movable ref like "${fallback.revision}"`,
+      `${id} must pin a full commit id, not a movable ref like "${textRevision}"`,
     );
+    if (fallback.copyrightSourceRepository) {
+      assert.match(
+        fallback.copyrightRevision ?? "",
+        /^[0-9a-f]{40}$/u,
+        `${id} must pin the separate copyright-source revision`,
+      );
+      assert.ok(
+        fallback.copyrightSourcePath,
+        `${id} must record the copyright-source path`,
+      );
+    }
     for (const key of fallback.fragments) {
       assert.ok(
         POLICY.fragments[key],
@@ -988,4 +1079,91 @@ test("every declared fallback resolves to an existing fragment", async () => {
       );
     }
   }
+});
+
+test("siphasher fallback separates pinned MIT text and copyright provenance", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  const fallback = POLICY.licenseFallbacks["siphasher@1.0.2"];
+  assert.equal(
+    fallback.textSourceRepository,
+    "https://github.com/spdx/license-list-data",
+  );
+  assert.equal(
+    fallback.textRevision,
+    "c4a7237ec8f4654e867546f9f409749300f1bf4c",
+  );
+  assert.equal(fallback.textSourcePath, "text/MIT.txt");
+  assert.equal(
+    fallback.copyrightSourceRepository,
+    "https://github.com/jedisct1/rust-siphash",
+  );
+  assert.equal(
+    fallback.copyrightRevision,
+    "db8172048a1c9bdef0dcec782d965c236161af13",
+  );
+  assert.equal(fallback.copyrightSourcePath, "COPYING");
+  assert.notEqual(fallback.textRevision, fallback.copyrightRevision);
+
+  const notice = readFileSync(
+    resolve(repositoryRoot, "THIRD-PARTY-NOTICES.txt"),
+    "utf8",
+  );
+  const inicio = notice.indexOf("siphasher 1.0.2  (cargo)");
+  assert.notEqual(inicio, -1, "generated notices must contain siphasher");
+  const bloco = notice.slice(inicio, inicio + 4_000);
+  assert.match(
+    bloco,
+    /Origem do texto: https:\/\/github\.com\/spdx\/license-list-data @ [0-9a-f]{40} \(text\/MIT\.txt\)/u,
+  );
+  assert.match(
+    bloco,
+    /Origem do aviso de copyright: https:\/\/github\.com\/jedisct1\/rust-siphash @ [0-9a-f]{40} \(COPYING\)/u,
+  );
+});
+
+test("explicit elections bind ecosystem and exact resolved artifact origin", async () => {
+  const runtime = await import("./legal/thirdparty-runtime.mjs");
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  assert.equal(typeof runtime.validarVinculoDoArtefato, "function");
+
+  const eleicao = POLICY.licenseElections["serial2@0.2.37"];
+  assert.equal(eleicao.ecosystem, "cargo");
+  assert.equal(
+    eleicao.source,
+    "registry+https://github.com/rust-lang/crates.io-index",
+  );
+  assert.deepEqual(
+    runtime.validarVinculoDoArtefato(eleicao, {
+      ecossistema: "cargo",
+      origemPacote: "registry+https://github.com/rust-lang/crates.io-index",
+    }),
+    { ok: true },
+  );
+
+  const incompleta = runtime.validarVinculoDoArtefato({}, {
+    ecossistema: "cargo",
+    origemPacote: eleicao.source,
+  });
+  assert.equal(incompleta.ok, false);
+  assert.equal(incompleta.tipo, "politica-incompleta");
+
+  for (const origemPacote of [
+    "git+https://example.invalid/serial2#0123456789abcdef",
+    "path:vendor/serial2",
+    `${eleicao.source}/`,
+  ]) {
+    const resultado = runtime.validarVinculoDoArtefato(eleicao, {
+      ecossistema: "cargo",
+      origemPacote,
+    });
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.tipo, "origem-divergente");
+  }
+
+  const ecossistema = runtime.validarVinculoDoArtefato(eleicao, {
+    ecossistema: "npm",
+    origemPacote: eleicao.source,
+  });
+  assert.equal(ecossistema.ok, false);
+  assert.equal(ecossistema.tipo, "ecossistema-divergente");
 });

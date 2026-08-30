@@ -35,6 +35,7 @@ import {
   resolverMetaNpm,
   satisfaz,
   validarEleicao,
+  validarVinculoDoArtefato,
 } from "./legal/thirdparty-runtime.mjs";
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -366,6 +367,25 @@ function elegerLicencas(componentes) {
 
     const explicita = POLICY.licenseElections[c.id];
     if (explicita) {
+      const vinculo = validarVinculoDoArtefato(explicita, c);
+      if (vinculo.tipo === "politica-incompleta") {
+        pendentes.push(
+          `${c.id}: a eleicao explicita precisa registrar ecosystem e a origem exata do artefato resolvido`,
+        );
+        continue;
+      }
+      if (vinculo.tipo === "ecossistema-divergente") {
+        pendentes.push(
+          `${c.id}: a eleicao explicita pertence ao ecossistema "${vinculo.esperado}", mas o componente resolvido pertence a "${vinculo.encontrado}"`,
+        );
+        continue;
+      }
+      if (vinculo.tipo === "origem-divergente") {
+        pendentes.push(
+          `${c.id}: a eleicao explicita foi auditada para a origem "${vinculo.esperado}", mas o artefato resolvido vem de "${vinculo.encontrado}"`,
+        );
+        continue;
+      }
       // Entrada obsoleta ou com erro de digitacao nao pode aplicar uma escolha
       // que o pacote nunca ofereceu: a expressao registrada e conferida contra
       // o que o pacote declara hoje.
@@ -383,6 +403,12 @@ function elegerLicencas(componentes) {
       if (validacao.tipo === "eleicao-invalida") {
         pendentes.push(
           `${c.id}: a eleicao registrada "${explicita.elected}" nao e expressao SPDX valida (${validacao.erro})`,
+        );
+        continue;
+      }
+      if (validacao.tipo === "eleicao-ambigua") {
+        pendentes.push(
+          `${c.id}: a eleicao registrada "${explicita.elected}" ainda contem OR; registre a alternativa efetivamente escolhida, preservando apenas os termos AND obrigatorios`,
         );
         continue;
       }
@@ -727,7 +753,23 @@ for (const c of componentes) {
     linhas.push(`Licenca eleita: ${c.eleicao.licenca} (${c.eleicao.origem})`);
   }
   if (c.fallback) {
-    linhas.push(`Origem do texto: ${c.fallback.sourceRepository} @ ${c.fallback.revision}`);
+    const repositorioDoTexto =
+      c.fallback.textSourceRepository ?? c.fallback.sourceRepository;
+    const revisaoDoTexto = c.fallback.textRevision ?? c.fallback.revision;
+    const caminhoDoTexto = c.fallback.textSourcePath
+      ? ` (${c.fallback.textSourcePath})`
+      : "";
+    linhas.push(
+      `Origem do texto: ${repositorioDoTexto} @ ${revisaoDoTexto}${caminhoDoTexto}`,
+    );
+    if (c.fallback.copyrightSourceRepository) {
+      const caminhoDoCopyright = c.fallback.copyrightSourcePath
+        ? ` (${c.fallback.copyrightSourcePath})`
+        : "";
+      linhas.push(
+        `Origem do aviso de copyright: ${c.fallback.copyrightSourceRepository} @ ${c.fallback.copyrightRevision}${caminhoDoCopyright}`,
+      );
+    }
     if (c.fallback.correspondingSource) {
       linhas.push(`Codigo-fonte correspondente: ${c.fallback.correspondingSource}`);
     }

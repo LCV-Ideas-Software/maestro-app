@@ -165,7 +165,7 @@ export const POLICY = Object.freeze({
       "altered source versions must be plainly marked",
     ]),
     "MPL-2.0": Object.freeze([
-      "Mozilla Public License",
+      "All distribution of Covered Software in Source Code Form, including any Modifications that You create or to which You contribute, must be under the terms of this License",
     ]),
     "BSL-1.0": Object.freeze([
       "Boost Software License",
@@ -198,7 +198,9 @@ export const POLICY = Object.freeze({
   //
   // `expression` e conferida contra o que o pacote declara: entrada obsoleta ou
   // com erro de digitacao reprova em vez de aplicar uma escolha que o pacote
-  // nunca ofereceu.
+  // nunca ofereceu. `ecosystem` e `source` amarram a decisao ao artefato exato
+  // resolvido pelo lockfile; um fork git/path com as mesmas coordenadas nao
+  // herda uma leitura feita sobre o pacote do registro oficial.
   // Textos ACRESCENTADOS ao que o pacote ja traz, nunca em substituicao.
   // Serve ao caso em que a expressao e conjuntiva e o pacote reproduz apenas
   // parte das licencas exigidas: o texto proprio dele continua no aviso, e o
@@ -221,48 +223,65 @@ export const POLICY = Object.freeze({
 
   licenseElections: Object.freeze({
     "pako@1.0.11": Object.freeze({
+      ecosystem: "npm",
+      source: "https://registry.npmjs.org/pako/-/pako-1.0.11.tgz",
       expression: "(MIT AND Zlib)",
       elected: "MIT AND Zlib",
       rationale:
         "Expressao conjuntiva: nao ha escolha a fazer, as duas licencas se aplicam. Registrada para que o gate confirme que os dois textos acompanham o artefato, o que so passou a ser verdade com o complemento declarado em licenseSupplements.",
     }),
     "serial2@0.2.37": Object.freeze({
+      ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       expression: "BSD-2-Clause OR Apache-2.0",
       elected: "BSD-2-Clause",
       rationale:
         "BSD-2-Clause saiu da eleicao automatica porque seu texto e subconjunto do BSD-3-Clause: nenhum marcador o distingue, e um componente que oferecesse ambos e empacotasse so o BSD-3 corroboraria BSD-2 falsamente. Aqui a decisao foi verificada a mao em 30/08/2026: o crate publica LICENSE-BSD e LICENSE-APACHE, e o LICENSE-BSD nao contem a clausula de nao-endosso que caracteriza o BSD-3, sendo portanto BSD-2 de fato.",
     }),
     "dpi@0.1.2": Object.freeze({
+      ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       expression: "Apache-2.0 AND MIT",
       elected: "Apache-2.0 AND MIT",
       rationale:
         "Expressao conjuntiva: as duas licencas se aplicam. O crate reproduz ambos os textos, em LICENSE e LICENSE-LIBM-MIT, verificado em 30/08/2026.",
     }),
     "ring@0.17.14": Object.freeze({
+      ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       expression: "Apache-2.0 AND ISC",
       elected: "Apache-2.0 AND ISC",
       rationale:
         "Expressao conjuntiva: as duas licencas se aplicam. O crate reproduz ambos os textos, em LICENSE-BoringSSL e LICENSE-other-bits, com o LICENSE da raiz servindo de sumario que indica qual codigo veio sob qual delas. Verificado em 30/08/2026.",
     }),
     "siphasher@1.0.2": Object.freeze({
+      ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       expression: "MIT/Apache-2.0",
       elected: "MIT",
       rationale:
         "O crate nao reproduz nenhuma das duas licencas, so um ponteiro para elas, e o upstream tambem nao. Elege-se MIT, primeira da ordem de preferencia entre as oferecidas, com o texto vendorizado em scripts/legal/siphasher-mit.txt.",
     }),
     "dunce@1.0.5": Object.freeze({
+      ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       expression: "CC0-1.0 OR MIT-0 OR Apache-2.0",
       elected: "CC0-1.0",
       rationale:
         "A ordem de preferencia elegeria Apache-2.0, mas o crate empacota um unico LICENSE, e o texto nele e o da CC0-1.0. Eleger uma licenca cujo texto nao acompanha o artefato produziria afirmacao falsa; elege-se a que esta efetivamente reproduzida.",
     }),
     "dompurify@3.4.14": Object.freeze({
+      ecosystem: "npm",
+      source:
+        "https://registry.npmjs.org/dompurify/-/dompurify-3.4.14.tgz",
       expression: "(MPL-2.0 OR Apache-2.0)",
       elected: "Apache-2.0",
       rationale:
         "Elege-se explicitamente Apache-2.0: e permissiva e evita as obrigacoes de arquivo da MPL-2.0 sobre um componente que e embutido no bundle distribuido. O registro fixa a decisao auditada mesmo que a ordem automatica mude.",
     }),
     "jszip@3.10.1": Object.freeze({
+      ecosystem: "npm",
+      source: "https://registry.npmjs.org/jszip/-/jszip-3.10.1.tgz",
       expression: "(MIT OR GPL-3.0-or-later)",
       elected: "MIT",
       rationale:
@@ -271,6 +290,8 @@ export const POLICY = Object.freeze({
         "Uma versao anterior desta justificativa afirmava que a aplicacao e proprietaria e que GPL-3.0-or-later seria incompativel. As duas afirmacoes sao falsas. Este repositorio e AGPL-3.0-or-later, e a secao 13 do LICENSE empacotado (linha 540, 'Remote Network Interaction; Use with the GNU General Public License') permite expressamente a combinacao com GPLv3. A eleicao de MIT permanece, mas pelo motivo correto acima, nao por incompatibilidade inexistente.",
     }),
     "unicode-ident@1.0.24": Object.freeze({
+      ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       expression: "(MIT OR Apache-2.0) AND Unicode-3.0",
       elected: "MIT AND Unicode-3.0",
       rationale:
@@ -304,7 +325,7 @@ export const POLICY = Object.freeze({
     }),
     siphasherMit: Object.freeze({
       path: "scripts/legal/siphasher-mit.txt",
-      sha256: "79c66f20755bf42f245b6d06c531c4b03788a0af0a00064ffa4af82fd968f8d9",
+      sha256: "a187852b35120115cbbe8eb2484f43e4b89dc027629107e53e955ce7fa9d8371",
     }),
     isarrayMit: Object.freeze({
       path: "scripts/legal/isarray-mit.txt",
@@ -324,16 +345,22 @@ export const POLICY = Object.freeze({
       ecosystem: "cargo",
       license: "MIT/Apache-2.0",
       fragments: Object.freeze(["siphasherMit"]),
-      sourceRepository: "https://github.com/jedisct1/rust-siphash",
-      revision: "db8172048a1c9bdef0dcec782d965c236161af13",
-      revisionSource: ".cargo_vcs_info.json",
+      textSourceRepository: "https://github.com/spdx/license-list-data",
+      textRevision: "c4a7237ec8f4654e867546f9f409749300f1bf4c",
+      textRevisionSource: "commit da tag v3.28.0 da lista oficial SPDX",
+      textSourcePath: "text/MIT.txt",
+      copyrightSourceRepository:
+        "https://github.com/jedisct1/rust-siphash",
+      copyrightRevision: "db8172048a1c9bdef0dcec782d965c236161af13",
+      copyrightRevisionSource: ".cargo_vcs_info.json",
+      copyrightSourcePath: "COPYING",
       licensePaths: Object.freeze([]),
       copyrightHolder:
         "The Rust Project Developers (2012-2016); Frank Denis (2016-2026)",
       copyrightBasis:
         "Linhas de copyright transcritas do arquivo COPYING publicado pelo proprio crate.",
       rationale:
-        "O crate empacota apenas um COPYING de 281 bytes que APONTA para LICENSE-APACHE e LICENSE-MIT sem incluir nenhum dos dois, e no commit fixado o repositorio de origem tambem so publica esse mesmo ponteiro. Ponteiro nao cumpre a exigencia de reproduzir o texto na distribuicao. Texto canonico da MIT obtido da SPDX, precedido das linhas de copyright que o COPYING declara.",
+        "O crate empacota apenas um COPYING de 281 bytes que APONTA para LICENSE-APACHE e LICENSE-MIT sem incluir nenhum dos dois, e na revisao fixada para o copyright o repositorio do crate tambem so publica esse mesmo ponteiro. Ponteiro nao cumpre a exigencia de reproduzir o texto na distribuicao. O texto canonico MIT vem do caminho e commit fixos da lista oficial SPDX; as linhas de copyright vem separadamente do COPYING do crate.",
     }),
     "isarray@1.0.0": Object.freeze({
       ecosystem: "npm",

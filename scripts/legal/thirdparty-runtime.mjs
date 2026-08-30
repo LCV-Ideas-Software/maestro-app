@@ -38,6 +38,32 @@ export function plataformaExcluida(meta, alvo) {
   }
 }
 
+export function validarVinculoDoArtefato(registro, componente) {
+  if (
+    typeof registro?.ecosystem !== "string" ||
+    typeof registro?.source !== "string"
+  ) {
+    return { ok: false, tipo: "politica-incompleta" };
+  }
+  if (registro.ecosystem !== componente?.ecossistema) {
+    return {
+      ok: false,
+      tipo: "ecossistema-divergente",
+      esperado: registro.ecosystem,
+      encontrado: componente?.ecossistema ?? null,
+    };
+  }
+  if (registro.source !== componente?.origemPacote) {
+    return {
+      ok: false,
+      tipo: "origem-divergente",
+      esperado: registro.source,
+      encontrado: componente?.origemPacote ?? null,
+    };
+  }
+  return { ok: true };
+}
+
 const normalizarBarraLegada = (expressao) =>
   expressao.includes("/")
     ? expressao
@@ -80,8 +106,14 @@ export function satisfaz(no, escolhidas) {
 
 export function licencasDaEleicao(eleita) {
   const { ast, erro } = analisarExpressao(eleita);
-  return erro ? { erro } : { licencas: new Set(folhasDaExpressao(ast)) };
+  return erro ? { erro } : { ast, licencas: new Set(folhasDaExpressao(ast)) };
 }
+
+const contemDisjuncao = (no) =>
+  !no.license &&
+  (no.conjunction === "or" ||
+    contemDisjuncao(no.left) ||
+    contemDisjuncao(no.right));
 
 export function validarEleicao(declarada, eleita) {
   const declaracao = analisarExpressao(declarada);
@@ -92,6 +124,9 @@ export function validarEleicao(declarada, eleita) {
   const escolha = licencasDaEleicao(eleita);
   if (escolha.erro) {
     return { ok: false, tipo: "eleicao-invalida", erro: escolha.erro };
+  }
+  if (contemDisjuncao(escolha.ast)) {
+    return { ok: false, tipo: "eleicao-ambigua" };
   }
 
   const folhas = folhasDaExpressao(declaracao.ast);
