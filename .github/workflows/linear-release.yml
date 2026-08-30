@@ -30,16 +30,17 @@ jobs:
           fetch-depth: 0 # histórico completo: o CLI varre commits desde a última release
           persist-credentials: false
 
-      # Action oficial da Linear, pinada ao commit assinado da v0.16.0. A versão
-      # v0.16.0 do CLI é selecionada explicitamente; o instalador oficial ainda
-      # baixa esse artefato sem verificação criptográfica, lacuna rastreada em
+      # Action oficial da Linear, pinada ao commit da release v0.17.1, com a
+      # versão do CLI selecionada explicitamente. Desde a v0.16.1 o instalador
+      # verifica o CLI baixado contra um checksum SHA-256 publicado antes de
+      # executá-lo, fechando a lacuna rastreada em
       # linear/linear-release-action#59.
       #
       # Falha fechada: indisponibilidade, erro do CLI ou segredo expirado deixam o
       # run vermelho, em vez de ocultar uma divergência entre GitHub e Linear.
       - name: Create Linear release with the official action
         id: linear_release
-        uses: linear/linear-release-action@0a25abab892a91062ebf42260dbb2ce6277aa205 # v0.16.0
+        uses: linear/linear-release-action@3f31fcf14c110cc53579fcc3575a26d469c413b4 # v0.17.1
         with:
           access_key: ${{ secrets.LINEAR_ACCESS_KEY }}
-          cli_version: v0.16.0
+          cli_version: v0.17.1

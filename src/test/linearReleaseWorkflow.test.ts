@@ -7,7 +7,7 @@ import actionsLockSource from "../../.github/workflows/actions.lock?raw";
 import workflowSource from "../../.github/workflows/linear-release.yml?raw";
 import agentsGuide from "../../AGENTS.md?raw";
 
-const LINEAR_ACTION_SHA = "0a25abab892a91062ebf42260dbb2ce6277aa205";
+const LINEAR_ACTION_SHA = "3f31fcf14c110cc53579fcc3575a26d469c413b4";
 const CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 
 type WorkflowStep = {
@@ -76,7 +76,7 @@ describe("Official Linear Release workflow", () => {
       uses: `linear/linear-release-action@${LINEAR_ACTION_SHA}`,
       with: {
         access_key: ["$", "{{ secrets.LINEAR_ACCESS_KEY }}"].join(""),
-        cli_version: "v0.16.0",
+        cli_version: "v0.17.1",
       },
     });
     expect(workflowSource).not.toContain("continue-on-error:");
@@ -84,7 +84,7 @@ describe("Official Linear Release workflow", () => {
     expect(workflowSource).not.toContain("CLI_SHA256");
   });
 
-  it("locks the direct action to the signed v0.16.0 commit", () => {
+  it("locks the direct action to the signed v0.17.1 commit", () => {
     const dependency = `linear/linear-release-action@${LINEAR_ACTION_SHA}`;
 
     expect(actionsLock.workflows?.[".github/workflows/linear-release.yml"]).toEqual([
@@ -92,7 +92,7 @@ describe("Official Linear Release workflow", () => {
       dependency,
     ]);
     expect(actionsLock.dependencies?.[dependency]).toEqual({
-      ref: "v0.16.0",
+      ref: "v0.17.1",
       commit: `sha1-${LINEAR_ACTION_SHA}`,
       owner_id: 46686594,
       repo_id: 1150447766,
