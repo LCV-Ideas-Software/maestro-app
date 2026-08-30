@@ -33,9 +33,9 @@ import {
   folhasDaExpressao,
   plataformaExcluida,
   resolverMetaNpm,
+  selecionarRegistroDoArtefato,
   satisfaz,
   validarEleicao,
-  validarVinculoDoArtefato,
 } from "./legal/thirdparty-runtime.mjs";
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -365,27 +365,34 @@ function elegerLicencas(componentes) {
     // tambem os componentes sem nenhuma expressao composta.
     if (folhas.length === 1) continue;
 
-    const explicita = POLICY.licenseElections[c.id];
-    if (explicita) {
-      const vinculo = validarVinculoDoArtefato(explicita, c);
-      if (vinculo.tipo === "politica-incompleta") {
+    const eleicoes = POLICY.licenseElections[c.id];
+    if (eleicoes) {
+      const selecao = selecionarRegistroDoArtefato(eleicoes, c);
+      if (selecao.tipo === "politica-incompleta") {
         pendentes.push(
-          `${c.id}: a eleicao explicita precisa registrar ecosystem e a origem exata do artefato resolvido`,
+          `${c.id}: toda eleicao explicita precisa registrar ecosystem e a origem exata do artefato resolvido`,
         );
         continue;
       }
-      if (vinculo.tipo === "ecossistema-divergente") {
+      if (selecao.tipo === "politica-duplicada") {
         pendentes.push(
-          `${c.id}: a eleicao explicita pertence ao ecossistema "${vinculo.esperado}", mas o componente resolvido pertence a "${vinculo.encontrado}"`,
+          `${c.id}: ha ${selecao.quantidade} eleicoes explicitas para o mesmo ecosystem e a mesma origem; mantenha uma unica decisao por artefato`,
         );
         continue;
       }
-      if (vinculo.tipo === "origem-divergente") {
+      if (selecao.tipo === "ecossistema-divergente") {
         pendentes.push(
-          `${c.id}: a eleicao explicita foi auditada para a origem "${vinculo.esperado}", mas o artefato resolvido vem de "${vinculo.encontrado}"`,
+          `${c.id}: as eleicoes explicitas pertencem a ${selecao.esperados.map((valor) => `"${valor}"`).join(", ")}, mas o componente resolvido pertence a "${selecao.encontrado}"`,
         );
         continue;
       }
+      if (selecao.tipo === "origem-divergente") {
+        pendentes.push(
+          `${c.id}: nenhuma eleicao explicita foi auditada para a origem "${selecao.encontrada}"; origens registradas para ${c.ecossistema}: ${selecao.esperadas.map((valor) => `"${valor}"`).join(", ")}`,
+        );
+        continue;
+      }
+      const explicita = selecao.registro;
       // Entrada obsoleta ou com erro de digitacao nao pode aplicar uma escolha
       // que o pacote nunca ofereceu: a expressao registrada e conferida contra
       // o que o pacote declara hoje.
@@ -437,8 +444,49 @@ function elegerLicencas(componentes) {
         );
         continue;
       }
+      const inspecao = explicita.manualTextInspection;
+      if (
+        inspecao &&
+        (!Array.isArray(inspecao.identifiedLicenses) ||
+          !inspecao.identifiedLicenses.length ||
+          typeof inspecao.rationale !== "string" ||
+          !inspecao.rationale.trim())
+      ) {
+        pendentes.push(
+          `${c.id}: manualTextInspection precisa identificar ao menos uma licenca e registrar a evidencia em rationale`,
+        );
+        continue;
+      }
+      const licencasInspecionadas = new Set(
+        Array.isArray(inspecao?.identifiedLicenses)
+          ? inspecao.identifiedLicenses
+          : [],
+      );
+      const inspecoesForasteiras = [...licencasInspecionadas].filter(
+        (licenca) => !validacao.licencas.has(licenca),
+      );
+      if (inspecoesForasteiras.length) {
+        pendentes.push(
+          `${c.id}: a inspecao manual registra ${inspecoesForasteiras.join(", ")}, que nao faz parte da eleicao "${explicita.elected}"`,
+        );
+        continue;
+      }
+      const semProva = [...validacao.licencas].filter(
+        (licenca) =>
+          !POLICY.licenseTextMarkers[licenca] &&
+          !licencasInspecionadas.has(licenca),
+      );
+      if (semProva.length) {
+        pendentes.push(
+          `${c.id}: eleicao registrada de ${explicita.elected} nao se sustenta — sem marcador nem inspecao manual do artefato exato para ${semProva.join(", ")}`,
+        );
+        continue;
+      }
+      const licencasComMarcador = [...validacao.licencas].filter(
+        (licenca) => POLICY.licenseTextMarkers[licenca],
+      );
       const corr = corroboradas(
-        validacao.licencas,
+        licencasComMarcador,
         c.textos || [],
         POLICY.licenseTextMarkers,
       );
@@ -621,22 +669,63 @@ function corroborarLicencaUnica(componentes) {
     const declarada = (c.licencaDeclarada || "").trim();
     if (!declarada) continue;
 
-    const inspecionada = POLICY.unverifiableLicenseDeclarations?.[c.id];
-    if (inspecionada) {
+    const inspecoes = POLICY.unverifiableLicenseDeclarations?.[c.id];
+    if (inspecoes) {
+      const selecao = selecionarRegistroDoArtefato(inspecoes, c);
+      if (selecao.tipo === "politica-incompleta") {
+        pendentes.push(
+          `${c.id} (${c.ecossistema}): toda inspecao manual precisa registrar ecosystem e a origem exata do artefato resolvido`,
+        );
+        continue;
+      }
+      if (selecao.tipo === "politica-duplicada") {
+        pendentes.push(
+          `${c.id} (${c.ecossistema}): ha ${selecao.quantidade} inspecoes manuais para o mesmo artefato; mantenha um unico registro por ecosystem e origem`,
+        );
+        continue;
+      }
+      if (selecao.tipo === "ecossistema-divergente") {
+        pendentes.push(
+          `${c.id} (${c.ecossistema}): nenhuma inspecao manual pertence a este ecossistema; registrados: ${selecao.esperados.join(", ")}`,
+        );
+        continue;
+      }
+      if (selecao.tipo === "origem-divergente") {
+        pendentes.push(
+          `${c.id} (${c.ecossistema}): nenhuma inspecao manual foi feita para a origem exata "${selecao.encontrada}"; registradas: ${selecao.esperadas.join(", ")}`,
+        );
+        continue;
+      }
+      const inspecionada = selecao.registro;
       if (inspecionada.declared !== declarada) {
         pendentes.push(
           `${c.id} (${c.ecossistema}): a politica registra a declaracao "${inspecionada.declared}" mas o pacote declara "${declarada}"`,
         );
         continue;
       }
-      // A inspecao foi feita sobre UM artefato: o do registro canonico. Um
-      // fork em git ou `file:` com o mesmo nome, versao e declaracao nao herda
-      // a leitura humana feita sobre outro texto — mesma amarra do fallback e
-      // do complemento.
-      if (!vemDoRegistroCanonico(inspecionada.ecosystem, c.origemPacote)) {
+      if (
+        typeof inspecionada.identifiedLicense !== "string" ||
+        !inspecionada.identifiedLicense.trim() ||
+        typeof inspecionada.rationale !== "string" ||
+        !inspecionada.rationale.trim()
+      ) {
         pendentes.push(
-          `${c.id} (${c.ecossistema}): tem inspecao manual registrada, mas o lockfile resolve para "${c.origemPacote ?? "origem ausente"}", que nao e o registro canonico; a inspecao nao se aplica a esse artefato`,
+          `${c.id} (${c.ecossistema}): a inspecao manual do artefato precisa registrar identifiedLicense e rationale`,
         );
+        continue;
+      }
+      const analisada = analisarExpressao(declarada);
+      if (!analisada.erro) {
+        const folhas = folhasDaExpressao(analisada.ast);
+        if (
+          folhas.length !== 1 ||
+          inspecionada.identifiedLicense !== folhas[0]
+        ) {
+          pendentes.push(
+            `${c.id} (${c.ecossistema}): a inspecao identifica ${inspecionada.identifiedLicense}, mas a declaracao verificavel do artefato e ${declarada}`,
+          );
+          continue;
+        }
       }
       continue;
     }

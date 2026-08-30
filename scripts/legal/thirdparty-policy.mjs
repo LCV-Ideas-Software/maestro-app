@@ -131,9 +131,9 @@ export const POLICY = Object.freeze({
     "Apache-2.0": Object.freeze([
       "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION",
     ]),
-    "BSD-2-Clause": Object.freeze([
-      "Redistributions of source code must retain the above copyright notice",
-    ]),
+    // BSD-2-Clause nao tem marcador positivo: todo o seu corpo substancial
+    // tambem aparece na BSD-3-Clause, que apenas acrescenta a clausula de
+    // nao-endosso. Distingui-las exige inspecao manual do artefato exato.
     // A clausula de nao-endosso e o que separa BSD-3-Clause de BSD-2-Clause.
     // Nao se ancora no comeco dela: os pacotes substituem ali o nome do titular
     // e pluralizam ("Neither the names of the Mozilla Foundation nor..."), o
@@ -149,8 +149,7 @@ export const POLICY = Object.freeze({
       "provided that the above copyright notice and this permission notice appear in all copies",
     ]),
     "CC0-1.0": Object.freeze([
-      "CC0 1.0 Universal",
-      "Creative Commons Legal Code",
+      "Affirmer hereby overtly, fully, permanently, irrevocably and unconditionally waives, abandons, and surrenders all of Affirmer's Copyright and Related Rights",
     ]),
     // Titulo, identificador e URL podem existir num arquivo que apenas aponta
     // para a licenca. Esta frase pertence ao corpo concessivo da Unicode-3.0.
@@ -168,31 +167,78 @@ export const POLICY = Object.freeze({
       "All distribution of Covered Software in Source Code Form, including any Modifications that You create or to which You contribute, must be under the terms of this License",
     ]),
     "BSL-1.0": Object.freeze([
-      "Boost Software License",
+      "to use, reproduce, display, distribute, execute, and transmit the Software, and to prepare derivative works of the Software",
     ]),
     "Python-2.0": Object.freeze([
-      "PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2",
+      "PSF hereby grants Licensee a nonexclusive, royalty-free, world-wide license to reproduce, analyze, test, perform and/or display publicly",
     ]),
     "CDLA-Permissive-2.0": Object.freeze([
-      "Community Data License Agreement - Permissive, Version 2.0",
+      "A Data Recipient may use, modify, and share the Data made available by Data Provider(s) under this agreement",
     ]),
   }),
 
-  // Declaracao que nao e identificador SPDX valido nao tem como ser conferida
-  // por marcador: nao ha licenca canonica a que ela corresponda. Em vez de
-  // deixar o componente passar por omissao, registra-se a inspecao manual, com
-  // o que o texto empacotado de fato e e a data em que foi lido.
+  // Inspecoes manuais para declaracoes que nao sao identificadores SPDX ou
+  // cuja identidade nao pode ser provada por substring positiva, como a
+  // BSD-2-Clause (subconjunto textual da BSD-3-Clause). Cada registro fixa a
+  // origem exata; uma dependencia git/path ou outro tarball com as mesmas
+  // coordenadas nao herda a inspecao.
   unverifiableLicenseDeclarations: Object.freeze({
     "duck@0.1.12": Object.freeze({
       ecosystem: "npm",
+      source: "https://registry.npmjs.org/duck/-/duck-0.1.12.tgz",
       declared: "BSD",
+      identifiedLicense: "BSD-2-Clause",
       rationale:
         "O pacote declara apenas BSD, que nao e identificador SPDX: nao distingue BSD-2-Clause de BSD-3-Clause nem das demais variantes, e portanto nenhum marcador pode confirma-lo. Inspecionado a mao em 30/08/2026: o LICENSE empacotado traz o texto BSD de duas clausulas, com as duas condicoes numeradas de redistribuicao e sem a clausula de nao-endosso, sob copyright de Michael Williamson (2013). O texto acompanha o artefato integralmente; o que falta e a precisao do identificador declarado pelo publicador, nao o aviso.",
     }),
+    "dingbat-to-unicode@1.0.1": Object.freeze({
+      ecosystem: "npm",
+      source:
+        "https://registry.npmjs.org/dingbat-to-unicode/-/dingbat-to-unicode-1.0.1.tgz",
+      declared: "BSD-2-Clause",
+      identifiedLicense: "BSD-2-Clause",
+      rationale:
+        "Inspecionado em 30/08/2026: o fragmento vendorizado instancia as duas condicoes de redistribuicao da BSD-2-Clause e nao contem clausula de nao-endosso. A proveniencia do titular e do ano permanece registrada no fallback do mesmo artefato.",
+    }),
+    "entities@4.5.0": Object.freeze({
+      ecosystem: "npm",
+      source: "https://registry.npmjs.org/entities/-/entities-4.5.0.tgz",
+      declared: "BSD-2-Clause",
+      identifiedLicense: "BSD-2-Clause",
+      rationale:
+        "Inspecionado em 30/08/2026: o LICENSE do tarball contem exatamente as duas condicoes de redistribuicao e nao contem a terceira clausula de nao-endosso da BSD-3-Clause.",
+    }),
+    "lop@0.4.2": Object.freeze({
+      ecosystem: "npm",
+      source: "https://registry.npmjs.org/lop/-/lop-0.4.2.tgz",
+      declared: "BSD-2-Clause",
+      identifiedLicense: "BSD-2-Clause",
+      rationale:
+        "Inspecionado em 30/08/2026: o LICENSE do tarball enumera somente as duas condicoes de redistribuicao e nao contem clausula de nao-endosso.",
+    }),
+    "mammoth@1.12.1": Object.freeze({
+      ecosystem: "npm",
+      source: "https://registry.npmjs.org/mammoth/-/mammoth-1.12.1.tgz",
+      declared: "BSD-2-Clause",
+      identifiedLicense: "BSD-2-Clause",
+      rationale:
+        "Inspecionado em 30/08/2026: o LICENSE do tarball enumera somente as duas condicoes de redistribuicao e nao contem clausula de nao-endosso.",
+    }),
+    "option@0.2.4": Object.freeze({
+      ecosystem: "npm",
+      source: "https://registry.npmjs.org/option/-/option-0.2.4.tgz",
+      declared: "BSD-2-Clause",
+      identifiedLicense: "BSD-2-Clause",
+      rationale:
+        "Inspecionado em 30/08/2026: o LICENSE do tarball enumera somente as duas condicoes de redistribuicao e nao contem clausula de nao-endosso.",
+    }),
   }),
 
-  // Eleicoes explicitas, por `<nome>@<versao>`. Necessarias quando nenhuma
-  // licenca preferida satisfaz sozinha a arvore completa ou quando uma decisao
+  // Eleicoes explicitas, por `<nome>@<versao>`. Cada chave aceita o objeto
+  // historico unico ou uma lista de objetos quando as mesmas coordenadas
+  // identificam mais de um artefato distribuido; a selecao sempre usa o par
+  // exato `ecosystem` + `source`, nunca a primeira entrada da lista. Necessarias
+  // quando nenhuma licenca preferida satisfaz sozinha a arvore completa ou quando uma decisao
   // auditada deve prevalecer sobre a preferencia automatica. Fixar a versao
   // impede que a decisao sobreviva em silencio a uma atualizacao de dependencia.
   //
@@ -235,6 +281,11 @@ export const POLICY = Object.freeze({
       source: "registry+https://github.com/rust-lang/crates.io-index",
       expression: "BSD-2-Clause OR Apache-2.0",
       elected: "BSD-2-Clause",
+      manualTextInspection: Object.freeze({
+        identifiedLicenses: Object.freeze(["BSD-2-Clause"]),
+        rationale:
+          "O LICENSE-BSD do crate tem as duas condicoes da BSD-2-Clause e nao contem a clausula de nao-endosso da BSD-3-Clause; inspecionado no artefato crates.io fixado por ecosystem e source acima.",
+      }),
       rationale:
         "BSD-2-Clause saiu da eleicao automatica porque seu texto e subconjunto do BSD-3-Clause: nenhum marcador o distingue, e um componente que oferecesse ambos e empacotasse so o BSD-3 corroboraria BSD-2 falsamente. Aqui a decisao foi verificada a mao em 30/08/2026: o crate publica LICENSE-BSD e LICENSE-APACHE, e o LICENSE-BSD nao contem a clausula de nao-endosso que caracteriza o BSD-3, sendo portanto BSD-2 de fato.",
     }),

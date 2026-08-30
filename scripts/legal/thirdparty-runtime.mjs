@@ -64,6 +64,60 @@ export function validarVinculoDoArtefato(registro, componente) {
   return { ok: true };
 }
 
+export function selecionarRegistroDoArtefato(entrada, componente) {
+  const registros = Array.isArray(entrada)
+    ? entrada
+    : entrada && typeof entrada === "object"
+      ? [entrada]
+      : [];
+  if (!registros.length) {
+    return { ok: false, tipo: "politica-incompleta" };
+  }
+
+  const incompletos = registros.filter(
+    (registro) =>
+      validarVinculoDoArtefato(registro, componente).tipo ===
+      "politica-incompleta",
+  );
+  if (incompletos.length) {
+    return { ok: false, tipo: "politica-incompleta" };
+  }
+
+  const correspondentes = registros.filter(
+    (registro) => validarVinculoDoArtefato(registro, componente).ok,
+  );
+  if (correspondentes.length > 1) {
+    return {
+      ok: false,
+      tipo: "politica-duplicada",
+      quantidade: correspondentes.length,
+    };
+  }
+  if (correspondentes.length === 1) {
+    return { ok: true, registro: correspondentes[0] };
+  }
+
+  const mesmoEcossistema = registros.filter(
+    (registro) => registro.ecosystem === componente?.ecossistema,
+  );
+  if (!mesmoEcossistema.length) {
+    return {
+      ok: false,
+      tipo: "ecossistema-divergente",
+      esperados: [...new Set(registros.map((registro) => registro.ecosystem))],
+      encontrado: componente?.ecossistema ?? null,
+    };
+  }
+  return {
+    ok: false,
+    tipo: "origem-divergente",
+    esperadas: [
+      ...new Set(mesmoEcossistema.map((registro) => registro.source)),
+    ],
+    encontrada: componente?.origemPacote ?? null,
+  };
+}
+
 const normalizarBarraLegada = (expressao) =>
   expressao.includes("/")
     ? expressao

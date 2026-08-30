@@ -698,7 +698,14 @@ test("every explicit licence election records what was chosen and why", async ()
     POLICY.licenseElectionPreference.length > 0,
     "policy must declare a preference order for unambiguous choices",
   );
-  for (const [id, eleicao] of Object.entries(POLICY.licenseElections)) {
+  const eleicoes = [];
+  for (const [id, entrada] of Object.entries(POLICY.licenseElections)) {
+    const registros = Array.isArray(entrada) ? entrada : [entrada];
+    assert.ok(registros.length > 0, `${id} must declare at least one election`);
+    for (const eleicao of registros) eleicoes.push([id, eleicao]);
+  }
+  const identidades = new Set();
+  for (const [id, eleicao] of eleicoes) {
     assert.match(
       id,
       /^.+@\d+\.\d+\.\d+/u,
@@ -716,12 +723,28 @@ test("every explicit licence election records what was chosen and why", async ()
       eleicao.source,
       `${id} must bind the election to the exact resolved artifact origin`,
     );
+    const identidade = `${id}|${eleicao.ecosystem}|${eleicao.source}`;
+    assert.ok(
+      !identidades.has(identidade),
+      `${id} must not declare two elections for ${eleicao.ecosystem}|${eleicao.source}`,
+    );
+    identidades.add(identidade);
     // This is the production predicate, not a test-side reimplementation: it
     // checks both satisfiability and that every elected leaf was offered.
     assert.ok(
       validarEleicao(eleicao.expression, eleicao.elected).ok,
       `${id}: the election "${eleicao.elected}" does not satisfy "${eleicao.expression}"`,
     );
+    if (eleicao.manualTextInspection) {
+      assert.ok(
+        eleicao.manualTextInspection.identifiedLicenses?.length,
+        `${id} manual inspection must identify at least one licence`,
+      );
+      assert.ok(
+        eleicao.manualTextInspection.rationale,
+        `${id} manual inspection must record its evidence`,
+      );
+    }
   }
 });
 
@@ -995,6 +1018,88 @@ test("MPL-2.0 corroboration requires licence body, not a title or URL pointer", 
   );
 });
 
+test("BSL-1.0 and Python-2.0 corroboration require licence bodies, not titles or URLs", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  const casos = [
+    {
+      licenca: "BSL-1.0",
+      ponteiro:
+        "Boost Software License - Version 1.0 https://www.boost.org/LICENSE_1_0.txt",
+      corpo:
+        "to use, reproduce, display, distribute, execute, and transmit the Software, and to prepare derivative works of the Software",
+    },
+    {
+      licenca: "Python-2.0",
+      ponteiro:
+        "PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2 https://docs.python.org/3/license.html",
+      corpo:
+        "PSF hereby grants Licensee a nonexclusive, royalty-free, world-wide license to reproduce, analyze, test, perform and/or display publicly",
+    },
+  ];
+
+  for (const caso of casos) {
+    assert.equal(
+      corroboradas(
+        [caso.licenca],
+        [{ texto: caso.ponteiro }],
+        POLICY.licenseTextMarkers,
+      ).ok,
+      false,
+      `${caso.licenca} title or URL must not corroborate its licence body`,
+    );
+    assert.equal(
+      corroboradas(
+        [caso.licenca],
+        [{ texto: caso.corpo }],
+        POLICY.licenseTextMarkers,
+      ).ok,
+      true,
+      `${caso.licenca} official body phrase must corroborate the licence`,
+    );
+  }
+});
+
+test("CC0-1.0 and CDLA-Permissive-2.0 corroboration require licence bodies, not titles or URLs", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  const casos = [
+    {
+      licenca: "CC0-1.0",
+      ponteiro:
+        "Creative Commons Legal Code — CC0 1.0 Universal https://creativecommons.org/publicdomain/zero/1.0/legalcode.en",
+      corpo:
+        "Affirmer hereby overtly, fully, permanently, irrevocably and unconditionally waives, abandons, and surrenders all of Affirmer's Copyright and Related Rights",
+    },
+    {
+      licenca: "CDLA-Permissive-2.0",
+      ponteiro:
+        "Community Data License Agreement - Permissive - Version 2.0 https://cdla.dev/permissive-2-0/",
+      corpo:
+        "A Data Recipient may use, modify, and share the Data made available by Data Provider(s) under this agreement",
+    },
+  ];
+
+  for (const caso of casos) {
+    assert.equal(
+      corroboradas(
+        [caso.licenca],
+        [{ texto: caso.ponteiro }],
+        POLICY.licenseTextMarkers,
+      ).ok,
+      false,
+      `${caso.licenca} title or URL must not corroborate its licence body`,
+    );
+    assert.equal(
+      corroboradas(
+        [caso.licenca],
+        [{ texto: caso.corpo }],
+        POLICY.licenseTextMarkers,
+      ).ok,
+      true,
+      `${caso.licenca} official body phrase must corroborate the licence`,
+    );
+  }
+});
+
 test("every declared supplement pins immutable provenance", async () => {
   const { POLICY } = await import("./legal/thirdparty-policy.mjs");
   for (const [id, suplemento] of Object.entries(
@@ -1035,6 +1140,87 @@ test("licences whose text is a subset of another are not elected automatically",
       !POLICY.licenseElectionPreference.includes(subconjunto),
       `${subconjunto} has no marker that distinguishes it from the licence that contains it, so it must require an explicit election`,
     );
+  }
+});
+
+test("BSD-2-Clause cannot be corroborated by text shared with BSD-3-Clause", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  assert.equal(
+    POLICY.licenseTextMarkers["BSD-2-Clause"],
+    undefined,
+    "BSD-2-Clause has no positive substring that distinguishes it from BSD-3-Clause",
+  );
+  assert.equal(
+    corroboradas(
+      ["BSD-2-Clause"],
+      [
+        {
+          texto:
+            "Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.",
+        },
+      ],
+      POLICY.licenseTextMarkers,
+    ).ok,
+    false,
+  );
+
+  const esperadas = new Map([
+    [
+      "dingbat-to-unicode@1.0.1",
+      "https://registry.npmjs.org/dingbat-to-unicode/-/dingbat-to-unicode-1.0.1.tgz",
+    ],
+    [
+      "entities@4.5.0",
+      "https://registry.npmjs.org/entities/-/entities-4.5.0.tgz",
+    ],
+    ["lop@0.4.2", "https://registry.npmjs.org/lop/-/lop-0.4.2.tgz"],
+    [
+      "mammoth@1.12.1",
+      "https://registry.npmjs.org/mammoth/-/mammoth-1.12.1.tgz",
+    ],
+    ["option@0.2.4", "https://registry.npmjs.org/option/-/option-0.2.4.tgz"],
+  ]);
+  for (const [id, source] of esperadas) {
+    const inspecao = POLICY.unverifiableLicenseDeclarations[id];
+    assert.ok(inspecao, `${id} must have an artifact-specific inspection`);
+    assert.equal(inspecao.ecosystem, "npm");
+    assert.equal(inspecao.source, source);
+    assert.equal(inspecao.declared, "BSD-2-Clause");
+    assert.equal(inspecao.identifiedLicense, "BSD-2-Clause");
+    assert.ok(inspecao.rationale, `${id} must record inspection evidence`);
+  }
+});
+
+test("every manual licence inspection binds an exact artifact and records its finding", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  for (const [id, entrada] of Object.entries(
+    POLICY.unverifiableLicenseDeclarations,
+  )) {
+    const inspecoes = Array.isArray(entrada) ? entrada : [entrada];
+    assert.ok(
+      inspecoes.length > 0,
+      `${id} must declare at least one inspection`,
+    );
+    const identidades = new Set();
+    for (const inspecao of inspecoes) {
+      assert.match(inspecao.ecosystem ?? "", /^(?:npm|cargo)$/u);
+      assert.ok(inspecao.source, `${id} must bind the inspected source`);
+      assert.ok(
+        inspecao.declared,
+        `${id} must record the publisher declaration`,
+      );
+      assert.ok(
+        inspecao.identifiedLicense,
+        `${id} must record the licence identified in the artifact`,
+      );
+      assert.ok(inspecao.rationale, `${id} must record inspection evidence`);
+      const identidade = `${inspecao.ecosystem}|${inspecao.source}`;
+      assert.ok(
+        !identidades.has(identidade),
+        `${id} must not declare two inspections for ${identidade}`,
+      );
+      identidades.add(identidade);
+    }
   }
 });
 
@@ -1126,7 +1312,12 @@ test("explicit elections bind ecosystem and exact resolved artifact origin", asy
   const { POLICY } = await import("./legal/thirdparty-policy.mjs");
   assert.equal(typeof runtime.validarVinculoDoArtefato, "function");
 
-  const eleicao = POLICY.licenseElections["serial2@0.2.37"];
+  const entrada = POLICY.licenseElections["serial2@0.2.37"];
+  const eleicao = runtime.selecionarRegistroDoArtefato(entrada, {
+    ecossistema: "cargo",
+    origemPacote: "registry+https://github.com/rust-lang/crates.io-index",
+  }).registro;
+  assert.ok(eleicao, "serial2 crates.io election must be source-qualified");
   assert.equal(eleicao.ecosystem, "cargo");
   assert.equal(
     eleicao.source,
@@ -1166,4 +1357,58 @@ test("explicit elections bind ecosystem and exact resolved artifact origin", asy
   });
   assert.equal(ecossistema.ok, false);
   assert.equal(ecossistema.tipo, "ecossistema-divergente");
+});
+
+test("source-qualified policy buckets select full artifact identity and reject duplicates", async () => {
+  const runtime = await import("./legal/thirdparty-runtime.mjs");
+  assert.equal(typeof runtime.selecionarRegistroDoArtefato, "function");
+
+  const registry = {
+    ecosystem: "cargo",
+    source: "registry+https://github.com/rust-lang/crates.io-index",
+    expression: "MIT OR Apache-2.0",
+    elected: "MIT",
+  };
+  const git = {
+    ecosystem: "cargo",
+    source: "git+https://example.invalid/shared#0123456789abcdef",
+    expression: "MIT OR Apache-2.0",
+    elected: "Apache-2.0",
+  };
+  const npm = {
+    ecosystem: "npm",
+    source: "https://registry.npmjs.org/shared/-/shared-1.0.0.tgz",
+    expression: "MIT OR Apache-2.0",
+    elected: "MIT",
+  };
+
+  assert.deepEqual(
+    runtime.selecionarRegistroDoArtefato([registry, git, npm], {
+      ecossistema: "cargo",
+      origemPacote: git.source,
+    }),
+    { ok: true, registro: git },
+  );
+  assert.deepEqual(
+    runtime.selecionarRegistroDoArtefato(registry, {
+      ecossistema: "cargo",
+      origemPacote: registry.source,
+    }),
+    { ok: true, registro: registry },
+    "legacy single-object policy entries must remain supported",
+  );
+
+  const ausente = runtime.selecionarRegistroDoArtefato([registry, git], {
+    ecossistema: "cargo",
+    origemPacote: "path:vendor/shared",
+  });
+  assert.equal(ausente.ok, false);
+  assert.equal(ausente.tipo, "origem-divergente");
+
+  const duplicada = runtime.selecionarRegistroDoArtefato(
+    [registry, { ...registry, elected: "Apache-2.0" }],
+    { ecossistema: "cargo", origemPacote: registry.source },
+  );
+  assert.equal(duplicada.ok, false);
+  assert.equal(duplicada.tipo, "politica-duplicada");
 });

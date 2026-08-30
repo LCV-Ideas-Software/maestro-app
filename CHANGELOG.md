@@ -6,6 +6,16 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Changed
 
+- **MAESTRO-22 — licence evidence is now source-qualified and body-specific.**
+  Explicit elections and manual inspections select the exact npm or Cargo
+  artefact by ecosystem and resolved source, support multiple same-name/version
+  artefacts without taking the first policy entry, and reject duplicate
+  decisions for one identity. BSD-2-Clause can no longer be corroborated by a
+  substring also present in BSD-3-Clause: each distributed BSD-2 artefact now
+  carries a recorded inspection, including the explicit `serial2` election.
+  BSL-1.0, Python-2.0, CC0-1.0 and CDLA-Permissive-2.0 corroboration now require
+  phrases from the official licence bodies instead of accepting a title or URL
+  pointer.
 - **MAESTRO-22 — explicit licence decisions are now unambiguous and
   artefact-bound.** A recorded election may retain mandatory `AND` terms, but
   may not contain `OR`: the production SPDX AST must identify the alternative
