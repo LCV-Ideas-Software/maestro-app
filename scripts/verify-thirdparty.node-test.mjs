@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import spdxParse from "spdx-expression-parse";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -700,22 +701,59 @@ test("every explicit licence election records what was chosen and why", async ()
     assert.ok(eleicao.expression, `${id} must record the expression it resolves`);
     assert.ok(eleicao.elected, `${id} must record the elected licence`);
     assert.ok(eleicao.rationale, `${id} must record why that licence was chosen`);
-    // `mandatory` names the terms the expression imposes regardless of choice.
-    // Without it the generator could only check that the elected licence is
-    // offered, never that the election covers every obligation.
+    // The obligations an expression imposes are DERIVED from its syntax tree,
+    // never declared by hand: a licence is mandatory when it appears in every
+    // assignment that satisfies the expression. This asserts the recorded
+    // election is one of those assignments, which is the same predicate the
+    // generator uses and subsumes "elected is offered" and "elected covers
+    // every mandatory conjunct".
+    const barraLegada = (e) =>
+      e.includes("/") ? e.split("/").map((t) => t.trim()).join(" OR ") : e;
+    const folhas = (n) =>
+      n.license
+        ? [n.exception ? `${n.license} WITH ${n.exception}` : n.license]
+        : [...folhas(n.left), ...folhas(n.right)];
+    const satisfaz = (n, escolhidas) =>
+      n.license
+        ? escolhidas.has(n.exception ? `${n.license} WITH ${n.exception}` : n.license)
+        : n.conjunction === "and"
+          ? satisfaz(n.left, escolhidas) && satisfaz(n.right, escolhidas)
+          : satisfaz(n.left, escolhidas) || satisfaz(n.right, escolhidas);
+
+    const ast = spdxParse(barraLegada(eleicao.expression));
+    const eleitas = new Set(folhas(spdxParse(barraLegada(eleicao.elected))));
     assert.ok(
-      Array.isArray(eleicao.mandatory),
-      `${id} must declare which terms are not optional (empty array when the expression only offers a choice)`,
+      satisfaz(ast, eleitas),
+      `${id}: the election "${eleicao.elected}" does not satisfy "${eleicao.expression}"`,
     );
-    for (const termo of eleicao.mandatory) {
-      assert.ok(
-        eleicao.expression.includes(termo),
-        `${id} lists ${termo} as mandatory but "${eleicao.expression}" does not contain it`,
-      );
-      assert.ok(
-        eleicao.elected.includes(termo),
-        `${id} lists ${termo} as mandatory but the election "${eleicao.elected}" drops it`,
-      );
+  }
+});
+
+test("every declared supplement pins immutable provenance", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  for (const [id, suplemento] of Object.entries(
+    POLICY.licenseSupplements ?? {},
+  )) {
+    assert.match(
+      id,
+      /^.+@\d+\.\d+\.\d+/u,
+      `${id} must pin an exact version so the exception cannot outlive an upgrade`,
+    );
+    assert.ok(suplemento.rationale, `${id} must record why the text is vendored`);
+    // Same requirement the fallbacks carry. The fragment digest proves the
+    // local file has not changed; only a commit id proves which upstream bytes
+    // it was derived from.
+    assert.ok(
+      suplemento.sourceRepository,
+      `${id} must record where the supplementary text came from`,
+    );
+    assert.match(
+      suplemento.revision ?? "",
+      /^[0-9a-f]{40}$/u,
+      `${id} must pin a full commit id, not a movable ref like "${suplemento.revision}"`,
+    );
+    for (const key of suplemento.fragments) {
+      assert.ok(POLICY.fragments[key], `${id} references unknown fragment ${key}`);
     }
   }
 });

@@ -4726,6 +4726,8 @@ THE SOFTWARE.
 pako 1.0.11  (npm)
 Licenca declarada: (MIT AND Zlib)
 Licenca eleita: MIT AND Zlib (registrada na politica)
+Origem do texto complementar: https://github.com/spdx/license-list-data @ c4a7237ec8f4654e867546f9f409749300f1bf4c
+Motivo do complemento: A expressao (MIT AND Zlib) e conjuntiva: as duas licencas valem ao mesmo tempo. O pacote publica um unico LICENSE com o texto MIT e o copyright dos autores, e nao acompanha o texto da Zlib. O pako e um porto em JavaScript do zlib, o que explica a conjuncao. O LICENSE proprio segue reproduzido; o texto da Zlib e acrescentado a ele.
 
 --- LICENSE ---
 
@@ -4767,8 +4769,13 @@ O pako e um porto em JavaScript do zlib, o que explica a conjuncao. Este
 fragmento NAO substitui o LICENSE do pacote: ele e acrescentado a ele, para
 que o aviso distribuido traga as duas licencas que a expressao exige.
 
-Texto: modelo canonico da Zlib obtido da fonte oficial SPDX
-(https://spdx.org/licenses/Zlib.json), reproduzido sem alteracao.
+Texto: modelo canonico da Zlib da lista oficial SPDX, reproduzido sem
+alteracao. A lista e versionada; a origem aqui e imutavel, nao a URL movel:
+  repositorio: https://github.com/spdx/license-list-data
+  revisao....: c4a7237ec8f4654e867546f9f409749300f1bf4c (tag v3.28.0)
+  caminho....: text/Zlib.txt
+Conferido em 30/08/2026 contra o conteudo dessa revisao, normalizando espaco
+em branco: identico.
 
 Este e um registro tecnico de compliance; nao constitui parecer juridico.
 

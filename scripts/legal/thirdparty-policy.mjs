@@ -134,8 +134,14 @@ export const POLICY = Object.freeze({
     "BSD-2-Clause": Object.freeze([
       "Redistributions of source code must retain the above copyright notice",
     ]),
+    // A clausula de nao-endosso e o que separa BSD-3-Clause de BSD-2-Clause.
+    // Nao se ancora no comeco dela: os pacotes substituem ali o nome do titular
+    // e pluralizam ("Neither the names of the Mozilla Foundation nor..."), o
+    // que fazia o BSD-3 legitimo do source-map-js passar por ausente. O trecho
+    // abaixo e literal no texto canonico e nas variantes, e nao existe no
+    // BSD-2-Clause, que nao tem clausula de nao-endosso nenhuma.
     "BSD-3-Clause": Object.freeze([
-      "Neither the name of",
+      "may be used to endorse or promote products derived from this software without specific prior written permission",
     ]),
     // Mesma razao: a 0BSD e a ISC sem a condicao de manter o aviso nas copias.
     // O marcador da ISC e justamente essa condicao.
@@ -163,6 +169,24 @@ export const POLICY = Object.freeze({
     "BSL-1.0": Object.freeze([
       "Boost Software License",
     ]),
+    "Python-2.0": Object.freeze([
+      "PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2",
+    ]),
+    "CDLA-Permissive-2.0": Object.freeze([
+      "Community Data License Agreement - Permissive, Version 2.0",
+    ]),
+  }),
+
+  // Declaracao que nao e identificador SPDX valido nao tem como ser conferida
+  // por marcador: nao ha licenca canonica a que ela corresponda. Em vez de
+  // deixar o componente passar por omissao, registra-se a inspecao manual, com
+  // o que o texto empacotado de fato e e a data em que foi lido.
+  unverifiableLicenseDeclarations: Object.freeze({
+    "duck@0.1.12": Object.freeze({
+      declared: "BSD",
+      rationale:
+        "O pacote declara apenas BSD, que nao e identificador SPDX: nao distingue BSD-2-Clause de BSD-3-Clause nem das demais variantes, e portanto nenhum marcador pode confirma-lo. Inspecionado a mao em 30/08/2026: o LICENSE empacotado traz o texto BSD de duas clausulas, com as duas condicoes numeradas de redistribuicao e sem a clausula de nao-endosso, sob copyright de Michael Williamson (2013). O texto acompanha o artefato integralmente; o que falta e a precisao do identificador declarado pelo publicador, nao o aviso.",
+    }),
   }),
 
   // Eleicoes explicitas, por `<nome>@<versao>`. Necessarias para toda expressao
@@ -180,6 +204,13 @@ export const POLICY = Object.freeze({
     "pako@1.0.11": Object.freeze({
       ecosystem: "npm",
       fragments: Object.freeze(["pakoZlib"]),
+      // Mesma exigencia dos fallbacks: texto vendorizado tem de apontar para
+      // uma revisao imutavel, senao o sha256 prova apenas que o arquivo local
+      // nao mudou, nunca de que bytes de upstream ele saiu.
+      sourceRepository: "https://github.com/spdx/license-list-data",
+      revision: "c4a7237ec8f4654e867546f9f409749300f1bf4c",
+      revisionSource: "commit da tag v3.28.0 da lista oficial SPDX",
+      sourcePath: "text/Zlib.txt",
       rationale:
         "A expressao (MIT AND Zlib) e conjuntiva: as duas licencas valem ao mesmo tempo. O pacote publica um unico LICENSE com o texto MIT e o copyright dos autores, e nao acompanha o texto da Zlib. O pako e um porto em JavaScript do zlib, o que explica a conjuncao. O LICENSE proprio segue reproduzido; o texto da Zlib e acrescentado a ele.",
     }),
@@ -189,56 +220,48 @@ export const POLICY = Object.freeze({
     "pako@1.0.11": Object.freeze({
       expression: "(MIT AND Zlib)",
       elected: "MIT AND Zlib",
-      mandatory: Object.freeze(["MIT", "Zlib"]),
       rationale:
         "Expressao conjuntiva: nao ha escolha a fazer, as duas licencas se aplicam. Registrada para que o gate confirme que os dois textos acompanham o artefato, o que so passou a ser verdade com o complemento declarado em licenseSupplements.",
     }),
     "serial2@0.2.37": Object.freeze({
       expression: "BSD-2-Clause OR Apache-2.0",
       elected: "BSD-2-Clause",
-      mandatory: Object.freeze([]),
       rationale:
         "BSD-2-Clause saiu da eleicao automatica porque seu texto e subconjunto do BSD-3-Clause: nenhum marcador o distingue, e um componente que oferecesse ambos e empacotasse so o BSD-3 corroboraria BSD-2 falsamente. Aqui a decisao foi verificada a mao em 30/08/2026: o crate publica LICENSE-BSD e LICENSE-APACHE, e o LICENSE-BSD nao contem a clausula de nao-endosso que caracteriza o BSD-3, sendo portanto BSD-2 de fato.",
     }),
     "dpi@0.1.2": Object.freeze({
       expression: "Apache-2.0 AND MIT",
       elected: "Apache-2.0 AND MIT",
-      mandatory: Object.freeze(["Apache-2.0", "MIT"]),
       rationale:
         "Expressao conjuntiva: as duas licencas se aplicam. O crate reproduz ambos os textos, em LICENSE e LICENSE-LIBM-MIT, verificado em 30/08/2026.",
     }),
     "ring@0.17.14": Object.freeze({
       expression: "Apache-2.0 AND ISC",
       elected: "Apache-2.0 AND ISC",
-      mandatory: Object.freeze(["Apache-2.0", "ISC"]),
       rationale:
         "Expressao conjuntiva: as duas licencas se aplicam. O crate reproduz ambos os textos, em LICENSE-BoringSSL e LICENSE-other-bits, com o LICENSE da raiz servindo de sumario que indica qual codigo veio sob qual delas. Verificado em 30/08/2026.",
     }),
     "siphasher@1.0.2": Object.freeze({
       expression: "MIT/Apache-2.0",
       elected: "MIT",
-      mandatory: Object.freeze([]),
       rationale:
         "O crate nao reproduz nenhuma das duas licencas, so um ponteiro para elas, e o upstream tambem nao. Elege-se MIT, primeira da ordem de preferencia entre as oferecidas, com o texto vendorizado em scripts/legal/siphasher-mit.txt.",
     }),
     "dunce@1.0.5": Object.freeze({
       expression: "CC0-1.0 OR MIT-0 OR Apache-2.0",
       elected: "CC0-1.0",
-      mandatory: Object.freeze([]),
       rationale:
         "A ordem de preferencia elegeria Apache-2.0, mas o crate empacota um unico LICENSE, e o texto nele e o da CC0-1.0. Eleger uma licenca cujo texto nao acompanha o artefato produziria afirmacao falsa; elege-se a que esta efetivamente reproduzida.",
     }),
     "dompurify@3.4.14": Object.freeze({
       expression: "(MPL-2.0 OR Apache-2.0)",
       elected: "Apache-2.0",
-      mandatory: Object.freeze([]),
       rationale:
         "A expressao vem entre parenteses e portanto nao e eleita automaticamente. Elege-se Apache-2.0: e permissiva e evita as obrigacoes de arquivo da MPL-2.0 sobre um componente que e embutido no bundle distribuido.",
     }),
     "jszip@3.10.1": Object.freeze({
       expression: "(MIT OR GPL-3.0-or-later)",
       elected: "MIT",
-      mandatory: Object.freeze([]),
       rationale:
         "A expressao vem entre parenteses e portanto nao e eleita automaticamente. Elege-se MIT por ser a opcao permissiva: nao acrescenta obrigacao reciproca ao trabalho combinado nem estende termos de copyleft a quem recebe o executavel.",
       correction:
@@ -247,7 +270,6 @@ export const POLICY = Object.freeze({
     "unicode-ident@1.0.24": Object.freeze({
       expression: "(MIT OR Apache-2.0) AND Unicode-3.0",
       elected: "MIT AND Unicode-3.0",
-      mandatory: Object.freeze(["Unicode-3.0"]),
       rationale:
         "Expressao conjuntiva: a escolha entre MIT e Apache-2.0 e livre, mas a Unicode-3.0 aplica-se simultaneamente e nao e opcional. Elege-se MIT para o termo disjuntivo; os avisos da Unicode-3.0 continuam exigidos junto.",
     }),
@@ -275,7 +297,7 @@ export const POLICY = Object.freeze({
     }),
     pakoZlib: Object.freeze({
       path: "scripts/legal/pako-zlib.txt",
-      sha256: "c94f09763faf4fa53dfab99127f669c2230dd93329408773e7550c0c62478d78",
+      sha256: "83a285c17ffd2e004b435a022b7e50dff6952c6851aaf511cb47e673494f063f",
     }),
     siphasherMit: Object.freeze({
       path: "scripts/legal/siphasher-mit.txt",

@@ -61,6 +61,7 @@ declared explicitly in this inventory and in the fail-closed verifier.
 | @vitejs/plugin-react | 6.1.0 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
 | jsdom | 30.0.1 | MIT | development | No | https://www.npmjs.com/package/jsdom |
 | prettier | 3.9.6 | MIT | development | No | https://www.npmjs.com/package/prettier |
+| spdx-expression-parse | 5.0.0 | MIT | development | No | https://www.npmjs.com/package/spdx-expression-parse |
 | typescript | 7.0.2 | Apache-2.0 | development | No | https://www.npmjs.com/package/typescript |
 | vite | 8.2.2 | MIT | development | No | https://www.npmjs.com/package/vite |
 | vitest | 4.1.11 | MIT | development | No | https://www.npmjs.com/package/vitest |

@@ -25,6 +25,11 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Implementacao de referencia da jslicense, a mesma que o npm usa para validar
+// o campo `license`. Dependencia de desenvolvimento: roda no gate, nao vai
+// para o executavel distribuido.
+import spdxParse from "spdx-expression-parse";
+
 import { POLICY } from "./legal/thirdparty-policy.mjs";
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -212,6 +217,29 @@ function componentesNpm() {
   }
 
   const raizLock = lock.packages[""] || {};
+
+  // O alcance de um link de workspace nao se le na entrada dele: o npm nao lhe
+  // poe a marcacao `dev` mesmo quando a raiz so o declara em devDependencies, e
+  // a entrada-alvo tampouco recupera essa informacao. As secoes da raiz cobrem
+  // o link declarado ali diretamente, mas nao um pacote alcancavel apenas por
+  // baixo de um workspace de ferramenta: para esse, seria preciso caminhar o
+  // grafo a partir das raizes de producao.
+  //
+  // Nenhum dos repositorios da frota declara `workspaces` hoje, entao esse
+  // caminho nao existe. Em vez de escrever a travessia para uma forma que nao
+  // ha — e nao teria como ser provada contra nada —, o gate para se alguem
+  // declarar um workspace. A travessia passa a ser exigida no momento em que
+  // ela deixa de ser especulativa.
+  if (Array.isArray(raizLock.workspaces) && raizLock.workspaces.length) {
+    falhar("Escopo de workspace nao coberto por este gate:", [
+      `package-lock.json declara workspaces: ${raizLock.workspaces.join(", ")}`,
+      "Um pacote alcancavel so por baixo de um workspace de desenvolvimento nao",
+      "recebe marcacao `dev` e seria publicado como componente distribuido.",
+      "Derive o alcance a partir das dependencias de producao da raiz antes de",
+      "voltar a gerar os avisos.",
+    ]);
+  }
+
   const producaoNaRaiz = new Set([
     ...Object.keys(raizLock.dependencies || {}),
     ...Object.keys(raizLock.optionalDependencies || {}),
@@ -270,10 +298,20 @@ function componentesNpm() {
     // codigo, com outra licenca — e os dois seriam instalados em caminhos
     // diferentes e empacotados juntos. Deduplicar so pelas coordenadas
     // descartava o segundo antes de olhar o diretorio dele. A identidade passa
-    // a incluir a origem e a integridade que o lockfile registra: copia
-    // hasteada e copia aninhada do MESMO artefato continuam colapsando,
-    // artefatos distintos nao.
-    const identidade = `${id}|${meta.resolved ?? ""}|${meta.integrity ?? ""}`;
+    // a incluir a origem que o lockfile resolve, e so ela: `resolved`
+    // discrimina exatamente o caso — fork em git traz `git+https://...#sha`,
+    // `file:` traz o caminho, tarball traz a URL do registro. `integrity` nao
+    // acrescenta discriminacao e acrescenta risco: o npm ja gravou sha1 e
+    // sha512, e omite o campo em algumas entradas-alvo, o que partiria UM
+    // artefato em dois blocos de cabecalho identico. Copia hasteada e copia
+    // aninhada do MESMO artefato continuam colapsando.
+    // Num link, o discriminante e o caminho para onde ELE aponta, nao a origem
+    // do alvo: a entrada-alvo de um pacote de workspace nao tem `resolved`, e
+    // dois links para alvos diferentes de mesmo nome e versao colapsariam num
+    // componente so. Fora de link, `metaOriginal` e o proprio `meta`.
+    const origemDaIdentidade =
+      metaOriginal.link === true ? metaOriginal.resolved : meta.resolved;
+    const identidade = `${id}|${origemDaIdentidade ?? ""}`;
     if (vistos.has(identidade)) continue;
     vistos.add(identidade);
     saida.push({
@@ -305,95 +343,89 @@ function componentesNpm() {
 // ------------------------------------------------------------------ eleicao
 
 // Quando um componente oferece mais de uma licenca, e a eleicao que determina
-// as obrigacoes assumidas. Somente duas formas sao eleitas automaticamente,
-// ambas inequivocas: uma disjuncao plana e a forma legada do Cargo. Qualquer
-// outra e recusada e exige entrada explicita. Nao se interpreta aqui a
-// gramatica do SPDX.
-// Um identificador SPDX e um token curto de letras, digitos, ponto, mais e
-// hifen. Nunca contem dois-pontos nem barra. Exigir essa forma impede que uma
-// URL de licenca — que o campo `license` de pacotes antigos as vezes traz —
-// seja lida como se fosse uma escolha entre alternativas.
-const IDENTIFICADOR_SPDX = /^[A-Za-z0-9][A-Za-z0-9.+-]*$/u;
+// as obrigacoes assumidas.
+//
+// A expressao NAO e interpretada aqui a mao. Ela e analisada por
+// `spdx-expression-parse`, a implementacao de referencia da jslicense, a mesma
+// que o npm usa para validar o campo `license`. Tres rodadas de revisao sobre
+// divisao de string por `OR`/`AND` mostraram o que a diretriz da frota ja dizia:
+// gramatica de especificacao nao se implementa a mao. Com a arvore em maos, o
+// que antes era heuristica vira calculo exato.
+const normalizarBarraLegada = (expressao) =>
+  expressao.includes("/") ? expressao.split("/").map((t) => t.trim()).join(" OR ") : expressao;
 
-// Tratar todo dois-pontos como URL derrubava referencia externa valida do
-// SPDX: `DocumentRef-fornecedor:LicenseRef-Custom` tem dois-pontos e nao e URL
-// nenhuma. Tratada como URL, a expressao inteira escapava da validacao — o
-// oposto do que se quer. A deteccao passa a usar o parser de referencia da
-// plataforma e a exigir esquema de rede: o campo `license` de pacotes antigos
-// so traz URL http(s). Qualquer outra coisa com dois-pontos segue adiante e e
-// recusada pelo formato de identificador SPDX, que nao admite o caractere.
-const pareceUrl = (expressao) => {
-  const e = expressao.trim();
-  if (!URL.canParse(e)) return false;
-  const protocolo = new URL(e).protocol;
-  return protocolo === "http:" || protocolo === "https:";
-};
-
-function termosDeEscolha(expressao) {
-  const e = expressao.trim();
-  if (pareceUrl(e)) return null;
-  if (e.includes("(") || e.includes(")")) return null;
-  if (/\bAND\b/u.test(e) || /\bWITH\b/u.test(e)) return null;
-  if (/\bOR\b/u.test(e)) {
-    const termos = e
-      .split(/\bOR\b/u)
-      .map((t) => t.trim())
-      .filter(Boolean);
-    if (termos.length >= 2 && termos.every((t) => IDENTIFICADOR_SPDX.test(t))) {
-      return termos;
-    }
-    return null;
+// A forma legada do Cargo (`MIT/Apache-2.0`) e uma disjuncao e o proprio Cargo
+// a documenta como equivalente a `OR`, mas nao e SPDX valido. Normaliza-se
+// antes de analisar. Nao ha excecao para URL: uma URL tambem nao e expressao
+// SPDX valida e cai na mesma falha de analise, que e o tratamento correto.
+function analisarExpressao(expressao) {
+  try {
+    return { ast: spdxParse(normalizarBarraLegada(expressao.trim())) };
+  } catch (erro) {
+    return { erro: erro.message };
   }
-  // Forma legada do Cargo. Aparece com e sem espacos ao redor da barra
-  // (`MIT/Apache-2.0` e `Apache-2.0 / MIT`), e ambas sao a mesma disjuncao.
-  if (e.includes("/")) {
-    const termos = e
-      .split("/")
-      .map((t) => t.trim())
-      .filter(Boolean);
-    if (termos.length >= 2 && termos.every((t) => IDENTIFICADOR_SPDX.test(t))) {
-      return termos;
-    }
-  }
-  return null;
 }
 
-// Toda expressao composta precisa passar pela validacao, nao so as de escolha.
-// `MIT AND Apache-2.0` e `Apache-2.0 WITH LLVM-exception` nao oferecem opcao,
-// mas exigem que MAIS DE UM texto acompanhe o artefato — e um unico LICENSE
-// legivel nao prova isso. Elas caem em `termosDeEscolha` como forma nao
-// trivial e passam a exigir entrada explicita.
-function precisaDeValidacao(expressao) {
-  if (!expressao) return false;
-  // Uma URL nao oferece escolha nenhuma: a barra ali e caminho, nao disjuncao.
-  if (pareceUrl(expressao)) return false;
-  return (
-    /\bOR\b/u.test(expressao) ||
-    /\bAND\b/u.test(expressao) ||
-    /\bWITH\b/u.test(expressao) ||
-    expressao.includes("/")
-  );
+// Uma folha e uma licenca — com a excecao acoplada, quando ha `WITH`, porque
+// `Apache-2.0 WITH LLVM-exception` e uma unica licenca efetiva, nao duas.
+const folhaComoTexto = (no) =>
+  no.exception ? `${no.license} WITH ${no.exception}` : no.license;
+
+function folhasDaExpressao(no) {
+  if (no.license) return [folhaComoTexto(no)];
+  return [...folhasDaExpressao(no.left), ...folhasDaExpressao(no.right)];
+}
+
+// Obrigatoria e a licenca presente em TODA atribuicao que satisfaz a expressao.
+// Uniao sob `AND`, intersecao sob `OR`. Isso resolve exatamente o caso misto
+// `(MIT OR Apache-2.0) AND Unicode-3.0`, em que a Unicode-3.0 e obrigatoria e a
+// escolha entre as outras duas e livre — que a divisao por string nao decidia.
+function licencasObrigatorias(no) {
+  if (no.license) return new Set([folhaComoTexto(no)]);
+  const esquerda = licencasObrigatorias(no.left);
+  const direita = licencasObrigatorias(no.right);
+  return no.conjunction === "and"
+    ? new Set([...esquerda, ...direita])
+    : new Set([...esquerda].filter((l) => direita.has(l)));
+}
+
+// Um conjunto de licencas satisfaz a expressao? Esta unica pergunta substitui
+// as tres conferencias anteriores: que a eleita e oferecida, que ela cobre todo
+// termo obrigatorio, e que a escolha e legitima. Uma atribuicao que satisfaz a
+// expressao contem os obrigatorios por construcao.
+function satisfaz(no, escolhidas) {
+  if (no.license) return escolhidas.has(folhaComoTexto(no));
+  return no.conjunction === "and"
+    ? satisfaz(no.left, escolhidas) && satisfaz(no.right, escolhidas)
+    : satisfaz(no.left, escolhidas) || satisfaz(no.right, escolhidas);
 }
 
 // A licenca eleita precisa estar efetivamente reproduzida no artefato. Sem
 // isso, o arquivo pode afirmar Apache-2.0 enquanto reproduz o texto da CC0.
-// O texto das licencas vem quebrado em larguras diferentes conforme o pacote:
-// o LICENSE-MIT do unicode-ident quebra "this permission notice / shall be
-// included" no meio da frase. Comparar trecho literal contra isso falha por
-// motivo tipografico, nao juridico. Normaliza-se espaco em branco dos dois
-// lados antes de comparar.
-const normalizarEspacos = (t) => t.replace(/\s+/gu, " ").trim();
+//
+// O texto das licencas vem quebrado em larguras diferentes conforme o pacote: o
+// LICENSE-MIT do unicode-ident quebra "this permission notice / shall be
+// included" no meio da frase. A caixa tambem varia entre o marcador declarado e
+// o texto canonico, e ha pacote que publica a licenca inteira com "// " na
+// frente de cada linha, por ser copiada do cabecalho do fonte. As tres sao
+// diferencas tipograficas, nao juridicas, e sao normalizadas dos dois lados
+// antes de comparar. A normalizacao so remove; nunca insere texto que o arquivo
+// nao tenha.
+const normalizarParaComparar = (t) =>
+  t
+    .split("\n")
+    .map((l) => l.replace(/^\s*(?:\/\/+|#+|\*+)\s?/u, ""))
+    .join("\n")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .toLowerCase();
 
-function corroborada(licenca, textos) {
-  const corpo = normalizarEspacos(textos.map((t) => t.texto).join("\n"));
-  const conjuntos = licenca
-    .split(/\bAND\b/u)
-    .map((t) => t.trim())
-    .filter(Boolean);
-  for (const termo of conjuntos) {
+function corroboradas(licencas, textos) {
+  const corpo = normalizarParaComparar(textos.map((t) => t.texto).join("\n"));
+  for (const termo of licencas) {
     const marcadores = POLICY.licenseTextMarkers[termo];
     if (!marcadores) return { ok: false, motivo: `sem marcador declarado para ${termo}` };
-    if (!marcadores.some((m) => corpo.includes(normalizarEspacos(m)))) {
+    if (!marcadores.some((m) => corpo.includes(normalizarParaComparar(m)))) {
       return {
         ok: false,
         motivo: `nenhum marcador de ${termo} aparece no texto reproduzido`,
@@ -403,96 +435,76 @@ function corroborada(licenca, textos) {
   return { ok: true };
 }
 
+// A eleicao registrada e escrita como expressao (`MIT AND Unicode-3.0`); as
+// licencas efetivamente assumidas sao as folhas dela.
+function licencasDaEleicao(elected) {
+  const { ast, erro } = analisarExpressao(elected);
+  return erro ? { erro } : { licencas: new Set(folhasDaExpressao(ast)) };
+}
+
 function elegerLicencas(componentes) {
   const pendentes = [];
   for (const c of componentes) {
-    const expressao = c.licencaDeclarada;
-    if (!precisaDeValidacao(expressao)) continue;
+    const expressao = (c.licencaDeclarada || "").trim();
+    if (!expressao) continue;
+
+    const { ast, erro } = analisarExpressao(expressao);
+    if (erro) {
+      // Declaracao que nao e expressao SPDX valida — "BSD" solto, uma URL — nao
+      // tem como ser conferida. Ela nao passa por omissao: ou ha inspecao
+      // manual registrada, ou o gate para. A conferencia do texto reproduzido
+      // desses casos fica com `corroborarLicencaUnica`.
+      if (!POLICY.unverifiableLicenseDeclarations?.[c.id]) {
+        pendentes.push(
+          `${c.id}: "${expressao}" nao e expressao SPDX valida (${erro}); registre a inspecao manual em unverifiableLicenseDeclarations`,
+        );
+      }
+      continue;
+    }
+
+    const folhas = folhasDaExpressao(ast);
+    // Uma folha so: nao ha escolha a fazer nem obrigacao a somar. A
+    // corroboracao desse caso e feita por `corroborarLicencaUnica`, que cobre
+    // tambem os componentes sem nenhuma expressao composta.
+    if (folhas.length === 1) continue;
 
     const explicita = POLICY.licenseElections[c.id];
     if (explicita) {
       // Entrada obsoleta ou com erro de digitacao nao pode aplicar uma escolha
       // que o pacote nunca ofereceu: a expressao registrada e conferida contra
       // o que o pacote declara hoje.
-      if (explicita.expression !== expressao) {
+      if (explicita.expression !== c.licencaDeclarada) {
         pendentes.push(
-          `${c.id}: a politica registra a expressao "${explicita.expression}" mas o pacote declara "${expressao}"`,
+          `${c.id}: a politica registra a expressao "${explicita.expression}" mas o pacote declara "${c.licencaDeclarada}"`,
         );
         continue;
       }
-      // Objeto vazio ou sem `elected` produziria `Licenca eleita: undefined`.
       if (typeof explicita.elected !== "string" || !explicita.elected.trim()) {
+        pendentes.push(`${c.id}: entrada em licenseElections sem \`elected\` utilizavel`);
+        continue;
+      }
+      const eleitas = licencasDaEleicao(explicita.elected);
+      if (eleitas.erro) {
         pendentes.push(
-          `${c.id}: entrada em licenseElections sem \`elected\` utilizavel`,
+          `${c.id}: a eleicao registrada "${explicita.elected}" nao e expressao SPDX valida (${eleitas.erro})`,
         );
         continue;
       }
-      // A eleita precisa ser permitida pela propria expressao: registrar GPL
-      // para "MIT OR Apache-2.0" publicaria uma escolha que o pacote nao
-      // oferece. Termos de conjuncao (`A AND B`) sao conferidos um a um.
-      const oferecidos = expressao
-        .split(/\bOR\b|\bAND\b|\//u)
-        .map((t) => t.replace(/[()]/gu, "").trim())
-        .filter(Boolean);
-      const eleitos = explicita.elected
-        .split(/\bAND\b/u)
-        .map((t) => t.trim())
-        .filter(Boolean);
-      const forasteiros = eleitos.filter((t) => !oferecidos.includes(t));
-      if (forasteiros.length) {
+      // Uma unica pergunta no lugar de tres: o conjunto eleito satisfaz a
+      // expressao? Se satisfaz, nao cita licenca que ela nao ofereca e nao
+      // deixa de fora nenhum termo obrigatorio — as duas coisas decorrem da
+      // definicao de satisfacao, nao de uma conferencia a parte.
+      if (!satisfaz(ast, eleitas.licencas)) {
+        const obrigatorias = [...licencasObrigatorias(ast)];
         pendentes.push(
-          `${c.id}: a eleicao registrada cita ${forasteiros.join(", ")}, que a expressao "${expressao}" nao oferece`,
+          `${c.id}: a eleicao registrada "${explicita.elected}" nao satisfaz "${c.licencaDeclarada}"` +
+            (obrigatorias.length
+              ? `; a expressao exige ${obrigatorias.join(", ")} em qualquer escolha`
+              : ""),
         );
         continue;
       }
-      // A conferencia acima so anda num sentido: garante que a eleita e
-      // oferecida, nunca que a eleicao cobre tudo o que a expressao exige. Numa
-      // conjuncao como "MIT AND Zlib" as duas licencas valem ao mesmo tempo, e
-      // registrar so "MIT" passaria despercebido. `mandatory` declara os termos
-      // nao-opcionais. Nao ha aqui parser de SPDX: a declaracao e humana, e e
-      // conferida por maquina nos pontos em que isso e decidivel.
-      if (!Array.isArray(explicita.mandatory)) {
-        pendentes.push(
-          `${c.id}: entrada em licenseElections sem \`mandatory\`; declare quais termos de "${expressao}" nao sao opcionais (lista vazia quando a expressao so oferece escolha)`,
-        );
-        continue;
-      }
-      const obrigatoriosForasteiros = explicita.mandatory.filter(
-        (t) => !oferecidos.includes(t),
-      );
-      if (obrigatoriosForasteiros.length) {
-        pendentes.push(
-          `${c.id}: \`mandatory\` cita ${obrigatoriosForasteiros.join(", ")}, que a expressao "${expressao}" nao contem`,
-        );
-        continue;
-      }
-      // Sem disjuncao em lugar nenhum, todo termo da expressao e obrigatorio, e
-      // isso se calcula sem interpretar gramatica. Havendo `OR`, o alcance de
-      // cada conjuncao depende de precedencia e parenteses: ai a declaracao e
-      // decisao humana e so se confere que ela e coerente.
-      const temDisjuncao = /\bOR\b/u.test(expressao) || expressao.includes("/");
-      const temExcecao = /\bWITH\b/u.test(expressao);
-      if (!temDisjuncao && !temExcecao) {
-        const faltando = oferecidos.filter(
-          (t) => !explicita.mandatory.includes(t),
-        );
-        if (faltando.length) {
-          pendentes.push(
-            `${c.id}: a expressao "${expressao}" nao oferece escolha, entao ${faltando.join(", ")} tambem e obrigatorio e falta em \`mandatory\``,
-          );
-          continue;
-        }
-      }
-      const obrigatoriosAusentes = explicita.mandatory.filter(
-        (t) => !eleitos.includes(t),
-      );
-      if (obrigatoriosAusentes.length) {
-        pendentes.push(
-          `${c.id}: a expressao "${expressao}" exige ${obrigatoriosAusentes.join(", ")}, que a eleicao registrada "${explicita.elected}" nao cobre`,
-        );
-        continue;
-      }
-      const corr = corroborada(explicita.elected, c.textos || []);
+      const corr = corroboradas(eleitas.licencas, c.textos || []);
       if (!corr.ok) {
         pendentes.push(
           `${c.id}: eleicao registrada de ${explicita.elected} nao se sustenta — ${corr.motivo}`,
@@ -503,29 +515,21 @@ function elegerLicencas(componentes) {
       continue;
     }
 
-    const termos = termosDeEscolha(expressao);
-    if (!termos) {
-      pendentes.push(
-        `${c.id}: expressao "${expressao}" nao e uma escolha trivial e precisa de entrada em licenseElections`,
-      );
-      continue;
-    }
-    // Elege-se o primeiro termo que a preferencia indique E cujo texto esteja
-    // de fato reproduzido. Preferir um termo sem texto produziria afirmacao
-    // falsa; se nenhum se sustentar, o gate reprova e pede decisao explicita.
-    const candidatos = POLICY.licenseElectionPreference.filter((p) =>
-      termos.includes(p),
+    // Elege-se automaticamente a primeira licenca da ordem de preferencia que
+    // SOZINHA satisfaca a expressao e cujo texto esteja de fato reproduzido.
+    // Exigir que ela sozinha satisfaca e o que impede eleger um termo de
+    // conjuncao: em "MIT AND Zlib" nenhuma das duas basta, e o componente cai
+    // corretamente na exigencia de eleicao explicita. Preferir um termo sem
+    // texto produziria afirmacao falsa.
+    const eleita = POLICY.licenseElectionPreference.find(
+      (p) =>
+        folhas.includes(p) &&
+        satisfaz(ast, new Set([p])) &&
+        corroboradas([p], c.textos || []).ok,
     );
-    if (!candidatos.length) {
-      pendentes.push(
-        `${c.id}: nenhum termo de "${expressao}" consta da ordem de preferencia; registre a eleicao em licenseElections`,
-      );
-      continue;
-    }
-    const eleita = candidatos.find((p) => corroborada(p, c.textos || []).ok);
     if (!eleita) {
       pendentes.push(
-        `${c.id}: nenhum termo de "${expressao}" tem o texto reproduzido no artefato; registre a eleicao em licenseElections`,
+        `${c.id}: nenhuma licenca de "${c.licencaDeclarada}" satisfaz a expressao sozinha, consta da ordem de preferencia e tem o texto reproduzido no artefato; registre a eleicao em licenseElections`,
       );
       continue;
     }
@@ -700,9 +704,60 @@ if (semTexto.length || naoDeclarados.length) {
   );
 }
 
+// Componente que declara UMA licenca so nunca passava por corroboracao: a
+// conferencia por marcador existia apenas no caminho da eleicao. Um LICENSE
+// nao-vazio contendo so o identificador SPDX, ou uma URL apontando para a
+// licenca de verdade, era publicado como se fosse o texto integral. O gate
+// passa a exigir que a licenca declarada esteja de fato reproduzida.
+function corroborarLicencaUnica(componentes) {
+  const pendentes = [];
+  for (const c of componentes) {
+    // Quem passou pela eleicao ja foi corroborado la.
+    if (c.eleicao) continue;
+    const declarada = (c.licencaDeclarada || "").trim();
+    if (!declarada) continue;
+
+    const inspecionada = POLICY.unverifiableLicenseDeclarations?.[c.id];
+    if (inspecionada) {
+      if (inspecionada.declared !== declarada) {
+        pendentes.push(
+          `${c.id} (${c.ecossistema}): a politica registra a declaracao "${inspecionada.declared}" mas o pacote declara "${declarada}"`,
+        );
+      }
+      continue;
+    }
+
+    // Uma declaracao que nao analisa ja parou o gate em `elegerLicencas`, que
+    // roda antes: chegar aqui sem inspecao registrada seria contradicao.
+    const { ast, erro } = analisarExpressao(declarada);
+    if (erro) continue;
+    const folhas = folhasDaExpressao(ast);
+    if (folhas.length !== 1) continue;
+
+    // Sem marcador declarado nao se afirma nem se nega nada — e por isso o
+    // componente para o gate, em vez de passar por omissao. Ou alguem declara
+    // o marcador, ou registra a inspecao manual acima.
+    const corr = corroboradas(folhas, c.textos || []);
+    if (!corr.ok) {
+      pendentes.push(
+        corr.motivo.startsWith("sem marcador")
+          ? `${c.id} (${c.ecossistema}): declara ${declarada}, para a qual a politica nao tem marcador; declare um em licenseTextMarkers ou registre a inspecao manual em unverifiableLicenseDeclarations`
+          : `${c.id} (${c.ecossistema}): declara ${declarada} mas ${corr.motivo}`,
+      );
+    }
+  }
+  if (pendentes.length) {
+    falhar(
+      "Componentes cujo texto reproduzido nao sustenta a licenca declarada. Um arquivo que so aponta para a licenca nao e a licenca:",
+      pendentes,
+    );
+  }
+}
+
 // A eleicao roda depois da coleta porque precisa do texto efetivamente
 // reproduzido: so se elege licenca que acompanha o artefato.
 elegerLicencas(componentes);
+corroborarLicencaUnica(componentes);
 
 // O cabecalho discrimina os componentes por procedencia do texto. Se um dia
 // surgir uma quarta procedencia, a soma para de fechar e o leitor do arquivo
@@ -785,6 +840,12 @@ for (const c of componentes) {
       linhas.push(`Codigo-fonte correspondente: ${c.fallback.correspondingSource}`);
     }
     linhas.push(`Motivo do texto vendorizado: ${c.fallback.rationale}`);
+  }
+  if (c.suplemento) {
+    linhas.push(
+      `Origem do texto complementar: ${c.suplemento.sourceRepository} @ ${c.suplemento.revision}`,
+    );
+    linhas.push(`Motivo do complemento: ${c.suplemento.rationale}`);
   }
   linhas.push("");
   for (const t of c.textos) {
