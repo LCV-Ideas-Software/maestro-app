@@ -16,6 +16,8 @@
     "biome:write": "biome check --write src",
     "parity:check": "node scripts/verify-posteditor-parity.mjs",
     "verify:thirdparty": "node --test scripts/verify-thirdparty.node-test.mjs && node scripts/verify-thirdparty.mjs",
+    "notices": "node scripts/generate-notices.mjs",
+    "notices:check": "node scripts/generate-notices.mjs --check",
     "format:public": "prettier --write \"**/index.html\"",
     "format:public:check": "prettier --check \"**/index.html\""
   },

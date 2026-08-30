@@ -533,6 +533,7 @@ jobs:
           Copy-Item LICENSE $stage
           Copy-Item NOTICE $stage
           Copy-Item THIRDPARTY.md $stage
+          Copy-Item THIRD-PARTY-NOTICES.txt $stage
           Copy-Item CHANGELOG.md $stage
 
           @"
@@ -559,6 +560,7 @@ jobs:
             "LICENSE",
             "NOTICE",
             "THIRDPARTY.md",
+            "THIRD-PARTY-NOTICES.txt",
             "CHANGELOG.md",
             "PORTABLE-RUN.txt"
           )

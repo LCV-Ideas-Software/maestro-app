@@ -1,0 +1,39 @@
+Aplica-se a: dingbat-to-unicode 1.0.1
+Licenca declarada em package.json: BSD-2-Clause
+Alcance: dependencia transitiva, exigida por mammoth ^1.0.1
+Origem: https://github.com/mwilliamson/dingbat-to-unicode
+Commit inspecionado: 46e2dfb2632019d18bd1fb2478d92494f6eab081 (2021-01-23)
+
+O UPSTREAM NAO PUBLICA AVISO DE COPYRIGHT. Verificado em 30/08/2026, no commit
+acima: nao existe arquivo de licenca em lugar nenhum do repositorio, e a busca
+de codigo do GitHub por "copyright" no repositorio retorna zero ocorrencias. O
+pacote npm publicado tampouco inclui um.
+
+A BSD-2-Clause exige que a redistribuicao binaria reproduza o aviso de
+copyright. Reproduzir o modelo da SPDX com os marcadores por preencher nao
+cumpriria essa exigencia, porque nao identificaria titular algum. O aviso
+abaixo foi portanto instanciado a partir do que o proprio upstream declara:
+
+  Titular: campo "author" do package.json publicado, que e tambem o unico
+  autor dos commits do repositorio.
+  Ano: 2021. Todo o historico do repositorio esta em janeiro de 2021, com 22
+  commits entre 16 e 23 de janeiro de 2021. Nao foi arbitrado.
+
+Texto: modelo canonico da BSD-2-Clause obtido de
+https://spdx.org/licenses/BSD-2-Clause.json, com os dois marcadores do modelo,
+o de ano e o de titular, substituidos pelos valores acima. Nenhuma outra
+alteracao foi feita, e nenhum marcador restou por preencher.
+
+Este e um registro tecnico de compliance; nao constitui parecer juridico.
+
+------------------------------------------------------------------------
+
+Copyright (c) 2021 Michael Williamson <mike@zwobble.org> 
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
