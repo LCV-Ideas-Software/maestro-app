@@ -30,6 +30,7 @@ import {
   analisarExpressao,
   componentesCargoDaMetadata,
   corroboradas,
+  diretorioNpmExato,
   folhasDaExpressao,
   plataformaExcluida,
   resolverMetaNpm,
@@ -37,6 +38,7 @@ import {
   satisfaz,
   validarEvidenciaTextual,
   validarEleicao,
+  validarInspecaoManualDeLicenca,
 } from "./legal/thirdparty-runtime.mjs";
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -83,52 +85,6 @@ function nomeDaChaveDoLock(chave) {
   const marcador = "node_modules/";
   const i = chave.lastIndexOf(marcador);
   return i === -1 ? chave : chave.slice(i + marcador.length);
-}
-
-// O npm aninha um pacote sob outro quando ha conflito de versao, e nesse caso
-// o caminho declarado no lockfile nao existe em disco. Em vez de adivinhar o
-// aninhamento, indexa-se a arvore instalada uma unica vez por nome e versao
-// lidos do package.json de cada pacote, que e a fonte autoritativa.
-let indiceNpm = null;
-
-function construirIndiceNpm() {
-  const indice = new Map();
-  const pilha = [resolve(RAIZ, "node_modules")];
-  while (pilha.length) {
-    const dir = pilha.pop();
-    let entradas;
-    try {
-      entradas = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const e of entradas) {
-      if (!e.isDirectory() || e.name === ".bin") continue;
-      const p = join(dir, e.name);
-      if (e.name.startsWith("@")) {
-        pilha.push(p);
-        continue;
-      }
-      try {
-        const j = JSON.parse(readFileSync(join(p, "package.json"), "utf8"));
-        if (j.name && j.version) {
-          const id = `${j.name}@${j.version}`;
-          if (!indice.has(id)) indice.set(id, p);
-        }
-      } catch {
-        /* sem package.json legivel: nao e um pacote, segue */
-      }
-      pilha.push(join(p, "node_modules"));
-    }
-  }
-  return indice;
-}
-
-function acharDiretorioNpm(chaveDoLock, nome, versao) {
-  const direto = resolve(RAIZ, chaveDoLock);
-  if (existsSync(direto)) return direto;
-  if (!indiceNpm) indiceNpm = construirIndiceNpm();
-  return indiceNpm.get(`${nome}@${versao}`) || null;
 }
 
 function textoDeLicencaNoDiretorio(dir) {
@@ -304,7 +260,10 @@ function componentesNpm() {
       // do proprio link — o alvo de um workspace nao tem `resolved`, e dois
       // links para alvos distintos sairiam ambos como "nao declarada".
       origemPacote: origemDaIdentidade || null,
-      diretorio: acharDiretorioNpm(chave, nome, versao),
+      // O caminho do proprio lockfile e a unica ligacao local comprovavel com
+      // este artefato. Cair para name@version poderia reutilizar os bytes de
+      // outra origem; caminho ausente segue para a falha fechada abaixo.
+      diretorio: diretorioNpmExato(RAIZ, chave),
     });
   }
   if (naoResolvidos.length) {
@@ -436,6 +395,18 @@ function elegerLicencas(componentes) {
             (validacao.obrigatorias.length
               ? `; a expressao exige ${validacao.obrigatorias.join(", ")} em qualquer escolha`
               : ""),
+        );
+        continue;
+      }
+      if (validacao.tipo === "eleicao-nao-oferecida") {
+        pendentes.push(
+          `${c.id}: a eleicao registrada "${explicita.elected}" nao corresponde exatamente a nenhum ramo oferecido por "${c.licencaDeclarada}"`,
+        );
+        continue;
+      }
+      if (validacao.tipo === "eleicao-complexa") {
+        pendentes.push(
+          `${c.id}: a expressao declarada excede o limite seguro de ${validacao.limite} combinacoes para validar a eleicao sem expansao descontrolada`,
         );
         continue;
       }
@@ -676,8 +647,7 @@ function corroborarLicencaUnica(componentes) {
   for (const c of componentes) {
     // Quem passou pela eleicao ja foi corroborado la.
     if (c.eleicao) continue;
-    const declarada = (c.licencaDeclarada || "").trim();
-    if (!declarada) continue;
+    const declarada = (c.licencaDeclarada || "").trim() || null;
 
     const inspecoes = POLICY.unverifiableLicenseDeclarations?.[c.id];
     if (inspecoes) {
@@ -707,46 +677,24 @@ function corroborarLicencaUnica(componentes) {
         continue;
       }
       const inspecionada = selecao.registro;
-      if (inspecionada.declared !== declarada) {
-        pendentes.push(
-          `${c.id} (${c.ecossistema}): a politica registra a declaracao "${inspecionada.declared}" mas o pacote declara "${declarada}"`,
-        );
-        continue;
-      }
-      if (
-        typeof inspecionada.identifiedLicense !== "string" ||
-        !inspecionada.identifiedLicense.trim() ||
-        typeof inspecionada.rationale !== "string" ||
-        !inspecionada.rationale.trim()
-      ) {
-        pendentes.push(
-          `${c.id} (${c.ecossistema}): a inspecao manual do artefato precisa registrar identifiedLicense e rationale`,
-        );
-        continue;
-      }
-      const analisada = analisarExpressao(declarada);
-      if (!analisada.erro) {
-        const folhas = folhasDaExpressao(analisada.ast);
-        if (
-          folhas.length !== 1 ||
-          inspecionada.identifiedLicense !== folhas[0]
-        ) {
-          pendentes.push(
-            `${c.id} (${c.ecossistema}): a inspecao identifica ${inspecionada.identifiedLicense}, mas a declaracao verificavel do artefato e ${declarada}`,
-          );
-          continue;
-        }
-      }
-      const evidencia = validarEvidenciaTextual(
+      const inspecao = validarInspecaoManualDeLicenca(
         inspecionada,
+        declarada,
         c.textos || [],
       );
-      if (!evidencia.ok) {
+      if (!inspecao.ok) {
         pendentes.push(
-          `${c.id} (${c.ecossistema}): a evidencia textual da inspecao manual nao corresponde ao artefato resolvido — ${evidencia.motivo}`,
+          `${c.id} (${c.ecossistema}): a inspecao manual nao cobre o artefato resolvido — ${inspecao.motivo}`,
         );
         continue;
       }
+      continue;
+    }
+
+    if (declarada === null) {
+      pendentes.push(
+        `${c.id} (${c.ecossistema}): metadata de licenca ausente; registre uma inspecao manual com declared: null, origem exata e textEvidence, ou remova a dependencia`,
+      );
       continue;
     }
 

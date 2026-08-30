@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { dirname, isAbsolute, relative, sep } from "node:path";
+import { existsSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import npmInstallChecks from "npm-install-checks";
 import spdxParse from "spdx-expression-parse";
@@ -278,6 +279,60 @@ const contemDisjuncao = (no) =>
     contemDisjuncao(no.left) ||
     contemDisjuncao(no.right));
 
+const chaveDoRamo = (licencas) => [...licencas].sort().join("\u0000");
+
+const LIMITE_COMBINACOES_DE_RAMOS = 1024;
+
+function ramosCompativeisDaExpressao(no, escolhidas, orcamento) {
+  if (no.license) {
+    const licenca = folhaComoTexto(no);
+    return {
+      ramos: escolhidas.has(licenca) ? [new Set([licenca])] : [],
+    };
+  }
+
+  const esquerda = ramosCompativeisDaExpressao(
+    no.left,
+    escolhidas,
+    orcamento,
+  );
+  if (esquerda.excedeu) return esquerda;
+  const direita = ramosCompativeisDaExpressao(
+    no.right,
+    escolhidas,
+    orcamento,
+  );
+  if (direita.excedeu) return direita;
+
+  const unicos = new Map();
+  if (no.conjunction === "or") {
+    for (const ramo of [...esquerda.ramos, ...direita.ramos]) {
+      unicos.set(chaveDoRamo(ramo), ramo);
+      if (unicos.size > LIMITE_COMBINACOES_DE_RAMOS) {
+        return { excedeu: true };
+      }
+    }
+    return { ramos: [...unicos.values()] };
+  }
+
+  const combinacoes = esquerda.ramos.length * direita.ramos.length;
+  // O teste ocorre antes do produto cartesiano: metadata controlada por um
+  // pacote nao pode obrigar o gate a materializar uma DNF exponencial.
+  if (combinacoes > orcamento.restantes) return { excedeu: true };
+  orcamento.restantes -= combinacoes;
+  for (const ramoEsquerdo of esquerda.ramos) {
+    for (const ramoDireito of direita.ramos) {
+      const ramo = new Set([...ramoEsquerdo, ...ramoDireito]);
+      unicos.set(chaveDoRamo(ramo), ramo);
+      if (unicos.size > LIMITE_COMBINACOES_DE_RAMOS) {
+        return { excedeu: true };
+      }
+    }
+  }
+
+  return { ramos: [...unicos.values()] };
+}
+
 export function validarEleicao(declarada, eleita) {
   const declaracao = analisarExpressao(declarada);
   if (declaracao.erro) {
@@ -306,6 +361,35 @@ export function validarEleicao(declarada, eleita) {
       ok: false,
       tipo: "nao-satisfaz",
       obrigatorias: [...licencasObrigatorias(declaracao.ast)],
+    };
+  }
+
+  // A escolha concreta precisa coincidir exatamente com um ramo estrutural da
+  // expressao declarada. OR concatena alternativas; AND combina os ramos dos
+  // dois operandos. Isso rejeita `A AND B` para `A OR B`, mas preserva `A AND B`
+  // quando o publicador o oferece explicitamente em `A OR (A AND B)`. A AST
+  // continua sendo a de spdx-expression-parse; nao ha parser em paralelo.
+  const resultadoDosRamos = ramosCompativeisDaExpressao(
+    declaracao.ast,
+    escolha.licencas,
+    { restantes: LIMITE_COMBINACOES_DE_RAMOS },
+  );
+  if (resultadoDosRamos.excedeu) {
+    return {
+      ok: false,
+      tipo: "eleicao-complexa",
+      limite: LIMITE_COMBINACOES_DE_RAMOS,
+    };
+  }
+  const ramos = resultadoDosRamos.ramos;
+  if (
+    !ramos.some(
+      (ramo) => chaveDoRamo(ramo) === chaveDoRamo(escolha.licencas),
+    )
+  ) {
+    return {
+      ok: false,
+      tipo: "eleicao-nao-oferecida",
     };
   }
 
@@ -349,6 +433,69 @@ export function corroboradas(licencas, textos, marcadoresPorLicenca) {
   return { ok: true };
 }
 
+export function validarInspecaoManualDeLicenca(
+  inspecionada,
+  declarada,
+  textos,
+) {
+  const declaracao =
+    typeof declarada === "string" && declarada.trim() ? declarada.trim() : null;
+  if (
+    !inspecionada ||
+    !Object.hasOwn(inspecionada, "declared") ||
+    typeof inspecionada.identifiedLicense !== "string" ||
+    !inspecionada.identifiedLicense.trim() ||
+    typeof inspecionada.rationale !== "string" ||
+    !inspecionada.rationale.trim()
+  ) {
+    return {
+      ok: false,
+      tipo: "inspecao-incompleta",
+      motivo:
+        "a inspecao manual precisa registrar declared (null quando ausente), identifiedLicense e rationale",
+    };
+  }
+  if (inspecionada.declared !== declaracao) {
+    return {
+      ok: false,
+      tipo: "declaracao-divergente",
+      motivo: `a politica registra a declaracao ${JSON.stringify(inspecionada.declared)} mas o pacote declara ${JSON.stringify(declaracao)}`,
+    };
+  }
+
+  const identificada = analisarExpressao(inspecionada.identifiedLicense.trim());
+  if (
+    identificada.erro ||
+    folhasDaExpressao(identificada.ast).length !== 1
+  ) {
+    return {
+      ok: false,
+      tipo: "inspecao-incompleta",
+      motivo:
+        "identifiedLicense precisa ser uma unica licenca SPDX verificavel",
+    };
+  }
+
+  if (declaracao !== null) {
+    const analisada = analisarExpressao(declaracao);
+    if (!analisada.erro) {
+      const folhas = folhasDaExpressao(analisada.ast);
+      if (
+        folhas.length !== 1 ||
+        inspecionada.identifiedLicense !== folhas[0]
+      ) {
+        return {
+          ok: false,
+          tipo: "licenca-identificada-divergente",
+          motivo: `a inspecao identifica ${inspecionada.identifiedLicense}, mas a declaracao verificavel do artefato e ${declaracao}`,
+        };
+      }
+    }
+  }
+
+  return validarEvidenciaTextual(inspecionada, textos);
+}
+
 const dentroDoRepositorio = (raiz, caminho) => {
   const rel = relative(raiz, caminho);
   return (
@@ -358,6 +505,13 @@ const dentroDoRepositorio = (raiz, caminho) => {
     !rel.startsWith(`..${sep}`)
   );
 };
+
+export function diretorioNpmExato(repositoryRoot, chaveDoLock) {
+  const diretorio = resolve(repositoryRoot, chaveDoLock);
+  return dentroDoRepositorio(repositoryRoot, diretorio) && existsSync(diretorio)
+    ? diretorio
+    : null;
+}
 
 export function componentesCargoDaMetadata(
   metadata,

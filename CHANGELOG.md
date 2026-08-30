@@ -6,6 +6,15 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Changed
 
+- **MAESTRO-23 — notice decisions now close three remaining identity gaps.**
+  Explicit SPDX elections must match one exact branch in the parsed expression,
+  so a package that offers `MIT OR Apache-2.0` cannot be recorded as the
+  unoffered conjunction `MIT AND Apache-2.0`. Missing license metadata fails
+  closed, and branch matching prunes incompatible choices under a fixed budget
+  before any Cartesian expansion. Missing metadata is accepted only through an
+  artifact-bound manual inspection with `declared: null` and exact text hashes.
+  npm license files are read only from the precise path recorded in
+  `package-lock.json`; a missing path can no longer fall back to another origin.
 - **MAESTRO-22 — licence evidence is now source-qualified and body-specific.**
   Explicit elections and manual inspections select the exact npm or Cargo
   artefact by ecosystem and resolved source, support multiple same-name/version

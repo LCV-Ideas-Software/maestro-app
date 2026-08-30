@@ -7,12 +7,14 @@ import test from "node:test";
 import {
   componentesCargoDaMetadata,
   corroboradas,
+  diretorioNpmExato,
   plataformaExcluida,
   resolverMetaNpm,
   selecionarRegistroDoArtefato,
   sha256TextoDeLicenca,
   validarEvidenciaTextual,
   validarEleicao,
+  validarInspecaoManualDeLicenca,
 } from "./legal/thirdparty-runtime.mjs";
 import { verifyThirdPartyInventory } from "./verify-thirdparty.mjs";
 
@@ -794,6 +796,80 @@ test("production election validation rejects OR, foreign leaves and preserves re
   assert.equal(perdeuOuPosterior.tipo, "forasteiras");
   assert.deepEqual(perdeuOuPosterior.forasteiras, ["GPL-2.0"]);
   assert.equal(validarEleicao("GPL-2.0+", "GPL-2.0+").ok, true);
+
+  const ramosAlternativosCombinados = validarEleicao(
+    "MIT OR Apache-2.0",
+    "MIT AND Apache-2.0",
+  );
+  assert.equal(ramosAlternativosCombinados.ok, false);
+  assert.equal(ramosAlternativosCombinados.tipo, "eleicao-nao-oferecida");
+
+  assert.equal(
+    validarEleicao(
+      "MIT OR (MIT AND Apache-2.0)",
+      "MIT AND Apache-2.0",
+    ).ok,
+    true,
+    "an explicit conjunctive branch remains a valid election even when another OR branch is its subset",
+  );
+
+  assert.equal(
+    validarEleicao(
+      "MIT AND (Apache-2.0 OR GPL-2.0-only)",
+      "MIT AND Apache-2.0",
+    ).ok,
+    true,
+  );
+});
+
+test("npm directories resolve only from the exact package-lock path", () => {
+  assert.equal(
+    diretorioNpmExato(repositoryRoot, "node_modules/react"),
+    resolve(repositoryRoot, "node_modules/react"),
+  );
+  assert.equal(
+    diretorioNpmExato(
+      repositoryRoot,
+      "node_modules/origin-b/node_modules/same-name-and-version",
+    ),
+    null,
+    "a missing exact lock path must not fall back to another artifact with the same name and version",
+  );
+});
+
+test("production election validation fails closed before combinatorial branch expansion", () => {
+  const pares = [
+    ["MIT", "Apache-2.0"],
+    ["ISC", "BSD-2-Clause"],
+    ["BSD-3-Clause", "Zlib"],
+    ["MPL-2.0", "GPL-2.0-only"],
+    ["GPL-3.0-only", "LGPL-2.1-only"],
+    ["AGPL-3.0-only", "Unlicense"],
+    ["CC0-1.0", "BSL-1.0"],
+    ["Python-2.0", "Artistic-2.0"],
+    ["EPL-2.0", "CDDL-1.0"],
+    ["MS-PL", "0BSD"],
+    ["BlueOak-1.0.0", "PostgreSQL"],
+  ];
+  const declarada = pares
+    .map(([esquerda, direita]) => `(${esquerda} OR ${direita})`)
+    .join(" AND ");
+  const eleita = pares.flat().join(" AND ");
+
+  const resultado = validarEleicao(declarada, eleita);
+  assert.equal(resultado.ok, false);
+  assert.equal(resultado.tipo, "eleicao-complexa");
+  assert.equal(resultado.limite, 1024);
+  assert.equal("ramos" in resultado, false);
+
+  assert.equal(
+    validarEleicao(
+      declarada,
+      pares.map(([esquerda]) => esquerda).join(" AND "),
+    ).ok,
+    true,
+    "pruning must still accept one exact branch without expanding the incompatible alternatives",
+  );
 });
 
 test("official npm platform semantics cover any, negation, libc and linked targets", () => {
@@ -1388,8 +1464,10 @@ test("every manual licence inspection binds an exact artifact and records its fi
       assert.match(inspecao.ecosystem ?? "", /^(?:npm|cargo)$/u);
       assert.ok(inspecao.source, `${id} must bind the inspected source`);
       assert.ok(
-        inspecao.declared,
-        `${id} must record the publisher declaration`,
+        inspecao.declared === null ||
+          (typeof inspecao.declared === "string" &&
+            inspecao.declared.trim().length > 0),
+        `${id} must record the publisher declaration or explicit null when metadata is absent`,
       );
       assert.ok(
         inspecao.identifiedLicense,
@@ -1470,6 +1548,61 @@ test("manual text evidence rejects changed, added, removed and malformed materia
   );
   assert.equal(duplicada.ok, false);
   assert.equal(duplicada.tipo, "arquivo-duplicado");
+});
+
+test("absent licence metadata fails closed unless an exact manual inspection covers it", () => {
+  const texto = "Permission is hereby granted for this exact inspected fixture.";
+  const source =
+    "https://registry.npmjs.org/no-metadata/-/no-metadata-1.0.0.tgz";
+  const inspecao = {
+    ecosystem: "npm",
+    source,
+    declared: null,
+    identifiedLicense: "MIT",
+    rationale: "The publisher omitted metadata; the bundled text was inspected.",
+    textEvidence: [
+      { file: "LICENSE", sha256: sha256TextoDeLicenca(texto) },
+    ],
+  };
+  const componente = {
+    ecossistema: "npm",
+    origemPacote: source,
+    licencaDeclarada: null,
+  };
+
+  const selecionada = selecionarRegistroDoArtefato(inspecao, componente);
+  assert.equal(selecionada.ok, true);
+  assert.equal(
+    validarInspecaoManualDeLicenca(
+      selecionada.registro,
+      componente.licencaDeclarada,
+      [{ arquivo: "LICENSE", texto }],
+    ).ok,
+    true,
+  );
+
+  const semInspecao = validarInspecaoManualDeLicenca(
+    null,
+    componente.licencaDeclarada,
+    [{ arquivo: "LICENSE", texto }],
+  );
+  assert.equal(semInspecao.ok, false);
+  assert.equal(semInspecao.tipo, "inspecao-incompleta");
+
+  const origemTrocada = selecionarRegistroDoArtefato(inspecao, {
+    ...componente,
+    origemPacote: "git+https://example.invalid/fork.git#deadbeef",
+  });
+  assert.equal(origemTrocada.ok, false);
+  assert.equal(origemTrocada.tipo, "origem-divergente");
+
+  const textoMutado = validarInspecaoManualDeLicenca(
+    inspecao,
+    componente.licencaDeclarada,
+    [{ arquivo: "LICENSE", texto: `${texto} mutated` }],
+  );
+  assert.equal(textoMutado.ok, false);
+  assert.equal(textoMutado.tipo, "texto-divergente");
 });
 
 test("every declared fallback resolves to an existing fragment", async () => {
