@@ -24,6 +24,16 @@ export const POLICY = Object.freeze({
       // O npm marca com `dev: true` toda entrada alcancavel apenas por
       // devDependencies. Sao excluidas.
       excludeDevMarker: "dev",
+      // Plataforma do ARTEFATO, nao da maquina que roda o gerador. Filtrar
+      // pelo host faria o resultado depender de onde o comando foi executado:
+      // no Linux omitiria uma dependencia restrita a win32 que embarca, e
+      // incluiria uma restrita a linux que nao embarca. O grafo Cargo ja e
+      // filtrado pelo alvo; o npm passa a ser tambem.
+      targetOs: "win32",
+      targetCpu: "x64",
+      // npm documenta `libc` como restricao de plataforma no Linux. Como o
+      // alvo aqui e Windows, nenhuma restricao de libc se aplica.
+      targetLibc: null,
     }),
     cargo: Object.freeze({
       manifest: "src-tauri/Cargo.toml",
@@ -80,14 +90,18 @@ export const POLICY = Object.freeze({
   // WITH — precisa de entrada em `licenseElections`, senao o gate reprova. Nao
   // ha aqui um parser de SPDX escrito a mao: formas nao triviais nao sao
   // interpretadas, sao recusadas.
+  // So entram aqui identificadores cujo texto e distinguivel dos demais por um
+  // marcador proprio. MIT-0 e 0BSD ficaram DE FORA de proposito: o texto deles
+  // difere de MIT e de ISC por uma clausula que o outro tem e eles nao, e
+  // ausencia nao se detecta com busca de trecho. Eleger um por engano
+  // afirmaria uma condicao de atribuicao que o texto nao traz. Quando uma
+  // expressao so oferecer esses, o gate reprova e pede eleicao explicita.
   licenseElectionPreference: Object.freeze([
     "MIT",
     "ISC",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "Apache-2.0",
-    "0BSD",
-    "MIT-0",
     "Unlicense",
     "Zlib",
     "BSL-1.0",
@@ -106,11 +120,11 @@ export const POLICY = Object.freeze({
   // identificador sem marcador nao pode ser eleito, e o gate diz isso em vez de
   // aceitar em silencio.
   licenseTextMarkers: Object.freeze({
+    // A clausula de atribuicao e o que separa MIT de MIT-0: a MIT exige que o
+    // aviso acompanhe as copias, a MIT-0 nao. Usar so "Permission is hereby
+    // granted" faria um texto MIT-0 corroborar MIT e vice-versa.
     MIT: Object.freeze([
-      "Permission is hereby granted, free of charge",
-    ]),
-    "MIT-0": Object.freeze([
-      "Permission is hereby granted, free of charge",
+      "The above copyright notice and this permission notice shall be included",
     ]),
     // Precisa ser frase que so existe no CORPO da licenca. "Apache License" e
     // a URL aparecem tambem em arquivos que apenas APONTAM para a licenca sem
@@ -124,11 +138,10 @@ export const POLICY = Object.freeze({
     "BSD-3-Clause": Object.freeze([
       "Neither the name of",
     ]),
+    // Mesma razao: a 0BSD e a ISC sem a condicao de manter o aviso nas copias.
+    // O marcador da ISC e justamente essa condicao.
     ISC: Object.freeze([
-      "Permission to use, copy, modify, and/or distribute this software",
-    ]),
-    "0BSD": Object.freeze([
-      "Permission to use, copy, modify, and/or distribute this software",
+      "provided that the above copyright notice and this permission notice appear in all copies",
     ]),
     "CC0-1.0": Object.freeze([
       "CC0 1.0 Universal",
@@ -160,7 +173,38 @@ export const POLICY = Object.freeze({
   // `expression` e conferida contra o que o pacote declara: entrada obsoleta ou
   // com erro de digitacao reprova em vez de aplicar uma escolha que o pacote
   // nunca ofereceu.
+  // Textos ACRESCENTADOS ao que o pacote ja traz, nunca em substituicao.
+  // Serve ao caso em que a expressao e conjuntiva e o pacote reproduz apenas
+  // parte das licencas exigidas: o texto proprio dele continua no aviso, e o
+  // que falta e completado a partir de origem registrada.
+  licenseSupplements: Object.freeze({
+    "pako@1.0.11": Object.freeze({
+      ecosystem: "npm",
+      fragments: Object.freeze(["pakoZlib"]),
+      rationale:
+        "A expressao (MIT AND Zlib) e conjuntiva: as duas licencas valem ao mesmo tempo. O pacote publica um unico LICENSE com o texto MIT e o copyright dos autores, e nao acompanha o texto da Zlib. O pako e um porto em JavaScript do zlib, o que explica a conjuncao. O LICENSE proprio segue reproduzido; o texto da Zlib e acrescentado a ele.",
+    }),
+  }),
+
   licenseElections: Object.freeze({
+    "pako@1.0.11": Object.freeze({
+      expression: "(MIT AND Zlib)",
+      elected: "MIT AND Zlib",
+      rationale:
+        "Expressao conjuntiva: nao ha escolha a fazer, as duas licencas se aplicam. Registrada para que o gate confirme que os dois textos acompanham o artefato, o que so passou a ser verdade com o complemento declarado em licenseSupplements.",
+    }),
+    "dpi@0.1.2": Object.freeze({
+      expression: "Apache-2.0 AND MIT",
+      elected: "Apache-2.0 AND MIT",
+      rationale:
+        "Expressao conjuntiva: as duas licencas se aplicam. O crate reproduz ambos os textos, em LICENSE e LICENSE-LIBM-MIT, verificado em 30/08/2026.",
+    }),
+    "ring@0.17.14": Object.freeze({
+      expression: "Apache-2.0 AND ISC",
+      elected: "Apache-2.0 AND ISC",
+      rationale:
+        "Expressao conjuntiva: as duas licencas se aplicam. O crate reproduz ambos os textos, em LICENSE-BoringSSL e LICENSE-other-bits, com o LICENSE da raiz servindo de sumario que indica qual codigo veio sob qual delas. Verificado em 30/08/2026.",
+    }),
     "siphasher@1.0.2": Object.freeze({
       expression: "MIT/Apache-2.0",
       elected: "MIT",
@@ -183,7 +227,9 @@ export const POLICY = Object.freeze({
       expression: "(MIT OR GPL-3.0-or-later)",
       elected: "MIT",
       rationale:
-        "A expressao vem entre parenteses e portanto nao e eleita automaticamente. Elege-se MIT: a alternativa e copyleft forte e incompativel com a distribuicao de um executavel proprietario de terceiros embutindo o componente.",
+        "A expressao vem entre parenteses e portanto nao e eleita automaticamente. Elege-se MIT por ser a opcao permissiva: nao acrescenta obrigacao reciproca ao trabalho combinado nem estende termos de copyleft a quem recebe o executavel.",
+      correction:
+        "Uma versao anterior desta justificativa afirmava que a aplicacao e proprietaria e que GPL-3.0-or-later seria incompativel. As duas afirmacoes sao falsas. Este repositorio e AGPL-3.0-or-later, e a secao 13 do LICENSE empacotado (linha 540, 'Remote Network Interaction; Use with the GNU General Public License') permite expressamente a combinacao com GPLv3. A eleicao de MIT permanece, mas pelo motivo correto acima, nao por incompatibilidade inexistente.",
     }),
     "unicode-ident@1.0.24": Object.freeze({
       expression: "(MIT OR Apache-2.0) AND Unicode-3.0",
@@ -212,6 +258,10 @@ export const POLICY = Object.freeze({
     selectorsMpl: Object.freeze({
       path: "scripts/legal/selectors-mpl-2.0.txt",
       sha256: "23018b646001457ad9dc56311bd3d63cdf23d8e4a3e7822419ab5dc532b7a043",
+    }),
+    pakoZlib: Object.freeze({
+      path: "scripts/legal/pako-zlib.txt",
+      sha256: "c94f09763faf4fa53dfab99127f669c2230dd93329408773e7550c0c62478d78",
     }),
     siphasherMit: Object.freeze({
       path: "scripts/legal/siphasher-mit.txt",

@@ -173,18 +173,28 @@ function textoDeLicencaNoDiretorio(dir) {
 // cabecalho do arquivo gerado.
 let plataformaExcluidos = [];
 
-// npm documenta `os` e `cpu` como restricoes de plataforma. Um pacote opcional
+// npm documenta `os`, `cpu` e `libc` como restricoes de plataforma. Um pacote
 // restrito a outra plataforma nao e instalado e nao pode estar no artefato, e
 // exigi-lo faria o gate reprovar por uma ausencia legitima.
+//
+// A referencia e a plataforma do ARTEFATO declarada na politica, nao a da
+// maquina que executa: filtrar pelo host faria o conjunto de avisos mudar
+// conforme onde o comando roda.
 function plataformaExcluida(meta) {
   const casa = (lista, atual) => {
     if (!Array.isArray(lista) || !lista.length) return true;
+    if (atual === null || atual === undefined) return true;
     const negados = lista.filter((v) => v.startsWith("!")).map((v) => v.slice(1));
     const permitidos = lista.filter((v) => !v.startsWith("!"));
     if (negados.includes(atual)) return false;
     return permitidos.length === 0 || permitidos.includes(atual);
   };
-  return !casa(meta.os, process.platform) || !casa(meta.cpu, process.arch);
+  const alvo = POLICY.scope.npm;
+  return (
+    !casa(meta.os, alvo.targetOs) ||
+    !casa(meta.cpu, alvo.targetCpu) ||
+    !casa(meta.libc, alvo.targetLibc)
+  );
 }
 
 function componentesNpm() {
@@ -263,6 +273,11 @@ function componentesNpm() {
       versao,
       id,
       licencaDeclarada: meta.license || null,
+      // De onde o pacote veio de fato. Um fallback so pode valer para o
+      // artefato do registro canonico: trocar a dependencia por um git, um
+      // `file:` ou outro registro mantendo nome e versao nao pode herdar a
+      // proveniencia travada de outro pacote.
+      origemPacote: meta.resolved || null,
       diretorio: acharDiretorioNpm(chave, nome, versao),
     });
   }
@@ -322,17 +337,34 @@ function termosDeEscolha(expressao) {
   return null;
 }
 
-function ofereceEscolha(expressao) {
+// Toda expressao composta precisa passar pela validacao, nao so as de escolha.
+// `MIT AND Apache-2.0` e `Apache-2.0 WITH LLVM-exception` nao oferecem opcao,
+// mas exigem que MAIS DE UM texto acompanhe o artefato — e um unico LICENSE
+// legivel nao prova isso. Elas caem em `termosDeEscolha` como forma nao
+// trivial e passam a exigir entrada explicita.
+function precisaDeValidacao(expressao) {
   if (!expressao) return false;
   // Uma URL nao oferece escolha nenhuma: a barra ali e caminho, nao disjuncao.
   if (pareceUrl(expressao)) return false;
-  return /\bOR\b/u.test(expressao) || expressao.includes("/");
+  return (
+    /\bOR\b/u.test(expressao) ||
+    /\bAND\b/u.test(expressao) ||
+    /\bWITH\b/u.test(expressao) ||
+    expressao.includes("/")
+  );
 }
 
 // A licenca eleita precisa estar efetivamente reproduzida no artefato. Sem
 // isso, o arquivo pode afirmar Apache-2.0 enquanto reproduz o texto da CC0.
+// O texto das licencas vem quebrado em larguras diferentes conforme o pacote:
+// o LICENSE-MIT do unicode-ident quebra "this permission notice / shall be
+// included" no meio da frase. Comparar trecho literal contra isso falha por
+// motivo tipografico, nao juridico. Normaliza-se espaco em branco dos dois
+// lados antes de comparar.
+const normalizarEspacos = (t) => t.replace(/\s+/gu, " ").trim();
+
 function corroborada(licenca, textos) {
-  const corpo = textos.map((t) => t.texto).join("\n");
+  const corpo = normalizarEspacos(textos.map((t) => t.texto).join("\n"));
   const conjuntos = licenca
     .split(/\bAND\b/u)
     .map((t) => t.trim())
@@ -340,7 +372,7 @@ function corroborada(licenca, textos) {
   for (const termo of conjuntos) {
     const marcadores = POLICY.licenseTextMarkers[termo];
     if (!marcadores) return { ok: false, motivo: `sem marcador declarado para ${termo}` };
-    if (!marcadores.some((m) => corpo.includes(m))) {
+    if (!marcadores.some((m) => corpo.includes(normalizarEspacos(m)))) {
       return {
         ok: false,
         motivo: `nenhum marcador de ${termo} aparece no texto reproduzido`,
@@ -354,7 +386,7 @@ function elegerLicencas(componentes) {
   const pendentes = [];
   for (const c of componentes) {
     const expressao = c.licencaDeclarada;
-    if (!ofereceEscolha(expressao)) continue;
+    if (!precisaDeValidacao(expressao)) continue;
 
     const explicita = POLICY.licenseElections[c.id];
     if (explicita) {
@@ -364,6 +396,31 @@ function elegerLicencas(componentes) {
       if (explicita.expression !== expressao) {
         pendentes.push(
           `${c.id}: a politica registra a expressao "${explicita.expression}" mas o pacote declara "${expressao}"`,
+        );
+        continue;
+      }
+      // Objeto vazio ou sem `elected` produziria `Licenca eleita: undefined`.
+      if (typeof explicita.elected !== "string" || !explicita.elected.trim()) {
+        pendentes.push(
+          `${c.id}: entrada em licenseElections sem \`elected\` utilizavel`,
+        );
+        continue;
+      }
+      // A eleita precisa ser permitida pela propria expressao: registrar GPL
+      // para "MIT OR Apache-2.0" publicaria uma escolha que o pacote nao
+      // oferece. Termos de conjuncao (`A AND B`) sao conferidos um a um.
+      const oferecidos = expressao
+        .split(/\bOR\b|\bAND\b|\//u)
+        .map((t) => t.replace(/[()]/gu, "").trim())
+        .filter(Boolean);
+      const eleitos = explicita.elected
+        .split(/\bAND\b/u)
+        .map((t) => t.trim())
+        .filter(Boolean);
+      const forasteiros = eleitos.filter((t) => !oferecidos.includes(t));
+      if (forasteiros.length) {
+        pendentes.push(
+          `${c.id}: a eleicao registrada cita ${forasteiros.join(", ")}, que a expressao "${expressao}" nao oferece`,
         );
         continue;
       }
@@ -478,6 +535,7 @@ function componentesCargo() {
       versao: p.version,
       id: `${p.name}@${p.version}`,
       licencaDeclarada: p.license || null,
+      origemPacote: p.source || null,
       diretorio,
     });
   }
@@ -493,18 +551,62 @@ const naoDeclarados = [];
 for (const c of componentes) {
   const fallback = POLICY.licenseFallbacks[c.id];
   if (fallback) {
+    // O fallback carrega proveniencia travada num commit especifico. Aplica-lo
+    // a um pacote que passou a vir de outra origem — git, `file:`, outro
+    // registro — publicaria a proveniencia de um artefato pelo de outro.
+    const registroCanonico =
+      fallback.ecosystem === "cargo"
+        ? (c.origemPacote || "").startsWith("registry+https://github.com/rust-lang/crates.io-index")
+        : (c.origemPacote || "").startsWith("https://registry.npmjs.org/");
+    if (!registroCanonico) {
+      semTexto.push(
+        `${c.id} (${c.ecossistema}): tem fallback declarado, mas o lockfile resolve para "${c.origemPacote ?? "origem ausente"}", que nao e o registro canonico; a proveniencia travada nao se aplica`,
+      );
+      continue;
+    }
+    const textos = fallback.fragments
+      .map((f) => ({
+        arquivo: POLICY.fragments[f].path,
+        texto: (fragmentos.get(f) || "").trim(),
+      }))
+      .filter((t) => t.texto);
+    // Fallback sem fragmento, ou apontando para arquivo so com espacos, nao
+    // produz aviso nenhum: seguiria adiante emitindo cabecalho sem licenca.
+    if (!textos.length) {
+      semTexto.push(
+        `${c.id} (${c.ecossistema}): o fallback declarado nao produz nenhum texto de licenca`,
+      );
+      continue;
+    }
     c.origemDoTexto = "fragmento vendorizado";
     c.fallback = fallback;
-    c.textos = fallback.fragments.map((f) => ({
-      arquivo: POLICY.fragments[f].path,
-      texto: fragmentos.get(f).trim(),
-    }));
+    c.textos = textos;
     continue;
   }
   const achados = textoDeLicencaNoDiretorio(c.diretorio);
   if (achados) {
     c.origemDoTexto = "artefato baixado";
     c.textos = achados;
+    // Complemento declarado: acrescenta o texto que a expressao exige e o
+    // pacote nao reproduz, sem substituir o que ele proprio publica.
+    const suplemento = POLICY.licenseSupplements?.[c.id];
+    if (suplemento) {
+      const extras = suplemento.fragments
+        .map((f) => ({
+          arquivo: POLICY.fragments[f].path,
+          texto: (fragmentos.get(f) || "").trim(),
+        }))
+        .filter((t) => t.texto);
+      if (!extras.length) {
+        semTexto.push(
+          `${c.id} (${c.ecossistema}): o complemento declarado nao produz nenhum texto`,
+        );
+        continue;
+      }
+      c.suplemento = suplemento;
+      c.textos = [...c.textos, ...extras];
+      c.origemDoTexto = "artefato baixado mais complemento declarado";
+    }
     continue;
   }
   if (!c.diretorio) naoDeclarados.push(`${c.id} (${c.ecossistema}): artefato nao encontrado em disco`);

@@ -1,0 +1,32 @@
+Aplica-se a: pako 1.0.11, como texto COMPLEMENTAR
+Licenca declarada em package.json: (MIT AND Zlib)
+Origem: https://github.com/nodeca/pako
+
+O PACOTE REPRODUZ SO A METADE MIT. Verificado em 30/08/2026: o unico arquivo
+de licenca publicado e um LICENSE de 1.104 bytes com o texto MIT e o copyright
+de Vitaly Puzrin e Andrei Tuputcyn. A expressao declarada e conjuntiva, ou
+seja, as duas licencas se aplicam ao mesmo tempo, e o texto da Zlib nao
+acompanha o pacote.
+
+O pako e um porto em JavaScript do zlib, o que explica a conjuncao. Este
+fragmento NAO substitui o LICENSE do pacote: ele e acrescentado a ele, para
+que o aviso distribuido traga as duas licencas que a expressao exige.
+
+Texto: modelo canonico da Zlib obtido da fonte oficial SPDX
+(https://spdx.org/licenses/Zlib.json), reproduzido sem alteracao.
+
+Este e um registro tecnico de compliance; nao constitui parecer juridico.
+
+------------------------------------------------------------------------
+
+zlib License
+
+This software is provided 'as-is', without any express or implied warranty.  In no event will the authors be held liable for any damages arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose, including commercial applications, and to alter it and redistribute it freely, subject to the following restrictions:
+
+     1. The origin of this software must not be misrepresented; you must not claim that you wrote the original software. If you use this software in a product, an acknowledgment in the product documentation would be appreciated but is not required.
+
+     2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the original software.
+
+     3. This notice may not be removed or altered from any source distribution.
