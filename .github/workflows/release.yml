@@ -531,6 +531,8 @@ jobs:
           Copy-Item $binary (Join-Path $stage "Maestro Editorial AI.exe")
           Copy-Item LEIAME.md $stage
           Copy-Item LICENSE $stage
+          Copy-Item NOTICE $stage
+          Copy-Item THIRDPARTY.md $stage
           Copy-Item CHANGELOG.md $stage
 
           @"
@@ -546,6 +548,30 @@ jobs:
 
           $zip = Join-Path $releaseRoot "maestro-editorial-ai-$tag-windows-x64-portable.zip"
           Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -Force
+
+          # Fail closed on the archive that will actually ship. Reading the
+          # staging directory back would only restate what was copied; this
+          # opens the produced ZIP and asserts every legally required file is
+          # inside it.
+          $requiredEntries = @(
+            "Maestro Editorial AI.exe",
+            "LEIAME.md",
+            "LICENSE",
+            "NOTICE",
+            "THIRDPARTY.md",
+            "CHANGELOG.md",
+            "PORTABLE-RUN.txt"
+          )
+          $archive = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip).Path)
+          try {
+            $entries = @($archive.Entries | ForEach-Object { $_.FullName })
+          } finally {
+            $archive.Dispose()
+          }
+          $missing = @($requiredEntries | Where-Object { $entries -notcontains $_ })
+          if ($missing.Count -gt 0) {
+            throw "Portable archive is missing required files: $($missing -join ', ')"
+          }
 
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           $zipName = Split-Path $zip -Leaf

@@ -585,3 +585,47 @@ test("does not ignore component rows after prose in a table section", () => {
     verifyThirdPartyInventory({ ...inputs, inventory: changed }),
   );
 });
+
+// The release workflow asserts the produced ZIP at release time. That guard
+// only runs on a tag, so these tests keep the declaration itself from being
+// dropped silently on any pull request.
+const RELEASE_WORKFLOW = readFileSync(
+  resolve(repositoryRoot, ".github/workflows/release.yml"),
+  "utf8",
+);
+
+const ARCHIVE_LEGAL_FILES = ["LICENSE", "NOTICE", "THIRDPARTY.md"];
+
+test("the portable archive stages every legally required file", () => {
+  for (const file of ARCHIVE_LEGAL_FILES) {
+    assert.ok(
+      RELEASE_WORKFLOW.includes(`Copy-Item ${file} $stage`),
+      `release.yml must stage ${file} into the portable archive`,
+    );
+  }
+});
+
+test("the release job verifies those files inside the produced ZIP", () => {
+  assert.match(
+    RELEASE_WORKFLOW,
+    /System\.IO\.Compression\.ZipFile\]::OpenRead/u,
+    "release.yml must read the produced archive back rather than trust staging",
+  );
+  assert.match(
+    RELEASE_WORKFLOW,
+    /Portable archive is missing required files/u,
+    "release.yml must fail closed when a required file is absent from the ZIP",
+  );
+  for (const file of ARCHIVE_LEGAL_FILES) {
+    assert.ok(
+      RELEASE_WORKFLOW.includes(`"${file}",`),
+      `${file} must appear in the archive verification list`,
+    );
+  }
+});
+
+test("NOTICE states where MPL-covered source can be obtained", () => {
+  const notice = readFileSync(resolve(repositoryRoot, "NOTICE"), "utf8");
+  assert.match(notice, /Mozilla Public License 2\.0/u);
+  assert.match(notice, /THIRDPARTY\.md/u);
+});

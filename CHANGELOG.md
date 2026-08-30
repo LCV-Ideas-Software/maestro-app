@@ -6,6 +6,16 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Changed
 
+- **MAESTRO-22 — legal notices travel with the portable archive.** The Windows
+  portable ZIP now carries `NOTICE` and `THIRDPARTY.md` alongside the `LICENSE`
+  it already shipped, so a recipient who only has the archive can read the
+  inventory of every embedded component, its license and its immutable source.
+  `NOTICE` additionally states that MPL-2.0 files are used unmodified and points
+  to where their corresponding source remains available, which MPL requires of
+  anyone distributing an executable containing them. The release job now opens
+  the produced ZIP and fails closed when any required file is absent, rather
+  than trusting the staging directory, and CI keeps the staging declaration and
+  that verification from being dropped silently on a pull request.
 - **MAESTRO-20 — dependency inventory contract.** The Node and Rust sections in
   `THIRDPARTY.md` now match the current manifests and lockfiles. CI validates
   every direct component's locked version, license expression, scope,
