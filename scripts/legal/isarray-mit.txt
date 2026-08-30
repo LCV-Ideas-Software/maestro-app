@@ -3,7 +3,10 @@ Licenca declarada em package.json: MIT
 Motivo do vendor: o pacote npm nao inclui arquivo de licenca; o texto MIT, com
 a linha de copyright do titular, esta dentro do README.md publicado.
 Origem: https://github.com/juliangruber/isarray
-Referencia fixada: tag v1.0.0
+Commit inspecionado: 2a23a281f369e9ae06394c0fb4d2381355a6ba33 (2015-12-10)
+  A tag anotada v1.0.0 aponta para o objeto 4d60ca897afbe49e99d3b3632b7808395290f0ba,
+  que resolve para o commit acima. A tag e registrada apenas como referencia
+  legivel: tag pode ser movida, commit nao.
 Arquivo de origem: README.md, secao License
 Obtido em 30/08/2026.
 

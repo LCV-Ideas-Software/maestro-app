@@ -83,11 +83,11 @@ export const POLICY = Object.freeze({
     }),
     isarrayMit: Object.freeze({
       path: "scripts/legal/isarray-mit.txt",
-      sha256: "f3c53688dd17844abee97bce2f14dea131de88e59d8b64dc168a4f77a1a35d08",
+      sha256: "f55049a90ff1d58d3ce9c2cdda21ee3b07d4cba4715448ae96e24736345f3e83",
     }),
     dingbatBsd: Object.freeze({
       path: "scripts/legal/dingbat-to-unicode-bsd-2-clause.txt",
-      sha256: "ab20668a96b81bcc92d490ed319110dca13c7d441aaaab7f194331927e5fbc85",
+      sha256: "1515bcd43043c17ef9d64339c48960308707a80ca7525844cba0724a4b4a6798",
     }),
   }),
 
@@ -100,7 +100,8 @@ export const POLICY = Object.freeze({
       license: "MIT",
       fragments: Object.freeze(["isarrayMit"]),
       sourceRepository: "https://github.com/juliangruber/isarray",
-      revision: "v1.0.0",
+      revision: "2a23a281f369e9ae06394c0fb4d2381355a6ba33",
+      revisionSource: "commit da tag anotada v1.0.0",
       licensePaths: Object.freeze(["README.md"]),
       rationale:
         "O pacote npm nao inclui arquivo de licenca; o texto MIT com a linha de copyright do titular esta na secao License do README.md publicado.",
@@ -110,11 +111,15 @@ export const POLICY = Object.freeze({
       license: "BSD-2-Clause",
       fragments: Object.freeze(["dingbatBsd"]),
       sourceRepository: "https://github.com/mwilliamson/dingbat-to-unicode",
-      revision: "main",
+      revision: "46e2dfb2632019d18bd1fb2478d92494f6eab081",
+      revisionSource: "commit de main inspecionado em 30/08/2026",
       licensePaths: Object.freeze([]),
       copyrightHolder: "Michael Williamson <mike@zwobble.org>",
+      copyrightYear: "2021",
+      copyrightBasis:
+        "Titular: campo author do package.json publicado, que e tambem o unico autor dos commits. Ano: todo o historico do repositorio esta em janeiro de 2021, com 22 commits entre 16 e 23 de janeiro de 2021.",
       rationale:
-        "Unico caso sem aviso publicado: nem o pacote npm nem o repositorio de origem trazem arquivo de licenca ou linha de copyright. Texto canonico da SPDX, com o titular declarado no campo author do package.json. O ano nao foi preenchido porque o upstream nao o declara.",
+        "Unico caso sem aviso publicado em lugar nenhum: nem o pacote npm nem o repositorio de origem trazem arquivo de licenca, e a busca de codigo do GitHub por copyright no repositorio retorna zero ocorrencias. A BSD-2-Clause exige que a redistribuicao binaria reproduza o aviso de copyright, e o modelo da SPDX com marcadores por preencher nao identificaria titular algum. O aviso foi instanciado a partir do que o proprio upstream declara, com a base registrada em copyrightBasis.",
     }),
     "webview2-com@0.38.2": Object.freeze({
       ecosystem: "cargo",

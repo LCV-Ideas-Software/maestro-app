@@ -681,8 +681,16 @@ test("every declared fallback resolves to an existing fragment", async () => {
     );
     assert.ok(fallback.rationale, `${id} must record why the text is vendored`);
     assert.ok(
-      fallback.sourceRepository && fallback.revision,
-      `${id} must record an immutable origin`,
+      fallback.sourceRepository,
+      `${id} must record where the text came from`,
+    );
+    // A branch or tag name is not provenance: both can move, which would make
+    // the recorded origin irreproducible for anyone auditing a released
+    // archive later. Only a full commit id is accepted.
+    assert.match(
+      fallback.revision ?? "",
+      /^[0-9a-f]{40}$/u,
+      `${id} must pin a full commit id, not a movable ref like "${fallback.revision}"`,
     );
     for (const key of fallback.fragments) {
       assert.ok(

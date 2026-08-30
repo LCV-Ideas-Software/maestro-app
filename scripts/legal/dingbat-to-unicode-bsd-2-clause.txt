@@ -1,27 +1,34 @@
 Aplica-se a: dingbat-to-unicode 1.0.1
 Licenca declarada em package.json: BSD-2-Clause
-Titular declarado em package.json (campo author): Michael Williamson <mike@zwobble.org>
+Alcance: dependencia transitiva, exigida por mammoth ^1.0.1
 Origem: https://github.com/mwilliamson/dingbat-to-unicode
+Commit inspecionado: 46e2dfb2632019d18bd1fb2478d92494f6eab081 (2021-01-23)
 
-LIMITACAO REGISTRADA, NAO CONTORNADA: o upstream nao publica arquivo de licenca
-nem linha de copyright. Verificado em 30/08/2026 que a raiz do repositorio
-(ref main) contem apenas .github, dingbats.csv, generate.py, js e python, e que
-o subdiretorio js/, de onde o pacote npm e publicado, contem apenas .gitignore,
-README.md, package-lock.json, package.json, src, test e tsconfig.json. O
-README.md instalado nao menciona licenca. Nao existe, portanto, ano de
-copyright declarado pelo titular.
+O UPSTREAM NAO PUBLICA AVISO DE COPYRIGHT. Verificado em 30/08/2026, no commit
+acima: nao existe arquivo de licenca em lugar nenhum do repositorio, e a busca
+de codigo do GitHub por "copyright" no repositorio retorna zero ocorrencias. O
+pacote npm publicado tampouco inclui um.
 
-O texto abaixo e o texto canonico da BSD-2-Clause obtido da fonte oficial SPDX
-(https://spdx.org/licenses/BSD-2-Clause.json), reproduzido sem alteracao,
-inclusive com os marcadores de ano e titular como publicados pela SPDX. O
-titular e o declarado acima; o ano nao foi preenchido porque o upstream nao o
-declara, e preenche-lo seria invencao.
+A BSD-2-Clause exige que a redistribuicao binaria reproduza o aviso de
+copyright. Reproduzir o modelo da SPDX com os marcadores por preencher nao
+cumpriria essa exigencia, porque nao identificaria titular algum. O aviso
+abaixo foi portanto instanciado a partir do que o proprio upstream declara:
+
+  Titular: campo "author" do package.json publicado, que e tambem o unico
+  autor dos commits do repositorio.
+  Ano: 2021. Todo o historico do repositorio esta em janeiro de 2021, com 22
+  commits entre 16 e 23 de janeiro de 2021. Nao foi arbitrado.
+
+Texto: modelo canonico da BSD-2-Clause obtido de
+https://spdx.org/licenses/BSD-2-Clause.json, com os dois marcadores do modelo,
+o de ano e o de titular, substituidos pelos valores acima. Nenhuma outra
+alteracao foi feita, e nenhum marcador restou por preencher.
 
 Este e um registro tecnico de compliance; nao constitui parecer juridico.
 
 ------------------------------------------------------------------------
 
-Copyright (c) <year> <owner> 
+Copyright (c) 2021 Michael Williamson <mike@zwobble.org> 
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
 

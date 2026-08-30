@@ -21,7 +21,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -97,20 +97,16 @@ function construirIndiceNpm() {
         pilha.push(p);
         continue;
       }
-      const pkg = join(p, "package.json");
-      if (existsSync(pkg)) {
-        try {
-          const j = JSON.parse(readFileSync(pkg, "utf8"));
-          if (j.name && j.version) {
-            const id = `${j.name}@${j.version}`;
-            if (!indice.has(id)) indice.set(id, p);
-          }
-        } catch {
-          /* pacote sem package.json legivel: segue */
+      try {
+        const j = JSON.parse(readFileSync(join(p, "package.json"), "utf8"));
+        if (j.name && j.version) {
+          const id = `${j.name}@${j.version}`;
+          if (!indice.has(id)) indice.set(id, p);
         }
+      } catch {
+        /* sem package.json legivel: nao e um pacote, segue */
       }
-      const aninhado = join(p, "node_modules");
-      if (existsSync(aninhado)) pilha.push(aninhado);
+      pilha.push(join(p, "node_modules"));
     }
   }
   return indice;
@@ -139,13 +135,14 @@ function textoDeLicencaNoDiretorio(dir) {
   if (!achados.length) return null;
   const partes = [];
   for (const a of achados.sort()) {
-    const p = join(dir, a);
+    // Le direto em vez de checar o tipo antes: consultar e depois usar deixa
+    // uma janela entre as duas chamadas. Um diretorio faz readFileSync lancar
+    // EISDIR, que o catch trata, com o mesmo efeito e sem a janela.
     try {
-      if (!statSync(p).isFile()) continue;
-      const t = paraLf(readFileSync(p, "utf8")).trim();
+      const t = paraLf(readFileSync(join(dir, a), "utf8")).trim();
       if (t) partes.push({ arquivo: a, texto: t });
     } catch {
-      /* segue */
+      /* nao e arquivo legivel: segue */
     }
   }
   return partes.length ? partes : null;

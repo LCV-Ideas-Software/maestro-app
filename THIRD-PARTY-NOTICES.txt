@@ -2733,35 +2733,42 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 dingbat-to-unicode 1.0.1  (npm)
 Licenca declarada: BSD-2-Clause
-Origem do texto: https://github.com/mwilliamson/dingbat-to-unicode @ main
-Motivo do texto vendorizado: Unico caso sem aviso publicado: nem o pacote npm nem o repositorio de origem trazem arquivo de licenca ou linha de copyright. Texto canonico da SPDX, com o titular declarado no campo author do package.json. O ano nao foi preenchido porque o upstream nao o declara.
+Origem do texto: https://github.com/mwilliamson/dingbat-to-unicode @ 46e2dfb2632019d18bd1fb2478d92494f6eab081
+Motivo do texto vendorizado: Unico caso sem aviso publicado em lugar nenhum: nem o pacote npm nem o repositorio de origem trazem arquivo de licenca, e a busca de codigo do GitHub por copyright no repositorio retorna zero ocorrencias. A BSD-2-Clause exige que a redistribuicao binaria reproduza o aviso de copyright, e o modelo da SPDX com marcadores por preencher nao identificaria titular algum. O aviso foi instanciado a partir do que o proprio upstream declara, com a base registrada em copyrightBasis.
 
 --- scripts/legal/dingbat-to-unicode-bsd-2-clause.txt ---
 
 Aplica-se a: dingbat-to-unicode 1.0.1
 Licenca declarada em package.json: BSD-2-Clause
-Titular declarado em package.json (campo author): Michael Williamson <mike@zwobble.org>
+Alcance: dependencia transitiva, exigida por mammoth ^1.0.1
 Origem: https://github.com/mwilliamson/dingbat-to-unicode
+Commit inspecionado: 46e2dfb2632019d18bd1fb2478d92494f6eab081 (2021-01-23)
 
-LIMITACAO REGISTRADA, NAO CONTORNADA: o upstream nao publica arquivo de licenca
-nem linha de copyright. Verificado em 30/08/2026 que a raiz do repositorio
-(ref main) contem apenas .github, dingbats.csv, generate.py, js e python, e que
-o subdiretorio js/, de onde o pacote npm e publicado, contem apenas .gitignore,
-README.md, package-lock.json, package.json, src, test e tsconfig.json. O
-README.md instalado nao menciona licenca. Nao existe, portanto, ano de
-copyright declarado pelo titular.
+O UPSTREAM NAO PUBLICA AVISO DE COPYRIGHT. Verificado em 30/08/2026, no commit
+acima: nao existe arquivo de licenca em lugar nenhum do repositorio, e a busca
+de codigo do GitHub por "copyright" no repositorio retorna zero ocorrencias. O
+pacote npm publicado tampouco inclui um.
 
-O texto abaixo e o texto canonico da BSD-2-Clause obtido da fonte oficial SPDX
-(https://spdx.org/licenses/BSD-2-Clause.json), reproduzido sem alteracao,
-inclusive com os marcadores de ano e titular como publicados pela SPDX. O
-titular e o declarado acima; o ano nao foi preenchido porque o upstream nao o
-declara, e preenche-lo seria invencao.
+A BSD-2-Clause exige que a redistribuicao binaria reproduza o aviso de
+copyright. Reproduzir o modelo da SPDX com os marcadores por preencher nao
+cumpriria essa exigencia, porque nao identificaria titular algum. O aviso
+abaixo foi portanto instanciado a partir do que o proprio upstream declara:
+
+  Titular: campo "author" do package.json publicado, que e tambem o unico
+  autor dos commits do repositorio.
+  Ano: 2021. Todo o historico do repositorio esta em janeiro de 2021, com 22
+  commits entre 16 e 23 de janeiro de 2021. Nao foi arbitrado.
+
+Texto: modelo canonico da BSD-2-Clause obtido de
+https://spdx.org/licenses/BSD-2-Clause.json, com os dois marcadores do modelo,
+o de ano e o de titular, substituidos pelos valores acima. Nenhuma outra
+alteracao foi feita, e nenhum marcador restou por preencher.
 
 Este e um registro tecnico de compliance; nao constitui parecer juridico.
 
 ------------------------------------------------------------------------
 
-Copyright (c) <year> <owner> 
+Copyright (c) 2021 Michael Williamson <mike@zwobble.org> 
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
 
@@ -3526,7 +3533,7 @@ PERFORMANCE OF THIS SOFTWARE.
 
 isarray 1.0.0  (npm)
 Licenca declarada: MIT
-Origem do texto: https://github.com/juliangruber/isarray @ v1.0.0
+Origem do texto: https://github.com/juliangruber/isarray @ 2a23a281f369e9ae06394c0fb4d2381355a6ba33
 Motivo do texto vendorizado: O pacote npm nao inclui arquivo de licenca; o texto MIT com a linha de copyright do titular esta na secao License do README.md publicado.
 
 --- scripts/legal/isarray-mit.txt ---
@@ -3536,7 +3543,10 @@ Licenca declarada em package.json: MIT
 Motivo do vendor: o pacote npm nao inclui arquivo de licenca; o texto MIT, com
 a linha de copyright do titular, esta dentro do README.md publicado.
 Origem: https://github.com/juliangruber/isarray
-Referencia fixada: tag v1.0.0
+Commit inspecionado: 2a23a281f369e9ae06394c0fb4d2381355a6ba33 (2015-12-10)
+  A tag anotada v1.0.0 aponta para o objeto 4d60ca897afbe49e99d3b3632b7808395290f0ba,
+  que resolve para o commit acima. A tag e registrada apenas como referencia
+  legivel: tag pode ser movida, commit nao.
 Arquivo de origem: README.md, secao License
 Obtido em 30/08/2026.
 
