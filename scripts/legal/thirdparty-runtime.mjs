@@ -42,8 +42,10 @@ export function plataformaExcluida(meta, alvo) {
 
 export function validarVinculoDoArtefato(registro, componente) {
   if (
-    typeof registro?.ecosystem !== "string" ||
-    typeof registro?.source !== "string"
+    (registro?.ecosystem !== "npm" && registro?.ecosystem !== "cargo") ||
+    typeof registro?.source !== "string" ||
+    !registro.source.trim() ||
+    registro.source !== registro.source.trim()
   ) {
     return { ok: false, tipo: "politica-incompleta" };
   }
@@ -118,6 +120,22 @@ export function selecionarRegistroDoArtefato(entrada, componente) {
     ],
     encontrada: componente?.origemPacote ?? null,
   };
+}
+
+// Fallbacks e complementos sao opcionais para uma identidade de artefato:
+// uma entrada do mesmo nome/versao, mas de outra origem, nao pode impedir a
+// leitura do LICENSE que o proprio artefato distribui. A politica continua
+// falhando fechada quando esta incompleta ou e ambigua para a identidade atual.
+export function selecionarRegistroOpcionalDoArtefato(entrada, componente) {
+  const selecao = selecionarRegistroDoArtefato(entrada, componente);
+  if (selecao.ok) return selecao;
+  if (
+    selecao.tipo === "ecossistema-divergente" ||
+    selecao.tipo === "origem-divergente"
+  ) {
+    return { ok: true, registro: null };
+  }
+  return selecao;
 }
 
 const SHA256_HEX = /^[0-9a-f]{64}$/u;

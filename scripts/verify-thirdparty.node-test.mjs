@@ -10,6 +10,7 @@ import {
   diretorioNpmExato,
   plataformaExcluida,
   resolverMetaNpm,
+  selecionarRegistroOpcionalDoArtefato,
   selecionarRegistroDoArtefato,
   sha256TextoDeLicenca,
   validarEvidenciaTextual,
@@ -131,7 +132,7 @@ Normalized \`Cargo.lock\` SHA-256: \`${cargoLockSha256(cargoLock)}\`
 const inputs = { packageJson, packageLock, cargoLock, cargoMetadata };
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
-const repositoryInputs = {
+const repositoryInputs = () => ({
   packageJson: JSON.parse(
     readFileSync(resolve(repositoryRoot, "package.json")),
   ),
@@ -158,10 +159,10 @@ const repositoryInputs = {
     ),
   ),
   inventory: readFileSync(resolve(repositoryRoot, "THIRDPARTY.md"), "utf8"),
-};
+});
 
 test("accepts the current repository dependency state", () => {
-  assert.doesNotThrow(() => verifyThirdPartyInventory(repositoryInputs));
+  assert.doesNotThrow(() => verifyThirdPartyInventory(repositoryInputs()));
 });
 
 test("accepts a complete direct-dependency inventory", () => {
@@ -1185,7 +1186,7 @@ test("CC0-1.0 and CDLA-Permissive-2.0 corroboration require licence bodies, not 
 
 test("every declared supplement pins immutable provenance", async () => {
   const { POLICY } = await import("./legal/thirdparty-policy.mjs");
-  for (const [id, suplemento] of Object.entries(
+  for (const [id, entrada] of Object.entries(
     POLICY.licenseSupplements ?? {},
   )) {
     assert.match(
@@ -1193,21 +1194,53 @@ test("every declared supplement pins immutable provenance", async () => {
       /^.+@\d+\.\d+\.\d+/u,
       `${id} must pin an exact version so the exception cannot outlive an upgrade`,
     );
-    assert.ok(suplemento.rationale, `${id} must record why the text is vendored`);
-    // Same requirement the fallbacks carry. The fragment digest proves the
-    // local file has not changed; only a commit id proves which upstream bytes
-    // it was derived from.
-    assert.ok(
-      suplemento.sourceRepository,
-      `${id} must record where the supplementary text came from`,
-    );
-    assert.match(
-      suplemento.revision ?? "",
-      /^[0-9a-f]{40}$/u,
-      `${id} must pin a full commit id, not a movable ref like "${suplemento.revision}"`,
-    );
-    for (const key of suplemento.fragments) {
-      assert.ok(POLICY.fragments[key], `${id} references unknown fragment ${key}`);
+    const suplementos = Array.isArray(entrada) ? entrada : [entrada];
+    assert.ok(suplementos.length, `${id} must declare at least one supplement`);
+    const identidades = new Set();
+    for (const suplemento of suplementos) {
+      assert.ok(
+        suplemento.rationale,
+        `${id} must record why the text is vendored`,
+      );
+      assert.match(
+        suplemento.ecosystem ?? "",
+        /^(?:npm|cargo)$/u,
+        `${id} must bind the supplement to an ecosystem`,
+      );
+      assert.match(
+        suplemento.source ?? "",
+        /\S/u,
+        `${id} must bind the supplement to the exact resolved source`,
+      );
+      assert.equal(
+        suplemento.source,
+        suplemento.source.trim(),
+        `${id} supplement source must not contain surrounding whitespace`,
+      );
+      const identidade = `${suplemento.ecosystem}\0${suplemento.source}`;
+      assert.ok(
+        !identidades.has(identidade),
+        `${id} declares duplicate supplement identity ${identidade}`,
+      );
+      identidades.add(identidade);
+      // Same requirement the fallbacks carry. The fragment digest proves the
+      // local file has not changed; only a commit id proves which upstream
+      // bytes it was derived from.
+      assert.ok(
+        suplemento.sourceRepository,
+        `${id} must record where the supplementary text came from`,
+      );
+      assert.match(
+        suplemento.revision ?? "",
+        /^[0-9a-f]{40}$/u,
+        `${id} must pin a full commit id, not a movable ref like "${suplemento.revision}"`,
+      );
+      for (const key of suplemento.fragments) {
+        assert.ok(
+          POLICY.fragments[key],
+          `${id} references unknown fragment ${key}`,
+        );
+      }
     }
   }
 });
@@ -1609,41 +1642,73 @@ test("every declared fallback resolves to an existing fragment", async () => {
   const { POLICY } = await import("./legal/thirdparty-policy.mjs");
   const entries = Object.entries(POLICY.licenseFallbacks);
   assert.ok(entries.length > 0, "policy must declare at least one fallback");
-  for (const [id, fallback] of entries) {
+  for (const [id, entrada] of entries) {
     assert.match(
       id,
       /^.+@\d+\.\d+\.\d+/u,
       `${id} must pin an exact version so the exception cannot outlive an upgrade`,
     );
-    assert.ok(fallback.rationale, `${id} must record why the text is vendored`);
-    const textSourceRepository =
-      fallback.textSourceRepository ?? fallback.sourceRepository;
-    const textRevision = fallback.textRevision ?? fallback.revision;
-    assert.ok(textSourceRepository, `${id} must record where the text came from`);
-    // A branch or tag name is not provenance: both can move, which would make
-    // the recorded origin irreproducible for anyone auditing a released
-    // archive later. Only a full commit id is accepted.
-    assert.match(
-      textRevision ?? "",
-      /^[0-9a-f]{40}$/u,
-      `${id} must pin a full commit id, not a movable ref like "${textRevision}"`,
-    );
-    if (fallback.copyrightSourceRepository) {
+    const fallbacks = Array.isArray(entrada) ? entrada : [entrada];
+    assert.ok(fallbacks.length, `${id} must declare at least one fallback`);
+    const identidades = new Set();
+    for (const fallback of fallbacks) {
+      assert.ok(
+        fallback.rationale,
+        `${id} must record why the text is vendored`,
+      );
       assert.match(
-        fallback.copyrightRevision ?? "",
+        fallback.ecosystem ?? "",
+        /^(?:npm|cargo)$/u,
+        `${id} must bind the fallback to an ecosystem`,
+      );
+      assert.match(
+        fallback.source ?? "",
+        /\S/u,
+        `${id} must bind the fallback to the exact resolved source`,
+      );
+      assert.equal(
+        fallback.source,
+        fallback.source.trim(),
+        `${id} fallback source must not contain surrounding whitespace`,
+      );
+      const identidade = `${fallback.ecosystem}\0${fallback.source}`;
+      assert.ok(
+        !identidades.has(identidade),
+        `${id} declares duplicate fallback identity ${identidade}`,
+      );
+      identidades.add(identidade);
+      const textSourceRepository =
+        fallback.textSourceRepository ?? fallback.sourceRepository;
+      const textRevision = fallback.textRevision ?? fallback.revision;
+      assert.ok(
+        textSourceRepository,
+        `${id} must record where the text came from`,
+      );
+      // A branch or tag name is not provenance: both can move, which would
+      // make the recorded origin irreproducible for anyone auditing a released
+      // archive later. Only a full commit id is accepted.
+      assert.match(
+        textRevision ?? "",
         /^[0-9a-f]{40}$/u,
-        `${id} must pin the separate copyright-source revision`,
+        `${id} must pin a full commit id, not a movable ref like "${textRevision}"`,
       );
-      assert.ok(
-        fallback.copyrightSourcePath,
-        `${id} must record the copyright-source path`,
-      );
-    }
-    for (const key of fallback.fragments) {
-      assert.ok(
-        POLICY.fragments[key],
-        `${id} references unknown fragment ${key}`,
-      );
+      if (fallback.copyrightSourceRepository) {
+        assert.match(
+          fallback.copyrightRevision ?? "",
+          /^[0-9a-f]{40}$/u,
+          `${id} must pin the separate copyright-source revision`,
+        );
+        assert.ok(
+          fallback.copyrightSourcePath,
+          `${id} must record the copyright-source path`,
+        );
+      }
+      for (const key of fallback.fragments) {
+        assert.ok(
+          POLICY.fragments[key],
+          `${id} references unknown fragment ${key}`,
+        );
+      }
     }
   }
 });
@@ -1789,6 +1854,83 @@ test("source-qualified policy buckets select full artifact identity and reject d
   const duplicada = runtime.selecionarRegistroDoArtefato(
     [registry, { ...registry, elected: "Apache-2.0" }],
     { ecossistema: "cargo", origemPacote: registry.source },
+  );
+  assert.equal(duplicada.ok, false);
+  assert.equal(duplicada.tipo, "politica-duplicada");
+});
+
+test("optional vendored text selects full artifact identity and falls through when no source matches", () => {
+  const registry = {
+    ecosystem: "cargo",
+    source: "registry+https://github.com/rust-lang/crates.io-index",
+    fragments: ["mit"],
+  };
+  const git = {
+    ecosystem: "cargo",
+    source: "git+https://example.invalid/shared#0123456789abcdef",
+    fragments: ["apache"],
+  };
+
+  assert.deepEqual(
+    selecionarRegistroOpcionalDoArtefato([registry, git], {
+      ecossistema: "cargo",
+      origemPacote: git.source,
+    }),
+    { ok: true, registro: git },
+    "the exact source-qualified vendored text must be selected",
+  );
+  assert.deepEqual(
+    selecionarRegistroOpcionalDoArtefato(registry, {
+      ecossistema: "cargo",
+      origemPacote: "path:vendor/shared",
+    }),
+    { ok: true, registro: null },
+    "another origin with the same name/version must fall through to its own artifact text",
+  );
+
+  const incompleta = selecionarRegistroOpcionalDoArtefato(
+    { ecosystem: "cargo", fragments: ["mit"] },
+    {
+      ecossistema: "cargo",
+      origemPacote: registry.source,
+    },
+  );
+  assert.equal(incompleta.ok, false);
+  assert.equal(incompleta.tipo, "politica-incompleta");
+
+  for (const entradaMalformada of [
+    { ecosystem: "cargo", source: "", fragments: ["mit"] },
+    { ecosystem: "cargo", source: "   ", fragments: ["mit"] },
+    { ecosystem: "", source: registry.source, fragments: ["mit"] },
+    { ecosystem: "npn", source: registry.source, fragments: ["mit"] },
+  ]) {
+    const malformada = selecionarRegistroOpcionalDoArtefato(
+      entradaMalformada,
+      {
+        ecossistema: "cargo",
+        origemPacote: registry.source,
+      },
+    );
+    assert.equal(malformada.ok, false);
+    assert.equal(malformada.tipo, "politica-incompleta");
+  }
+
+  const misturaMalformada = selecionarRegistroOpcionalDoArtefato(
+    [registry, { ecosystem: " ", source: " ", fragments: ["apache"] }],
+    {
+      ecossistema: "cargo",
+      origemPacote: registry.source,
+    },
+  );
+  assert.equal(misturaMalformada.ok, false);
+  assert.equal(misturaMalformada.tipo, "politica-incompleta");
+
+  const duplicada = selecionarRegistroOpcionalDoArtefato(
+    [registry, { ...registry, fragments: ["apache"] }],
+    {
+      ecossistema: "cargo",
+      origemPacote: registry.source,
+    },
   );
   assert.equal(duplicada.ok, false);
   assert.equal(duplicada.tipo, "politica-duplicada");

@@ -337,6 +337,7 @@ export const POLICY = Object.freeze({
   licenseSupplements: Object.freeze({
     "pako@1.0.11": Object.freeze({
       ecosystem: "npm",
+      source: "https://registry.npmjs.org/pako/-/pako-1.0.11.tgz",
       fragments: Object.freeze(["pakoZlib"]),
       // Mesma exigencia dos fallbacks: texto vendorizado tem de apontar para
       // uma revisao imutavel, senao o sha256 prova apenas que o arquivo local
@@ -502,6 +503,7 @@ export const POLICY = Object.freeze({
   licenseFallbacks: Object.freeze({
     "siphasher@1.0.2": Object.freeze({
       ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       license: "MIT/Apache-2.0",
       fragments: Object.freeze(["siphasherMit"]),
       textSourceRepository: "https://github.com/spdx/license-list-data",
@@ -523,6 +525,7 @@ export const POLICY = Object.freeze({
     }),
     "isarray@1.0.0": Object.freeze({
       ecosystem: "npm",
+      source: "https://registry.npmjs.org/isarray/-/isarray-1.0.0.tgz",
       license: "MIT",
       fragments: Object.freeze(["isarrayMit"]),
       sourceRepository: "https://github.com/juliangruber/isarray",
@@ -534,6 +537,8 @@ export const POLICY = Object.freeze({
     }),
     "dingbat-to-unicode@1.0.1": Object.freeze({
       ecosystem: "npm",
+      source:
+        "https://registry.npmjs.org/dingbat-to-unicode/-/dingbat-to-unicode-1.0.1.tgz",
       license: "BSD-2-Clause",
       fragments: Object.freeze(["dingbatBsd"]),
       sourceRepository: "https://github.com/mwilliamson/dingbat-to-unicode",
@@ -549,6 +554,7 @@ export const POLICY = Object.freeze({
     }),
     "webview2-com@0.38.2": Object.freeze({
       ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       license: "MIT",
       fragments: Object.freeze(["webview2Mit"]),
       sourceRepository: "https://github.com/wravery/webview2-rs",
@@ -559,6 +565,7 @@ export const POLICY = Object.freeze({
     }),
     "webview2-com-sys@0.38.2": Object.freeze({
       ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       license: "MIT",
       fragments: Object.freeze(["webview2Mit"]),
       sourceRepository: "https://github.com/wravery/webview2-rs",
@@ -569,6 +576,7 @@ export const POLICY = Object.freeze({
     }),
     "webview2-com-macros@0.8.1": Object.freeze({
       ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       license: "MIT",
       fragments: Object.freeze(["webview2Mit"]),
       sourceRepository: "https://github.com/wravery/webview2-rs",
@@ -579,6 +587,7 @@ export const POLICY = Object.freeze({
     }),
     "unic-ucd-ident@0.9.0": Object.freeze({
       ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       license: "MIT/Apache-2.0",
       fragments: Object.freeze(["unicMit", "unicApache"]),
       sourceRepository: "https://github.com/open-i18n/rust-unic",
@@ -590,6 +599,7 @@ export const POLICY = Object.freeze({
     }),
     "unic-ucd-version@0.9.0": Object.freeze({
       ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       license: "MIT/Apache-2.0",
       fragments: Object.freeze(["unicMit", "unicApache"]),
       sourceRepository: "https://github.com/open-i18n/rust-unic",
@@ -600,6 +610,7 @@ export const POLICY = Object.freeze({
     }),
     "unic-common@0.9.0": Object.freeze({
       ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       license: "MIT/Apache-2.0",
       fragments: Object.freeze(["unicMit", "unicApache"]),
       sourceRepository: "https://github.com/open-i18n/rust-unic",
@@ -610,6 +621,7 @@ export const POLICY = Object.freeze({
     }),
     "unic-char-range@0.9.0": Object.freeze({
       ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       license: "MIT/Apache-2.0",
       fragments: Object.freeze(["unicMit", "unicApache"]),
       sourceRepository: "https://github.com/open-i18n/rust-unic",
@@ -620,6 +632,7 @@ export const POLICY = Object.freeze({
     }),
     "unic-char-property@0.9.0": Object.freeze({
       ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       license: "MIT/Apache-2.0",
       fragments: Object.freeze(["unicMit", "unicApache"]),
       sourceRepository: "https://github.com/open-i18n/rust-unic",
@@ -630,6 +643,7 @@ export const POLICY = Object.freeze({
     }),
     "selectors@0.36.1": Object.freeze({
       ecosystem: "cargo",
+      source: "registry+https://github.com/rust-lang/crates.io-index",
       license: "MPL-2.0",
       fragments: Object.freeze(["selectorsMpl"]),
       sourceRepository: "https://github.com/servo/stylo",

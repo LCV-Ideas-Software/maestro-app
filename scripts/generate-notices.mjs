@@ -34,6 +34,7 @@ import {
   folhasDaExpressao,
   plataformaExcluida,
   resolverMetaNpm,
+  selecionarRegistroOpcionalDoArtefato,
   selecionarRegistroDoArtefato,
   satisfaz,
   validarEvidenciaTextual,
@@ -551,28 +552,21 @@ function componentesCargo() {
 
 const componentes = [...componentesNpm(), ...componentesCargo()];
 
-// Texto vendorizado — de fallback ou de complemento — carrega proveniencia
-// travada num commit especifico do upstream. Aplica-lo a um pacote que passou a
-// vir de outra origem — git, `file:`, outro registro — publicaria a proveniencia
-// de um artefato pelo de outro.
-const vemDoRegistroCanonico = (ecossistema, origemPacote) =>
-  ecossistema === "cargo"
-    ? (origemPacote || "").startsWith(
-        "registry+https://github.com/rust-lang/crates.io-index",
-      )
-    : (origemPacote || "").startsWith("https://registry.npmjs.org/");
-
 const semTexto = [];
 const naoDeclarados = [];
 for (const c of componentes) {
-  const fallback = POLICY.licenseFallbacks[c.id];
+  const entradaFallback = POLICY.licenseFallbacks[c.id];
+  const selecaoFallback = entradaFallback
+    ? selecionarRegistroOpcionalDoArtefato(entradaFallback, c)
+    : { ok: true, registro: null };
+  if (!selecaoFallback.ok) {
+    semTexto.push(
+      `${c.id} (${c.ecossistema}): politica de fallback invalida para a identidade exata do artefato (${selecaoFallback.tipo})`,
+    );
+    continue;
+  }
+  const fallback = selecaoFallback.registro;
   if (fallback) {
-    if (!vemDoRegistroCanonico(fallback.ecosystem, c.origemPacote)) {
-      semTexto.push(
-        `${c.id} (${c.ecossistema}): tem fallback declarado, mas o lockfile resolve para "${c.origemPacote ?? "origem ausente"}", que nao e o registro canonico; a proveniencia travada nao se aplica`,
-      );
-      continue;
-    }
     const textos = fallback.fragments
       .map((f) => ({
         arquivo: POLICY.fragments[f].path,
@@ -598,16 +592,18 @@ for (const c of componentes) {
     c.textos = achados;
     // Complemento declarado: acrescenta o texto que a expressao exige e o
     // pacote nao reproduz, sem substituir o que ele proprio publica.
-    const suplemento = POLICY.licenseSupplements?.[c.id];
+    const entradaSuplemento = POLICY.licenseSupplements?.[c.id];
+    const selecaoSuplemento = entradaSuplemento
+      ? selecionarRegistroOpcionalDoArtefato(entradaSuplemento, c)
+      : { ok: true, registro: null };
+    if (!selecaoSuplemento.ok) {
+      semTexto.push(
+        `${c.id} (${c.ecossistema}): politica de complemento invalida para a identidade exata do artefato (${selecaoSuplemento.tipo})`,
+      );
+      continue;
+    }
+    const suplemento = selecaoSuplemento.registro;
     if (suplemento) {
-      // Mesma amarra do fallback: o complemento tambem e texto vendorizado com
-      // proveniencia travada, e nao vale para um artefato de outra origem.
-      if (!vemDoRegistroCanonico(suplemento.ecosystem, c.origemPacote)) {
-        semTexto.push(
-          `${c.id} (${c.ecossistema}): tem complemento declarado, mas o lockfile resolve para "${c.origemPacote ?? "origem ausente"}", que nao e o registro canonico; a proveniencia travada nao se aplica`,
-        );
-        continue;
-      }
       const extras = suplemento.fragments
         .map((f) => ({
           arquivo: POLICY.fragments[f].path,

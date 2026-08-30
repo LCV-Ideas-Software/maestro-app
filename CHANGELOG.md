@@ -15,6 +15,10 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   artifact-bound manual inspection with `declared: null` and exact text hashes.
   npm license files are read only from the precise path recorded in
   `package-lock.json`; a missing path can no longer fall back to another origin.
+  Vendored fallbacks and supplements are likewise selected by ecosystem and
+  the exact resolved source: a same-name/version git or path artefact without a
+  matching policy entry now falls through to its own packaged licence text,
+  while incomplete or duplicate policy records still fail closed.
 - **MAESTRO-22 — licence evidence is now source-qualified and body-specific.**
   Explicit elections and manual inspections select the exact npm or Cargo
   artefact by ecosystem and resolved source, support multiple same-name/version
