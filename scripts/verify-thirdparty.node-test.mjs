@@ -9,6 +9,9 @@ import {
   corroboradas,
   plataformaExcluida,
   resolverMetaNpm,
+  selecionarRegistroDoArtefato,
+  sha256TextoDeLicenca,
+  validarEvidenciaTextual,
   validarEleicao,
 } from "./legal/thirdparty-runtime.mjs";
 import { verifyThirdPartyInventory } from "./verify-thirdparty.mjs";
@@ -744,6 +747,10 @@ test("every explicit licence election records what was chosen and why", async ()
         eleicao.manualTextInspection.rationale,
         `${id} manual inspection must record its evidence`,
       );
+      assert.ok(
+        eleicao.manualTextInspection.textEvidence?.length,
+        `${id} manual inspection must bind the exact reproduced text set`,
+      );
     }
   }
 });
@@ -1129,13 +1136,18 @@ test("every declared supplement pins immutable provenance", async () => {
   }
 });
 
-// BSD-2-Clause is BSD-3-Clause minus the non-endorsement clause, so every
-// substring that identifies BSD-2 also occurs verbatim in BSD-3. Leaving it in
-// the preference order would let a component offering both, but shipping only
-// the BSD-3 text, corroborate a BSD-2 election that no file supports.
-test("licences whose text is a subset of another are not elected automatically", async () => {
+// Some SPDX licence variants share every positive marker previously used by
+// the gate. Such a substring cannot prove which member of the family was
+// reproduced, so none of them can participate in an automatic election.
+test("licences without a distinguishing marker are not elected automatically", async () => {
   const { POLICY } = await import("./legal/thirdparty-policy.mjs");
-  for (const subconjunto of ["MIT-0", "0BSD", "BSD-2-Clause"]) {
+  for (const subconjunto of [
+    "MIT-0",
+    "0BSD",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+  ]) {
     assert.ok(
       !POLICY.licenseElectionPreference.includes(subconjunto),
       `${subconjunto} has no marker that distinguishes it from the licence that contains it, so it must require an explicit election`,
@@ -1191,6 +1203,176 @@ test("BSD-2-Clause cannot be corroborated by text shared with BSD-3-Clause", asy
   }
 });
 
+test("BSD-3-Clause cannot be corroborated by BSD-4-Clause text", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  assert.equal(POLICY.licenseTextMarkers["BSD-3-Clause"], undefined);
+  const textoBsd4 = [
+    "All advertising materials mentioning features or use of this software must display the following acknowledgement.",
+    "Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.",
+  ].join("\n");
+  assert.equal(
+    corroboradas(
+      ["BSD-3-Clause"],
+      [{ texto: textoBsd4 }],
+      POLICY.licenseTextMarkers,
+    ).ok,
+    false,
+  );
+
+  const esperadas = [
+    [
+      "highlight.js@11.11.1",
+      "npm",
+      "https://registry.npmjs.org/highlight.js/-/highlight.js-11.11.1.tgz",
+    ],
+    [
+      "sprintf-js@1.0.3",
+      "npm",
+      "https://registry.npmjs.org/sprintf-js/-/sprintf-js-1.0.3.tgz",
+    ],
+    [
+      "subtle@2.6.1",
+      "cargo",
+      "registry+https://github.com/rust-lang/crates.io-index",
+    ],
+  ];
+  for (const [id, ecosystem, source] of esperadas) {
+    const inspecao = POLICY.unverifiableLicenseDeclarations[id];
+    assert.equal(inspecao.ecosystem, ecosystem);
+    assert.equal(inspecao.source, source);
+    assert.equal(inspecao.declared, "BSD-3-Clause");
+    assert.equal(inspecao.identifiedLicense, "BSD-3-Clause");
+    assert.ok(inspecao.rationale);
+  }
+
+  const inspecao = selecionarRegistroDoArtefato(
+    POLICY.unverifiableLicenseDeclarations["highlight.js@11.11.1"],
+    {
+      ecossistema: "npm",
+      origemPacote:
+        "https://registry.npmjs.org/highlight.js/-/highlight.js-11.11.1.tgz",
+    },
+  ).registro;
+  const textoReal = readFileSync(
+    resolve(repositoryRoot, "node_modules/highlight.js/LICENSE"),
+    "utf8",
+  );
+  assert.equal(
+    validarEvidenciaTextual(inspecao, [
+      { arquivo: "LICENSE", texto: textoReal },
+    ]).ok,
+    true,
+  );
+  const mutante = validarEvidenciaTextual(inspecao, [
+    { arquivo: "LICENSE", texto: textoBsd4 },
+  ]);
+  assert.equal(mutante.ok, false);
+  assert.equal(mutante.tipo, "texto-divergente");
+});
+
+test("Zlib cannot be corroborated by zlib-acknowledgement text", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  assert.equal(POLICY.licenseTextMarkers.Zlib, undefined);
+  const textoComReconhecimentoObrigatorio = [
+    "This software is provided 'as-is', without any express or implied warranty.",
+    "If you use this software in a product, an acknowledgment (see the following) in the product documentation is required.",
+    "Altered source versions must be plainly marked as such.",
+  ].join("\n");
+  assert.equal(
+    corroboradas(
+      ["Zlib"],
+      [{ texto: textoComReconhecimentoObrigatorio }],
+      POLICY.licenseTextMarkers,
+    ).ok,
+    false,
+  );
+
+  const origemPako =
+    "https://registry.npmjs.org/pako/-/pako-1.0.11.tgz";
+  const pako = selecionarRegistroDoArtefato(
+    POLICY.licenseElections["pako@1.0.11"],
+    { ecossistema: "npm", origemPacote: origemPako },
+  ).registro;
+  assert.ok(pako, "pako npm registry election must be source-qualified");
+  assert.equal(pako.ecosystem, "npm");
+  assert.equal(pako.source, origemPako);
+  assert.deepEqual(pako.manualTextInspection?.identifiedLicenses, ["Zlib"]);
+  assert.ok(pako.manualTextInspection?.rationale);
+
+  const textosReais = [
+    {
+      arquivo: "LICENSE",
+      texto: readFileSync(
+        resolve(repositoryRoot, "node_modules/pako/LICENSE"),
+        "utf8",
+      ),
+    },
+    {
+      arquivo: "scripts/legal/pako-zlib.txt",
+      texto: readFileSync(
+        resolve(repositoryRoot, "scripts/legal/pako-zlib.txt"),
+        "utf8",
+      ),
+    },
+  ];
+  assert.equal(
+    validarEvidenciaTextual(pako.manualTextInspection, textosReais).ok,
+    true,
+  );
+  const mutante = validarEvidenciaTextual(pako.manualTextInspection, [
+    textosReais[0],
+    {
+      arquivo: "scripts/legal/pako-zlib.txt",
+      texto: textoComReconhecimentoObrigatorio,
+    },
+  ]);
+  assert.equal(mutante.ok, false);
+  assert.equal(mutante.tipo, "texto-divergente");
+});
+
+test("foldhash Zlib inspection is bound to the exact crates.io artifact", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  const textoZlib = [
+    "This software is provided 'as-is', without any express or implied warranty.",
+    "If you use this software in a product, an acknowledgment in the product documentation would be appreciated but is not required.",
+    "Altered source versions must be plainly marked as such.",
+  ].join("\n");
+  assert.equal(
+    corroboradas(
+      ["Zlib"],
+      [{ texto: textoZlib }],
+      POLICY.licenseTextMarkers,
+    ).ok,
+    false,
+    "ordinary Zlib text has no safe positive marker and needs exact inspection",
+  );
+
+  const entrada = POLICY.unverifiableLicenseDeclarations["foldhash@0.2.0"];
+  const origemCratesIo =
+    "registry+https://github.com/rust-lang/crates.io-index";
+  const inspecao = selecionarRegistroDoArtefato(entrada, {
+    ecossistema: "cargo",
+    origemPacote: origemCratesIo,
+  });
+  assert.equal(inspecao.ok, true);
+  assert.equal(inspecao.registro.declared, "Zlib");
+  assert.equal(inspecao.registro.identifiedLicense, "Zlib");
+  assert.ok(inspecao.registro.rationale);
+  assert.equal(
+    validarEvidenciaTextual(inspecao.registro, [
+      { arquivo: "LICENSE", texto: textoZlib },
+    ]).tipo,
+    "texto-divergente",
+  );
+
+  const substituido = selecionarRegistroDoArtefato(entrada, {
+    ecossistema: "cargo",
+    origemPacote: "path:vendor/foldhash",
+  });
+  assert.equal(substituido.ok, false);
+  assert.equal(substituido.tipo, "origem-divergente");
+});
+
 test("every manual licence inspection binds an exact artifact and records its finding", async () => {
   const { POLICY } = await import("./legal/thirdparty-policy.mjs");
   for (const [id, entrada] of Object.entries(
@@ -1214,6 +1396,24 @@ test("every manual licence inspection binds an exact artifact and records its fi
         `${id} must record the licence identified in the artifact`,
       );
       assert.ok(inspecao.rationale, `${id} must record inspection evidence`);
+      assert.ok(
+        Array.isArray(inspecao.textEvidence) && inspecao.textEvidence.length,
+        `${id} must bind the complete inspected text set`,
+      );
+      const arquivos = new Set();
+      for (const evidencia of inspecao.textEvidence) {
+        assert.ok(evidencia.file, `${id} text evidence must name its file`);
+        assert.match(
+          evidencia.sha256 ?? "",
+          /^[0-9a-f]{64}$/u,
+          `${id} text evidence must pin a lowercase SHA-256`,
+        );
+        assert.ok(
+          !arquivos.has(evidencia.file),
+          `${id} text evidence must not repeat ${evidencia.file}`,
+        );
+        arquivos.add(evidencia.file);
+      }
       const identidade = `${inspecao.ecosystem}|${inspecao.source}`;
       assert.ok(
         !identidades.has(identidade),
@@ -1222,6 +1422,54 @@ test("every manual licence inspection binds an exact artifact and records its fi
       identidades.add(identidade);
     }
   }
+});
+
+test("manual text evidence rejects changed, added, removed and malformed material", () => {
+  const texto = "licence body\nsecond line";
+  const inspecao = {
+    textEvidence: [
+      { file: "LICENSE", sha256: sha256TextoDeLicenca(texto) },
+    ],
+  };
+  assert.deepEqual(
+    validarEvidenciaTextual(inspecao, [{ arquivo: "LICENSE", texto }]),
+    { ok: true },
+  );
+
+  for (const [tipo, textos] of [
+    ["texto-divergente", [{ arquivo: "LICENSE", texto: `${texto} changed` }]],
+    [
+      "conjunto-divergente",
+      [
+        { arquivo: "LICENSE", texto },
+        { arquivo: "NOTICE", texto: "new material" },
+      ],
+    ],
+    ["conjunto-divergente", []],
+  ]) {
+    const resultado = validarEvidenciaTextual(inspecao, textos);
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.tipo, tipo);
+  }
+
+  const incompleta = validarEvidenciaTextual(
+    { textEvidence: [{ file: "LICENSE", sha256: "not-a-sha256" }] },
+    [{ arquivo: "LICENSE", texto }],
+  );
+  assert.equal(incompleta.ok, false);
+  assert.equal(incompleta.tipo, "politica-incompleta");
+
+  const duplicada = validarEvidenciaTextual(
+    {
+      textEvidence: [
+        { file: "LICENSE", sha256: sha256TextoDeLicenca(texto) },
+        { file: "LICENSE", sha256: sha256TextoDeLicenca(texto) },
+      ],
+    },
+    [{ arquivo: "LICENSE", texto }],
+  );
+  assert.equal(duplicada.ok, false);
+  assert.equal(duplicada.tipo, "arquivo-duplicado");
 });
 
 test("every declared fallback resolves to an existing fragment", async () => {

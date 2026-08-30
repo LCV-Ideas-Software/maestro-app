@@ -10,12 +10,16 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   Explicit elections and manual inspections select the exact npm or Cargo
   artefact by ecosystem and resolved source, support multiple same-name/version
   artefacts without taking the first policy entry, and reject duplicate
-  decisions for one identity. BSD-2-Clause can no longer be corroborated by a
-  substring also present in BSD-3-Clause: each distributed BSD-2 artefact now
-  carries a recorded inspection, including the explicit `serial2` election.
-  BSL-1.0, Python-2.0, CC0-1.0 and CDLA-Permissive-2.0 corroboration now require
-  phrases from the official licence bodies instead of accepting a title or URL
-  pointer.
+  decisions for one identity. BSD-2-Clause and BSD-3-Clause can no longer be
+  corroborated by markers shared with neighbouring variants: each distributed
+  artefact now carries a recorded inspection, including the explicit `serial2`
+  election. Zlib likewise requires exact inspection instead of accepting
+  markers shared with `zlib-acknowledgement`; the `pako` election records that
+  evidence against its pinned SPDX supplement. Every manual reading is bound
+  to the complete reproduced file set by filename and SHA-256, so changed,
+  added or removed material fails closed. BSL-1.0,
+  Python-2.0, CC0-1.0 and CDLA-Permissive-2.0 corroboration now require phrases
+  from the official licence bodies instead of accepting a title or URL pointer.
 - **MAESTRO-22 — explicit licence decisions are now unambiguous and
   artefact-bound.** A recorded election may retain mandatory `AND` terms, but
   may not contain `OR`: the production SPDX AST must identify the alternative

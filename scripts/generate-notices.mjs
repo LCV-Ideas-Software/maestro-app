@@ -35,6 +35,7 @@ import {
   resolverMetaNpm,
   selecionarRegistroDoArtefato,
   satisfaz,
+  validarEvidenciaTextual,
   validarEleicao,
 } from "./legal/thirdparty-runtime.mjs";
 
@@ -457,6 +458,15 @@ function elegerLicencas(componentes) {
         );
         continue;
       }
+      if (inspecao) {
+        const evidencia = validarEvidenciaTextual(inspecao, c.textos || []);
+        if (!evidencia.ok) {
+          pendentes.push(
+            `${c.id}: manualTextInspection nao corresponde aos textos inspecionados — ${evidencia.motivo}`,
+          );
+          continue;
+        }
+      }
       const licencasInspecionadas = new Set(
         Array.isArray(inspecao?.identifiedLicenses)
           ? inspecao.identifiedLicenses
@@ -726,6 +736,16 @@ function corroborarLicencaUnica(componentes) {
           );
           continue;
         }
+      }
+      const evidencia = validarEvidenciaTextual(
+        inspecionada,
+        c.textos || [],
+      );
+      if (!evidencia.ok) {
+        pendentes.push(
+          `${c.id} (${c.ecossistema}): a evidencia textual da inspecao manual nao corresponde ao artefato resolvido — ${evidencia.motivo}`,
+        );
+        continue;
       }
       continue;
     }

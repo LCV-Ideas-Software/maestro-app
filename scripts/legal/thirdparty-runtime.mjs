@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { dirname, isAbsolute, relative, sep } from "node:path";
 
 import npmInstallChecks from "npm-install-checks";
@@ -116,6 +117,114 @@ export function selecionarRegistroDoArtefato(entrada, componente) {
     ],
     encontrada: componente?.origemPacote ?? null,
   };
+}
+
+const SHA256_HEX = /^[0-9a-f]{64}$/u;
+
+export const sha256TextoDeLicenca = (texto) =>
+  createHash("sha256")
+    .update(texto.replace(/\r\n?/gu, "\n").trim(), "utf8")
+    .digest("hex");
+
+// A leitura manual nao pode sobreviver a uma troca silenciosa do material que
+// foi inspecionado. A origem seleciona o artefato; esta prova fixa o conjunto
+// exato de textos efetivamente reproduzidos, depois da mesma normalizacao de
+// fim de linha e bordas usada pela coleta do gerador.
+export function validarEvidenciaTextual(inspecao, textos) {
+  const evidencias = inspecao?.textEvidence;
+  if (!Array.isArray(evidencias) || !evidencias.length) {
+    return {
+      ok: false,
+      tipo: "politica-incompleta",
+      motivo: "textEvidence precisa declarar ao menos um arquivo e seu SHA-256",
+    };
+  }
+
+  const esperados = new Map();
+  for (const evidencia of evidencias) {
+    if (
+      typeof evidencia?.file !== "string" ||
+      !evidencia.file.trim() ||
+      typeof evidencia.sha256 !== "string" ||
+      !SHA256_HEX.test(evidencia.sha256)
+    ) {
+      return {
+        ok: false,
+        tipo: "politica-incompleta",
+        motivo:
+          "cada item de textEvidence precisa registrar file e SHA-256 lowercase completo",
+      };
+    }
+    if (esperados.has(evidencia.file)) {
+      return {
+        ok: false,
+        tipo: "arquivo-duplicado",
+        motivo: `textEvidence repete o arquivo ${evidencia.file}`,
+      };
+    }
+    esperados.set(evidencia.file, evidencia.sha256);
+  }
+
+  if (!Array.isArray(textos)) {
+    return {
+      ok: false,
+      tipo: "conjunto-divergente",
+      motivo: "o artefato nao forneceu um conjunto de textos para conferir",
+    };
+  }
+
+  const encontrados = new Map();
+  for (const texto of textos) {
+    if (
+      typeof texto?.arquivo !== "string" ||
+      !texto.arquivo.trim() ||
+      typeof texto.texto !== "string"
+    ) {
+      return {
+        ok: false,
+        tipo: "texto-invalido",
+        motivo: "cada texto coletado precisa registrar arquivo e conteudo textual",
+      };
+    }
+    if (encontrados.has(texto.arquivo)) {
+      return {
+        ok: false,
+        tipo: "arquivo-duplicado",
+        motivo: `o conjunto coletado repete o arquivo ${texto.arquivo}`,
+      };
+    }
+    encontrados.set(texto.arquivo, sha256TextoDeLicenca(texto.texto));
+  }
+
+  const faltantes = [...esperados.keys()].filter(
+    (arquivo) => !encontrados.has(arquivo),
+  );
+  const inesperados = [...encontrados.keys()].filter(
+    (arquivo) => !esperados.has(arquivo),
+  );
+  if (faltantes.length || inesperados.length) {
+    return {
+      ok: false,
+      tipo: "conjunto-divergente",
+      faltantes: faltantes.sort(),
+      inesperados: inesperados.sort(),
+      motivo: `o conjunto de textos diverge da inspecao (faltantes: ${faltantes.join(", ") || "nenhum"}; inesperados: ${inesperados.join(", ") || "nenhum"})`,
+    };
+  }
+
+  const divergentes = [...esperados].flatMap(([arquivo, sha256]) =>
+    encontrados.get(arquivo) === sha256 ? [] : [arquivo],
+  );
+  if (divergentes.length) {
+    return {
+      ok: false,
+      tipo: "texto-divergente",
+      arquivos: divergentes.sort(),
+      motivo: `o SHA-256 do texto diverge da inspecao para ${divergentes.join(", ")}`,
+    };
+  }
+
+  return { ok: true };
 }
 
 const normalizarBarraLegada = (expressao) =>
