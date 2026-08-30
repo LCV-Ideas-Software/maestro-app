@@ -103,6 +103,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 @tauri-apps/api 2.11.1  (npm)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE_APACHE-2.0 ---
 
@@ -2782,6 +2783,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 dompurify 3.4.14  (npm)
 Licenca declarada: (MPL-2.0 OR Apache-2.0)
+Licenca eleita: Apache-2.0 (registrada na politica)
 
 --- LICENSE ---
 
@@ -3607,6 +3609,7 @@ SOFTWARE.
 
 jszip 3.10.1  (npm)
 Licenca declarada: (MIT OR GPL-3.0-or-later)
+Licenca eleita: MIT (registrada na politica)
 
 --- LICENSE.markdown ---
 
@@ -5789,6 +5792,7 @@ SOFTWARE.
 
 adler2 2.0.1  (cargo)
 Licenca declarada: 0BSD OR MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-0BSD ---
 
@@ -6039,6 +6043,7 @@ DEALINGS IN THE SOFTWARE.
 
 aho-corasick 1.1.4  (cargo)
 Licenca declarada: Unlicense OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- COPYING ---
 
@@ -6101,6 +6106,7 @@ For more information, please refer to <http://unlicense.org/>
 
 anyhow 1.0.103  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -6311,6 +6317,7 @@ DEALINGS IN THE SOFTWARE.
 
 atomic-waker 1.1.2  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -6594,6 +6601,7 @@ DEALINGS IN THE SOFTWARE.
 
 base64 0.22.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -6827,6 +6835,7 @@ THE SOFTWARE.
 
 base64 0.23.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -7060,6 +7069,7 @@ THE SOFTWARE.
 
 bit-set 0.8.0  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -7297,6 +7307,7 @@ DEALINGS IN THE SOFTWARE.
 
 bit-vec 0.8.0  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -7534,6 +7545,7 @@ DEALINGS IN THE SOFTWARE.
 
 bitflags 1.3.2  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -7771,6 +7783,7 @@ DEALINGS IN THE SOFTWARE.
 
 bitflags 2.11.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -8008,6 +8021,7 @@ DEALINGS IN THE SOFTWARE.
 
 block-buffer 0.10.4  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -8245,6 +8259,7 @@ DEALINGS IN THE SOFTWARE.
 
 block-buffer 0.12.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -8482,6 +8497,7 @@ DEALINGS IN THE SOFTWARE.
 
 bs58 0.5.1  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -8714,6 +8730,7 @@ SOFTWARE.
 
 byteorder 1.5.0  (cargo)
 Licenca declarada: Unlicense OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- COPYING ---
 
@@ -8809,6 +8826,7 @@ DEALINGS IN THE SOFTWARE.
 
 camino 1.2.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -9075,6 +9093,7 @@ DEALINGS IN THE SOFTWARE.
 
 cargo-platform 0.1.9  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -9339,6 +9358,7 @@ SOFTWARE.
 
 cfg-if 1.0.4  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -9576,6 +9596,7 @@ DEALINGS IN THE SOFTWARE.
 
 chrono 0.4.45  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE.txt ---
 
@@ -9823,6 +9844,7 @@ limitations under the License.
 
 const-oid 0.10.2  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -10060,6 +10082,7 @@ DEALINGS IN THE SOFTWARE.
 
 cookie 0.18.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -10299,6 +10322,7 @@ DEALINGS IN THE SOFTWARE.
 
 cpufeatures 0.2.17  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -10536,6 +10560,7 @@ DEALINGS IN THE SOFTWARE.
 
 cpufeatures 0.3.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -10773,6 +10798,7 @@ DEALINGS IN THE SOFTWARE.
 
 crc32fast 1.5.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -11006,6 +11032,7 @@ SOFTWARE.
 
 crossbeam-channel 0.5.15  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -11841,6 +11868,7 @@ limitations under the License.
 
 crossbeam-utils 0.8.21  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -12080,6 +12108,7 @@ DEALINGS IN THE SOFTWARE.
 
 crypto-common 0.1.7  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -12317,6 +12346,7 @@ DEALINGS IN THE SOFTWARE.
 
 crypto-common 0.2.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -13316,6 +13346,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 ctor-proc-macro 0.0.7  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -13533,6 +13564,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ctor 0.8.0  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -13837,6 +13869,7 @@ SOFTWARE.
 
 deranged 0.5.8  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-Apache ---
 
@@ -14126,6 +14159,7 @@ SOFTWARE.
 
 digest 0.10.7  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -14363,6 +14397,7 @@ DEALINGS IN THE SOFTWARE.
 
 digest 0.11.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -14601,6 +14636,7 @@ DEALINGS IN THE SOFTWARE.
 
 dirs-sys 0.5.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -14805,6 +14841,7 @@ SOFTWARE.
 
 dirs 6.0.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -15009,6 +15046,7 @@ SOFTWARE.
 
 displaydoc 0.2.5  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -15279,6 +15317,7 @@ developed by Chen Jiaju, licensed under the MIT License and the Apache License 2
 
 downcast-rs 1.2.1  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -16160,6 +16199,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 dtoa 1.0.11  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -16370,6 +16410,7 @@ DEALINGS IN THE SOFTWARE.
 
 dtor-proc-macro 0.0.6  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -16587,6 +16628,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 dtor 0.3.0  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -16804,6 +16846,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 dunce 1.0.5  (cargo)
 Licenca declarada: CC0-1.0 OR MIT-0 OR Apache-2.0
+Licenca eleita: Apache-2.0 (ordem de preferencia da politica)
 
 --- LICENSE ---
 
@@ -16933,6 +16976,7 @@ express Statement of Purpose.
 
 dyn-clone 1.0.20  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -17143,6 +17187,7 @@ DEALINGS IN THE SOFTWARE.
 
 equivalent 1.0.2  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -17380,6 +17425,7 @@ DEALINGS IN THE SOFTWARE.
 
 erased-serde 0.4.10  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -17590,6 +17636,7 @@ DEALINGS IN THE SOFTWARE.
 
 fastrand 2.4.1  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -17825,6 +17872,7 @@ DEALINGS IN THE SOFTWARE.
 
 fdeflate 0.3.7  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -18066,6 +18114,7 @@ SOFTWARE.
 
 flate2 1.1.9  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -18303,6 +18352,7 @@ DEALINGS IN THE SOFTWARE.
 
 fnv 1.0.7  (cargo)
 Licenca declarada: Apache-2.0 / MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -18567,6 +18617,7 @@ the following restrictions:
 
 form_urlencoded 1.2.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -18804,6 +18855,7 @@ DEALINGS IN THE SOFTWARE.
 
 futures-channel 0.3.32  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -19043,6 +19095,7 @@ DEALINGS IN THE SOFTWARE.
 
 futures-core 0.3.32  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -19282,6 +19335,7 @@ DEALINGS IN THE SOFTWARE.
 
 futures-io 0.3.32  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -19521,6 +19575,7 @@ DEALINGS IN THE SOFTWARE.
 
 futures-macro 0.3.32  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -19760,6 +19815,7 @@ DEALINGS IN THE SOFTWARE.
 
 futures-sink 0.3.32  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -19999,6 +20055,7 @@ DEALINGS IN THE SOFTWARE.
 
 futures-task 0.3.32  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -20238,6 +20295,7 @@ DEALINGS IN THE SOFTWARE.
 
 futures-util 0.3.32  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -20506,6 +20564,7 @@ SOFTWARE.
 
 getrandom 0.2.17  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -20744,6 +20803,7 @@ DEALINGS IN THE SOFTWARE.
 
 getrandom 0.3.4  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -20982,6 +21042,7 @@ DEALINGS IN THE SOFTWARE.
 
 getrandom 0.4.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -21220,6 +21281,7 @@ DEALINGS IN THE SOFTWARE.
 
 glob 0.3.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -21457,6 +21519,7 @@ DEALINGS IN THE SOFTWARE.
 
 hashbrown 0.12.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -21694,6 +21757,7 @@ DEALINGS IN THE SOFTWARE.
 
 hashbrown 0.17.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -21931,6 +21995,7 @@ DEALINGS IN THE SOFTWARE.
 
 heck 0.5.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -22168,6 +22233,7 @@ DEALINGS IN THE SOFTWARE.
 
 hex 0.4.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -22400,6 +22466,7 @@ SOFTWARE.
 
 html5ever 0.38.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -22703,6 +22770,7 @@ DEALINGS IN THE SOFTWARE.
 
 http 1.4.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -22940,6 +23008,7 @@ DEALINGS IN THE SOFTWARE.
 
 httparse 1.10.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -23171,6 +23240,7 @@ THE SOFTWARE.
 
 hybrid-array 0.4.11  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -23408,6 +23478,7 @@ DEALINGS IN THE SOFTWARE.
 
 hyper-rustls 0.27.9  (cargo)
 Licenca declarada: Apache-2.0 OR ISC OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -24124,6 +24195,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ident_case 1.0.1  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE ---
 
@@ -24151,6 +24223,7 @@ SOFTWARE.
 
 idna_adapter 1.2.1  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -24388,6 +24461,7 @@ DEALINGS IN THE SOFTWARE.
 
 idna 1.1.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -24625,6 +24699,7 @@ DEALINGS IN THE SOFTWARE.
 
 indexmap 1.9.3  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -24862,6 +24937,7 @@ DEALINGS IN THE SOFTWARE.
 
 indexmap 2.14.0  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -25128,6 +25204,7 @@ SOFTWARE.
 
 ipnet 2.12.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -25347,6 +25424,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 iri-string 0.7.12  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE.txt ---
 
@@ -25584,6 +25662,7 @@ DEALINGS IN THE SOFTWARE.
 
 itoa 1.0.18  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -25794,6 +25873,7 @@ DEALINGS IN THE SOFTWARE.
 
 json-patch 3.0.1  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -26027,6 +26107,7 @@ SOFTWARE.
 
 jsonptr 0.6.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -26260,6 +26341,7 @@ SOFTWARE.
 
 keyboard-types 0.7.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -26491,6 +26573,7 @@ THE SOFTWARE.
 
 lazy_static 1.5.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -26728,6 +26811,7 @@ DEALINGS IN THE SOFTWARE.
 
 libc 0.2.186  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -26994,6 +27078,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 lock_api 0.4.14  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -27231,6 +27316,7 @@ DEALINGS IN THE SOFTWARE.
 
 log 0.4.29  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -27468,6 +27554,7 @@ DEALINGS IN THE SOFTWARE.
 
 lru-slab 0.1.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0 OR Zlib
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -27709,6 +27796,7 @@ the following restrictions:
 
 markup5ever 0.38.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -27946,6 +28034,7 @@ DEALINGS IN THE SOFTWARE.
 
 memchr 2.8.0  (cargo)
 Licenca declarada: Unlicense OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- COPYING ---
 
@@ -28008,6 +28097,7 @@ For more information, please refer to <http://unlicense.org/>
 
 mime 0.3.17  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -28239,6 +28329,7 @@ THE SOFTWARE.
 
 miniz_oxide 0.8.9  (cargo)
 Licenca declarada: MIT OR Zlib OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE ---
 
@@ -28522,6 +28613,7 @@ THE SOFTWARE.
 
 muda 0.19.1  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -28817,6 +28909,7 @@ THE SOFTWARE.
 
 num-conv 0.2.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-Apache ---
 
@@ -29023,6 +29116,7 @@ SOFTWARE.
 
 num-traits 0.2.19  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -29260,6 +29354,7 @@ DEALINGS IN THE SOFTWARE.
 
 once_cell 1.21.4  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -29876,6 +29971,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 parking_lot_core 0.9.12  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -30113,6 +30209,7 @@ DEALINGS IN THE SOFTWARE.
 
 parking_lot 0.12.5  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -30350,6 +30447,7 @@ DEALINGS IN THE SOFTWARE.
 
 percent-encoding 2.3.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -30699,6 +30797,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 pin-project-lite 0.2.17  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -30936,6 +31035,7 @@ SOFTWARE.
 
 png 0.17.16  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -31256,6 +31356,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 powerfmt 0.2.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-Apache ---
 
@@ -31487,6 +31588,7 @@ SOFTWARE.
 
 ppv-lite86 0.2.21  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -31753,6 +31855,7 @@ SOFTWARE.
 
 proc-macro2 1.0.106  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -31994,6 +32097,7 @@ THE SOFTWARE.
 
 quinn-proto 0.11.15  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -32213,6 +32317,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 quinn-udp 0.5.14  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -32432,6 +32537,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 quinn 0.11.9  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -32651,6 +32757,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 quote 1.0.45  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -32861,6 +32968,7 @@ DEALINGS IN THE SOFTWARE.
 
 rand_chacha 0.9.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -33074,6 +33182,7 @@ DEALINGS IN THE SOFTWARE.
 
 rand_core 0.9.5  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -33298,6 +33407,7 @@ DEALINGS IN THE SOFTWARE.
 
 rand 0.9.4  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -33511,6 +33621,7 @@ DEALINGS IN THE SOFTWARE.
 
 raw-window-handle 0.6.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0 OR Zlib
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE.md ---
 
@@ -33733,6 +33844,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 
 ref-cast-impl 1.0.25  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -33943,6 +34055,7 @@ DEALINGS IN THE SOFTWARE.
 
 ref-cast 1.0.25  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -34153,6 +34266,7 @@ DEALINGS IN THE SOFTWARE.
 
 regex-automata 0.4.16  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -34390,6 +34504,7 @@ DEALINGS IN THE SOFTWARE.
 
 regex-syntax 0.8.11  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -34627,6 +34742,7 @@ DEALINGS IN THE SOFTWARE.
 
 regex 1.13.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -34864,6 +34980,7 @@ DEALINGS IN THE SOFTWARE.
 
 reqwest 0.12.28  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -35402,6 +35519,7 @@ CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 rustc-hash 2.1.2  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -35612,6 +35730,7 @@ DEALINGS IN THE SOFTWARE.
 
 rustls-pki-types 1.14.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -35876,6 +35995,7 @@ third-party/chromium/LICENSE.
 
 rustls 0.23.39  (cargo)
 Licenca declarada: Apache-2.0 OR ISC OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -36131,6 +36251,7 @@ DEALINGS IN THE SOFTWARE.
 
 ryu 1.0.23  (cargo)
 Licenca declarada: Apache-2.0 OR BSL-1.0
+Licenca eleita: Apache-2.0 (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -36341,6 +36462,7 @@ DEALINGS IN THE SOFTWARE.
 
 same-file 1.0.6  (cargo)
 Licenca declarada: Unlicense/MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- COPYING ---
 
@@ -36519,6 +36641,7 @@ SOFTWARE.
 
 scopeguard 1.2.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -37163,6 +37286,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 semver 1.0.28  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -37373,6 +37497,7 @@ DEALINGS IN THE SOFTWARE.
 
 serde_core 1.0.229  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -37583,6 +37708,7 @@ DEALINGS IN THE SOFTWARE.
 
 serde_derive_internals 0.29.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -37793,6 +37919,7 @@ DEALINGS IN THE SOFTWARE.
 
 serde_derive 1.0.229  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -38003,6 +38130,7 @@ DEALINGS IN THE SOFTWARE.
 
 serde_json 1.0.151  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -38213,6 +38341,7 @@ DEALINGS IN THE SOFTWARE.
 
 serde_repr 0.1.20  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -38423,6 +38552,7 @@ DEALINGS IN THE SOFTWARE.
 
 serde_spanned 1.1.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -38654,6 +38784,7 @@ SOFTWARE.
 
 serde_urlencoded 0.7.1  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -38866,6 +38997,7 @@ DEALINGS IN THE SOFTWARE.
 
 serde_with_macros 3.21.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -39103,6 +39235,7 @@ DEALINGS IN THE SOFTWARE.
 
 serde_with 3.21.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -39340,6 +39473,7 @@ DEALINGS IN THE SOFTWARE.
 
 serde-untagged 0.1.9  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -39550,6 +39684,7 @@ DEALINGS IN THE SOFTWARE.
 
 serde 1.0.229  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -39760,6 +39895,7 @@ DEALINGS IN THE SOFTWARE.
 
 serial2 0.2.37  (cargo)
 Licenca declarada: BSD-2-Clause OR Apache-2.0
+Licenca eleita: BSD-2-Clause (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -39808,6 +39944,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 serialize-to-javascript-impl 0.1.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -40041,6 +40178,7 @@ SOFTWARE.
 
 serialize-to-javascript 0.1.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -40274,6 +40412,7 @@ SOFTWARE.
 
 servo_arc 0.4.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -40509,6 +40648,7 @@ DEALINGS IN THE SOFTWARE.
 
 sha2 0.10.9  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -40748,6 +40888,7 @@ DEALINGS IN THE SOFTWARE.
 
 sha2 0.11.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -40988,6 +41129,7 @@ DEALINGS IN THE SOFTWARE.
 
 shared_library 0.1.9  (cargo)
 Licenca declarada: Apache-2.0/MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -41225,6 +41367,7 @@ DEALINGS IN THE SOFTWARE.
 
 shell-words 1.1.1  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -41491,6 +41634,7 @@ SOFTWARE.
 
 siphasher 1.0.2  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- COPYING ---
 
@@ -41539,6 +41683,7 @@ DEALINGS IN THE SOFTWARE.
 
 smallvec 1.15.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -41776,6 +41921,7 @@ DEALINGS IN THE SOFTWARE.
 
 socket2 0.6.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -42013,6 +42159,7 @@ DEALINGS IN THE SOFTWARE.
 
 softbuffer 0.4.8  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -42244,6 +42391,7 @@ SOFTWARE.
 
 stable_deref_trait 1.2.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -42481,6 +42629,7 @@ DEALINGS IN THE SOFTWARE.
 
 string_cache 0.9.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -42786,6 +42935,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 syn 2.0.117  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -42996,6 +43146,7 @@ DEALINGS IN THE SOFTWARE.
 
 syn 3.0.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -43614,6 +43765,7 @@ Apache License
 
 tauri-codegen 2.6.3  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE_APACHE-2.0 ---
 
@@ -43822,6 +43974,7 @@ SOFTWARE.
 
 tauri-macros 2.6.3  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE_APACHE-2.0 ---
 
@@ -44030,6 +44183,7 @@ SOFTWARE.
 
 tauri-runtime-wry 2.11.4  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE_APACHE-2.0 ---
 
@@ -44238,6 +44392,7 @@ SOFTWARE.
 
 tauri-runtime 2.11.3  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE_APACHE-2.0 ---
 
@@ -44446,6 +44601,7 @@ SOFTWARE.
 
 tauri-utils 2.9.3  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE_APACHE-2.0 ---
 
@@ -44654,6 +44810,7 @@ SOFTWARE.
 
 tauri 2.11.5  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE_APACHE-2.0 ---
 
@@ -44862,6 +45019,7 @@ SOFTWARE.
 
 tendril 0.5.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -45099,6 +45257,7 @@ DEALINGS IN THE SOFTWARE.
 
 thiserror-impl 1.0.69  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -45309,6 +45468,7 @@ DEALINGS IN THE SOFTWARE.
 
 thiserror-impl 2.0.18  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -45519,6 +45679,7 @@ DEALINGS IN THE SOFTWARE.
 
 thiserror 1.0.69  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -45729,6 +45890,7 @@ DEALINGS IN THE SOFTWARE.
 
 thiserror 2.0.18  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -45939,6 +46101,7 @@ DEALINGS IN THE SOFTWARE.
 
 time-core 0.1.8  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-Apache ---
 
@@ -46145,6 +46308,7 @@ SOFTWARE.
 
 time-macros 0.2.27  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-Apache ---
 
@@ -46351,6 +46515,7 @@ SOFTWARE.
 
 time 0.3.47  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-Apache ---
 
@@ -46611,6 +46776,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 tinyvec_macros 0.1.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0 OR Zlib
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE.md ---
 
@@ -46866,6 +47032,7 @@ freely, subject to the following restrictions:
 
 tinyvec 1.11.0  (cargo)
 Licenca declarada: Zlib OR Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE.md ---
 
@@ -47127,6 +47294,7 @@ SOFTWARE.
 
 tokio-rustls 0.26.4  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -47422,6 +47590,7 @@ SOFTWARE.
 
 toml_datetime 1.1.1+spec-1.1.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -47653,6 +47822,7 @@ SOFTWARE.
 
 toml_parser 1.1.2+spec-1.1.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -47884,6 +48054,7 @@ SOFTWARE.
 
 toml_writer 1.1.1+spec-1.1.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -48115,6 +48286,7 @@ SOFTWARE.
 
 toml 1.1.2+spec-1.1.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -48544,6 +48716,7 @@ DEALINGS IN THE SOFTWARE.
 
 tray-icon 0.24.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -48805,6 +48978,7 @@ THE SOFTWARE.
 
 typeid 1.0.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -49015,6 +49189,7 @@ DEALINGS IN THE SOFTWARE.
 
 typenum 1.20.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE ---
 
@@ -49252,6 +49427,7 @@ SOFTWARE.
 
 unic-char-property 0.9.0  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 Origem do texto: https://github.com/open-i18n/rust-unic @ 5878605364af97a3358368a6eaef02104af2e016
 Motivo do texto vendorizado: O crate publicado nao inclui arquivo de licenca.
 
@@ -49513,6 +49689,7 @@ limitations under the License.
 
 unic-char-range 0.9.0  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 Origem do texto: https://github.com/open-i18n/rust-unic @ 5878605364af97a3358368a6eaef02104af2e016
 Motivo do texto vendorizado: O crate publicado nao inclui arquivo de licenca.
 
@@ -49774,6 +49951,7 @@ limitations under the License.
 
 unic-common 0.9.0  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 Origem do texto: https://github.com/open-i18n/rust-unic @ 5878605364af97a3358368a6eaef02104af2e016
 Motivo do texto vendorizado: O crate publicado nao inclui arquivo de licenca.
 
@@ -50035,6 +50213,7 @@ limitations under the License.
 
 unic-ucd-ident 0.9.0  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 Origem do texto: https://github.com/open-i18n/rust-unic @ 8a6ce83063d90b91ae2ce59eddb803edd393fca9
 Motivo do texto vendorizado: O crate publicado nao inclui arquivo de licenca. A expressao e uma opcao dupla; ambos os textos sao reproduzidos para nao antecipar a eleicao.
 
@@ -50296,6 +50475,7 @@ limitations under the License.
 
 unic-ucd-version 0.9.0  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 Origem do texto: https://github.com/open-i18n/rust-unic @ 5878605364af97a3358368a6eaef02104af2e016
 Motivo do texto vendorizado: O crate publicado nao inclui arquivo de licenca.
 
@@ -50557,6 +50737,7 @@ limitations under the License.
 
 unicode-ident 1.0.24  (cargo)
 Licenca declarada: (MIT OR Apache-2.0) AND Unicode-3.0
+Licenca eleita: MIT AND Unicode-3.0 (registrada na politica)
 
 --- LICENSE-APACHE ---
 
@@ -50809,6 +50990,7 @@ authorization of the copyright holder.
 
 unicode-segmentation 1.13.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -51067,6 +51249,7 @@ Licenca declarada: ISC
 
 url 2.5.8  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -51333,6 +51516,7 @@ SOFTWARE.
 
 utf-8 0.7.6  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -51543,6 +51727,7 @@ DEALINGS IN THE SOFTWARE.
 
 utf8_iter 1.0.4  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -51780,6 +51965,7 @@ DEALINGS IN THE SOFTWARE.
 
 uuid 1.23.1  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -52018,6 +52204,7 @@ DEALINGS IN THE SOFTWARE.
 
 walkdir 2.5.0  (cargo)
 Licenca declarada: Unlicense/MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- COPYING ---
 
@@ -52107,6 +52294,7 @@ THE SOFTWARE.
 
 web_atoms 0.2.4  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -52542,6 +52730,7 @@ SOFTWARE.
 
 winapi-util 0.1.11  (cargo)
 Licenca declarada: Unlicense OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- COPYING ---
 
@@ -52604,6 +52793,7 @@ For more information, please refer to <http://unlicense.org/>
 
 winapi 0.3.9  (cargo)
 Licenca declarada: MIT/Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -52835,6 +53025,7 @@ SOFTWARE.
 
 window-vibrancy 0.6.0  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -53068,6 +53259,7 @@ SOFTWARE.
 
 windows_x86_64_msvc 0.52.6  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -53301,6 +53493,7 @@ MIT License
 
 windows_x86_64_msvc 0.53.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -53534,6 +53727,7 @@ MIT License
 
 windows-collections 0.2.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -53767,6 +53961,7 @@ MIT License
 
 windows-core 0.61.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -54000,6 +54195,7 @@ MIT License
 
 windows-future 0.2.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -54233,6 +54429,7 @@ MIT License
 
 windows-implement 0.60.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -54466,6 +54663,7 @@ MIT License
 
 windows-interface 0.59.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -54699,6 +54897,7 @@ MIT License
 
 windows-link 0.1.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -54932,6 +55131,7 @@ MIT License
 
 windows-link 0.2.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -55165,6 +55365,7 @@ MIT License
 
 windows-numerics 0.2.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -55398,6 +55599,7 @@ MIT License
 
 windows-result 0.3.4  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -55631,6 +55833,7 @@ MIT License
 
 windows-strings 0.4.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -55864,6 +56067,7 @@ MIT License
 
 windows-sys 0.59.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -56097,6 +56301,7 @@ MIT License
 
 windows-sys 0.60.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -56330,6 +56535,7 @@ MIT License
 
 windows-sys 0.61.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -56563,6 +56769,7 @@ MIT License
 
 windows-targets 0.52.6  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -56796,6 +57003,7 @@ MIT License
 
 windows-targets 0.53.5  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -57029,6 +57237,7 @@ MIT License
 
 windows-threading 0.1.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -57262,6 +57471,7 @@ MIT License
 
 windows-version 0.1.7  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -57495,6 +57705,7 @@ MIT License
 
 windows 0.61.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- license-apache-2.0 ---
 
@@ -57835,6 +58046,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 wry 0.55.0  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -58176,6 +58388,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 zerocopy 0.8.48  (cargo)
 Licenca declarada: BSD-2-Clause OR Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 
@@ -58548,6 +58761,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 zeroize 1.8.2  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
+Licenca eleita: MIT (ordem de preferencia da politica)
 
 --- LICENSE-APACHE ---
 

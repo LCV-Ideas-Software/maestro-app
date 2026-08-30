@@ -127,12 +127,26 @@ function textoDeLicencaNoDiretorio(dir) {
   } catch {
     return null;
   }
-  const achados = entradas.filter((e) => {
-    const minusculo = e.toLowerCase();
-    if (!POLICY.licenseFilePrefixes.some((p) => minusculo.startsWith(p))) return false;
-    return !POLICY.licenseFileIgnoredExtensions.some((ext) => minusculo.endsWith(ext));
-  });
-  if (!achados.length) return null;
+  const util = (nome) =>
+    !POLICY.licenseFileIgnoredExtensions.some((ext) =>
+      nome.toLowerCase().endsWith(ext),
+    );
+  const comecaCom = (nome, lista) =>
+    lista.some((p) => nome.toLowerCase().startsWith(p));
+
+  const portadores = entradas.filter(
+    (e) => util(e) && comecaCom(e, POLICY.licenseFilePrefixes),
+  );
+  // Um NOTICE isolado nao satisfaz a exigencia: e material suplementar, nao o
+  // texto da licenca. Sem arquivo portador, o componente cai em `semTexto` e o
+  // gate reprova, em vez de emitir um pacote de avisos incompleto.
+  if (!portadores.length) return null;
+
+  const suplementares = entradas.filter(
+    (e) => util(e) && comecaCom(e, POLICY.supplementalFilePrefixes),
+  );
+  const achados = [...portadores, ...suplementares];
+
   const partes = [];
   for (const a of achados.sort()) {
     // Le direto em vez de checar o tipo antes: consultar e depois usar deixa
@@ -153,12 +167,35 @@ function componentesNpm() {
   const marcador = POLICY.scope.npm.excludeDevMarker;
   const saida = [];
   const vistos = new Set();
-  for (const [chave, meta] of Object.entries(lock.packages || {})) {
+  const naoResolvidos = [];
+  for (const [chave, metaOriginal] of Object.entries(lock.packages || {})) {
     if (!chave.startsWith("node_modules/")) continue;
-    if (meta[marcador] === true) continue;
+    if (metaOriginal[marcador] === true) continue;
+
+    // Uma entrada com `link: true` (dependencia `file:` ou de workspace) nao
+    // carrega versao nem licenca: esses metadados vivem na entrada alvo. Pular
+    // por ausencia de versao faria o componente sumir dos avisos sem que o
+    // gate reclamasse, que e exatamente o oposto de fechar em falha.
+    let meta = metaOriginal;
+    if (metaOriginal.link === true) {
+      const alvo = metaOriginal.resolved
+        ? lock.packages[metaOriginal.resolved]
+        : null;
+      if (!alvo) {
+        naoResolvidos.push(
+          `${chave}: entrada com link nao resolvida (resolved=${metaOriginal.resolved ?? "ausente"})`,
+        );
+        continue;
+      }
+      meta = { ...alvo, name: alvo.name || metaOriginal.name };
+    }
+
     const nome = meta.name || nomeDaChaveDoLock(chave);
     const versao = meta.version;
-    if (!versao) continue;
+    if (!versao) {
+      naoResolvidos.push(`${chave}: sem versao no lockfile`);
+      continue;
+    }
     const id = `${nome}@${versao}`;
     if (vistos.has(id)) continue;
     vistos.add(id);
@@ -171,7 +208,87 @@ function componentesNpm() {
       diretorio: acharDiretorioNpm(chave, nome, versao),
     });
   }
+  if (naoResolvidos.length) {
+    falhar(
+      "Entradas do lockfile que nao puderam ser resolvidas. Um componente distribuido nao pode ficar fora dos avisos em silencio:",
+      naoResolvidos,
+    );
+  }
   return saida.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+// ------------------------------------------------------------------ eleicao
+
+// Quando um componente oferece mais de uma licenca, e a eleicao que determina
+// as obrigacoes assumidas. Somente duas formas sao eleitas automaticamente,
+// ambas inequivocas: uma disjuncao plana e a forma legada do Cargo. Qualquer
+// outra e recusada e exige entrada explicita. Nao se interpreta aqui a
+// gramatica do SPDX.
+function termosDeEscolha(expressao) {
+  const e = expressao.trim();
+  if (e.includes("(") || e.includes(")")) return null;
+  if (/\bAND\b/u.test(e) || /\bWITH\b/u.test(e)) return null;
+  if (/\bOR\b/u.test(e)) {
+    return e
+      .split(/\bOR\b/u)
+      .map((t) => t.trim())
+      .filter(Boolean);
+  }
+  // Forma legada do Cargo. Aparece com e sem espacos ao redor da barra
+  // (`MIT/Apache-2.0` e `Apache-2.0 / MIT`), e ambas sao a mesma disjuncao.
+  if (e.includes("/")) {
+    const termos = e
+      .split("/")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (termos.length >= 2 && termos.every((t) => !t.includes(" "))) {
+      return termos;
+    }
+  }
+  return null;
+}
+
+function ofereceEscolha(expressao) {
+  if (!expressao) return false;
+  return /\bOR\b/u.test(expressao) || expressao.includes("/");
+}
+
+function elegerLicencas(componentes) {
+  const pendentes = [];
+  for (const c of componentes) {
+    const expressao = c.licencaDeclarada;
+    if (!ofereceEscolha(expressao)) continue;
+
+    const explicita = POLICY.licenseElections[c.id];
+    if (explicita) {
+      c.eleicao = { licenca: explicita.elected, origem: "registrada na politica" };
+      continue;
+    }
+
+    const termos = termosDeEscolha(expressao);
+    if (!termos) {
+      pendentes.push(
+        `${c.id}: expressao "${expressao}" nao e uma escolha trivial e precisa de entrada em licenseElections`,
+      );
+      continue;
+    }
+    const eleita = POLICY.licenseElectionPreference.find((p) =>
+      termos.includes(p),
+    );
+    if (!eleita) {
+      pendentes.push(
+        `${c.id}: nenhum termo de "${expressao}" consta da ordem de preferencia; registre a eleicao em licenseElections`,
+      );
+      continue;
+    }
+    c.eleicao = { licenca: eleita, origem: "ordem de preferencia da politica" };
+  }
+  if (pendentes.length) {
+    falhar(
+      "Componentes distribuidos que oferecem escolha de licenca sem eleicao registrada:",
+      pendentes,
+    );
+  }
 }
 
 // -------------------------------------------------------------------- cargo
@@ -247,6 +364,7 @@ function componentesCargo() {
 // ------------------------------------------------------------------ montagem
 
 const componentes = [...componentesNpm(), ...componentesCargo()];
+elegerLicencas(componentes);
 
 const semTexto = [];
 const naoDeclarados = [];
@@ -303,6 +421,9 @@ for (const c of componentes) {
   linhas.push(barra, "");
   linhas.push(`${c.nome} ${c.versao}  (${c.ecossistema})`);
   if (c.licencaDeclarada) linhas.push(`Licenca declarada: ${c.licencaDeclarada}`);
+  if (c.eleicao) {
+    linhas.push(`Licenca eleita: ${c.eleicao.licenca} (${c.eleicao.origem})`);
+  }
   if (c.fallback) {
     linhas.push(`Origem do texto: ${c.fallback.sourceRepository} @ ${c.fallback.revision}`);
     if (c.fallback.correspondingSource) {

@@ -49,17 +49,74 @@ export const POLICY = Object.freeze({
   // LICENSE-APACHE.md e LICENSE-ZLIB.md (tinyvec, raw-window-handle),
   // LICENSE.md (@tiptap). O criterio e o prefixo do nome, sem diferenciar
   // maiusculas, aceitando qualquer sufixo e extensao.
+  // Arquivos que CARREGAM o texto da licenca. Pelo menos um deles, ou um
+  // fallback declarado, e obrigatorio para cada componente distribuido.
   licenseFilePrefixes: Object.freeze([
     "license",
     "licence",
     "copying",
-    "notice",
     "unlicense",
   ]),
+
+  // Arquivos SUPLEMENTARES. Sao incluidos nos avisos quando existem, mas nunca
+  // satisfazem sozinhos a exigencia acima: um NOTICE da Apache-2.0 e material
+  // adicional exigido pela clausula 4(d), nao o texto da licenca. Aceitar um
+  // NOTICE isolado como suficiente deixaria passar um componente sem licenca.
+  supplementalFilePrefixes: Object.freeze(["notice"]),
 
   // Extensoes que nao carregam o texto da licenca e portanto nao contam como
   // aviso, mesmo quando o nome comeca com um dos prefixos acima.
   licenseFileIgnoredExtensions: Object.freeze([".spdx", ".json", ".xml"]),
+
+  // Eleicao de licenca em expressoes de escolha.
+  //
+  // Quando um componente oferece mais de uma licenca, e a eleicao que determina
+  // as obrigacoes assumidas. Sem registro, nada impede que uma dependencia nova
+  // passe a oferecer escolha sem que ninguem decida qual foi tomada.
+  //
+  // A eleicao automatica so vale para as duas formas inequivocas: uma disjuncao
+  // plana (`A OR B OR C`) e a forma legada do Cargo (`A/B`, com ou sem espacos
+  // ao redor da barra). Qualquer outra expressao — com parenteses, com AND, com
+  // WITH — precisa de entrada em `licenseElections`, senao o gate reprova. Nao
+  // ha aqui um parser de SPDX escrito a mao: formas nao triviais nao sao
+  // interpretadas, sao recusadas.
+  licenseElectionPreference: Object.freeze([
+    "MIT",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "0BSD",
+    "MIT-0",
+    "Unlicense",
+    "Zlib",
+    "BSL-1.0",
+    "CC0-1.0",
+  ]),
+
+  // Eleicoes explicitas, por `<nome>@<versao>`. Necessarias para toda expressao
+  // que nao seja uma das duas formas triviais. Fixar a versao impede que a
+  // decisao sobreviva em silencio a uma atualizacao de dependencia.
+  licenseElections: Object.freeze({
+    "dompurify@3.4.14": Object.freeze({
+      expression: "(MPL-2.0 OR Apache-2.0)",
+      elected: "Apache-2.0",
+      rationale:
+        "A expressao vem entre parenteses e portanto nao e eleita automaticamente. Elege-se Apache-2.0: e permissiva e evita as obrigacoes de arquivo da MPL-2.0 sobre um componente que e embutido no bundle distribuido.",
+    }),
+    "jszip@3.10.1": Object.freeze({
+      expression: "(MIT OR GPL-3.0-or-later)",
+      elected: "MIT",
+      rationale:
+        "A expressao vem entre parenteses e portanto nao e eleita automaticamente. Elege-se MIT: a alternativa e copyleft forte e incompativel com a distribuicao de um executavel proprietario de terceiros embutindo o componente.",
+    }),
+    "unicode-ident@1.0.24": Object.freeze({
+      expression: "(MIT OR Apache-2.0) AND Unicode-3.0",
+      elected: "MIT AND Unicode-3.0",
+      rationale:
+        "Expressao conjuntiva: a escolha entre MIT e Apache-2.0 e livre, mas a Unicode-3.0 aplica-se simultaneamente e nao e opcional. Elege-se MIT para o termo disjuntivo; os avisos da Unicode-3.0 continuam exigidos junto.",
+    }),
+  }),
 
   // Textos vendorizados. O sha256 e do arquivo inteiro, cabecalho de
   // proveniencia incluido, e e conferido em tempo de execucao: se alguem

@@ -669,6 +669,40 @@ test("every vendored license fragment matches its declared digest", async () => 
   }
 });
 
+test("a supplementary notice never counts as the licence itself", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  // An Apache-2.0 NOTICE is material clause 4(d) requires alongside the
+  // licence, not the licence text. If it appeared in both lists, a package
+  // shipping only a NOTICE would satisfy the gate and the bundle would go out
+  // incomplete.
+  const portadores = new Set(POLICY.licenseFilePrefixes);
+  assert.ok(portadores.size > 0, "policy must name licence-bearing prefixes");
+  for (const suplementar of POLICY.supplementalFilePrefixes) {
+    assert.ok(
+      !portadores.has(suplementar),
+      `${suplementar} must not satisfy the licence requirement on its own`,
+    );
+  }
+});
+
+test("every explicit licence election records what was chosen and why", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  assert.ok(
+    POLICY.licenseElectionPreference.length > 0,
+    "policy must declare a preference order for unambiguous choices",
+  );
+  for (const [id, eleicao] of Object.entries(POLICY.licenseElections)) {
+    assert.match(
+      id,
+      /^.+@\d+\.\d+\.\d+/u,
+      `${id} must pin an exact version so the choice cannot outlive an upgrade`,
+    );
+    assert.ok(eleicao.expression, `${id} must record the expression it resolves`);
+    assert.ok(eleicao.elected, `${id} must record the elected licence`);
+    assert.ok(eleicao.rationale, `${id} must record why that licence was chosen`);
+  }
+});
+
 test("every declared fallback resolves to an existing fragment", async () => {
   const { POLICY } = await import("./legal/thirdparty-policy.mjs");
   const entries = Object.entries(POLICY.licenseFallbacks);

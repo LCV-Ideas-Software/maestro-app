@@ -6,6 +6,20 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Changed
 
+- **MAESTRO-22 — three holes closed in the notice gate.** A `NOTICE` file alone
+  satisfied the licence requirement, because it shared the prefix list with
+  `LICENSE`; an Apache-2.0 notice is material clause 4(d) requires alongside the
+  licence, not the licence text, so the two lists are now separate and a
+  supplementary file never suffices on its own. Nothing required an election
+  when a component offers a choice of licence, so the policy now declares a
+  preference order, elects from it for the two unambiguous shapes — a flat
+  disjunction and Cargo's legacy form — and refuses every other expression until
+  an explicit election is recorded; 214 distributed components offer a choice,
+  and the elected licence is printed beside each. Lockfile entries with
+  `link: true` carry their version and licence on the target entry, so skipping
+  them for having no version made a distributed component vanish from the
+  notices silently; linked entries now resolve, and an unresolvable one fails by
+  name.
 - **MAESTRO-22 — the required notices are now reproduced, not just referenced.**
   `THIRD-PARTY-NOTICES.txt` reproduces the full license text of all 438
   components embedded in the distributed executable — 141 npm and 297 Rust —
