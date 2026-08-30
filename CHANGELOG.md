@@ -6,6 +6,18 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Changed
 
+- **MAESTRO-22 — the required notices are now reproduced, not just referenced.**
+  `THIRD-PARTY-NOTICES.txt` reproduces the full license text of all 438
+  components embedded in the distributed executable — 141 npm and 297 Rust —
+  and ships inside the portable archive. Naming a license is not preserving its
+  notice: MIT, ISC, BSD and Apache-2.0 require the text and the copyright line
+  to travel with the distribution. Scope comes from the same official sources
+  the inventory gate already uses, so development dependencies are excluded and
+  the Rust graph is filtered to the published target. Eleven components whose
+  publisher ships no license file are covered by texts vendored under
+  `scripts/legal/`, each pinned to the upstream revision recorded by Cargo
+  itself and digest-checked at run time. Generation fails closed: a component
+  without license text stops the build instead of producing an empty notice.
 - **MAESTRO-22 — legal notices travel with the portable archive.** The Windows
   portable ZIP now carries `NOTICE` and `THIRDPARTY.md` alongside the `LICENSE`
   it already shipped, so a recipient who only has the archive can read the

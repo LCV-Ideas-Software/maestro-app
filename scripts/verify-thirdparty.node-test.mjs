@@ -594,7 +594,12 @@ const RELEASE_WORKFLOW = readFileSync(
   "utf8",
 );
 
-const ARCHIVE_LEGAL_FILES = ["LICENSE", "NOTICE", "THIRDPARTY.md"];
+const ARCHIVE_LEGAL_FILES = [
+  "LICENSE",
+  "NOTICE",
+  "THIRDPARTY.md",
+  "THIRD-PARTY-NOTICES.txt",
+];
 
 test("the portable archive stages every legally required file", () => {
   for (const file of ARCHIVE_LEGAL_FILES) {
@@ -628,4 +633,62 @@ test("NOTICE states where MPL-covered source can be obtained", () => {
   const notice = readFileSync(resolve(repositoryRoot, "NOTICE"), "utf8");
   assert.match(notice, /Mozilla Public License 2\.0/u);
   assert.match(notice, /THIRDPARTY\.md/u);
+});
+
+// The notices file reproduces the license text of every component embedded in
+// the distributed executable. Naming a license is not preserving its notice;
+// MIT, ISC, BSD and Apache-2.0 require the text and the copyright line to
+// travel with the distribution.
+test("CI verifies the third-party notices file on every pull request", () => {
+  const ci = readFileSync(
+    resolve(repositoryRoot, ".github/workflows/ci.yml"),
+    "utf8",
+  );
+  assert.ok(
+    ci.includes("npm run notices:check"),
+    "ci.yml must run the notices check",
+  );
+  assert.ok(
+    ci.includes("npm ci"),
+    "the notices check reads installed artifacts, so ci.yml must install them",
+  );
+});
+
+test("every vendored license fragment matches its declared digest", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  const entries = Object.entries(POLICY.fragments);
+  assert.ok(entries.length > 0, "policy must declare at least one fragment");
+  for (const [key, fragment] of entries) {
+    const text = readFileSync(resolve(repositoryRoot, fragment.path), "utf8");
+    const digest = createHash("sha256").update(text, "utf8").digest("hex");
+    assert.equal(
+      digest,
+      fragment.sha256,
+      `${key} (${fragment.path}) does not match the digest declared in the policy`,
+    );
+  }
+});
+
+test("every declared fallback resolves to an existing fragment", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  const entries = Object.entries(POLICY.licenseFallbacks);
+  assert.ok(entries.length > 0, "policy must declare at least one fallback");
+  for (const [id, fallback] of entries) {
+    assert.match(
+      id,
+      /^.+@\d+\.\d+\.\d+/u,
+      `${id} must pin an exact version so the exception cannot outlive an upgrade`,
+    );
+    assert.ok(fallback.rationale, `${id} must record why the text is vendored`);
+    assert.ok(
+      fallback.sourceRepository && fallback.revision,
+      `${id} must record an immutable origin`,
+    );
+    for (const key of fallback.fragments) {
+      assert.ok(
+        POLICY.fragments[key],
+        `${id} references unknown fragment ${key}`,
+      );
+    }
+  }
 });

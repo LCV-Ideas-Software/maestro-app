@@ -4,8 +4,10 @@ Copyright © 2026 LCV Ideas & Software
 This repository contains a portable Windows editorial workbench independently
 developed and maintained by LCV Ideas & Software.
 
-Third-party components and notices are listed in THIRDPARTY.md, which
-accompanies this file both in the repository and inside the portable archive.
+Third-party components are inventoried in THIRDPARTY.md, and the full license
+text of every component embedded in the distributed executable is reproduced in
+THIRD-PARTY-NOTICES.txt. Both files accompany this one in the repository and
+inside the portable archive.
 
 Some components embedded in the distributed executable are covered by the
 Mozilla Public License 2.0. This product vendors none of them and patches none
