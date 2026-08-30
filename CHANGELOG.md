@@ -6,6 +6,18 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Changed
 
+- **MAESTRO-23 — an election can no longer contradict the text it ships with.**
+  Electing a licence whose text does not accompany the artefact turns the notice
+  file into a false statement, and `dunce 1.0.5` was exactly that: it offers
+  three licences, packages only the CC0-1.0 text, and preference order picked
+  Apache-2.0. Each electable identifier now declares a phrase drawn from the
+  body of its own licence, and an election only stands when one of them appears
+  in what was reproduced; explicit entries are additionally checked against the
+  expression the package declares today, so a stale or mistyped one fails
+  instead of applying a choice never offered. The same check surfaced
+  `siphasher 1.0.2`, which packages a 281-byte pointer to two licences and
+  neither text — upstream publishes only that pointer as well — now covered by a
+  vendored MIT text carrying the copyright lines its own `COPYING` declares.
 - **MAESTRO-22 — three holes closed in the notice gate.** A `NOTICE` file alone
   satisfied the licence requirement, because it shared the prefix list with
   `LICENSE`; an Apache-2.0 notice is material clause 4(d) requires alongside the

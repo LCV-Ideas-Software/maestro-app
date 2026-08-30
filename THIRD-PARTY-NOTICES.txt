@@ -7,8 +7,8 @@ arquivo portatil.
 Componentes cobertos: 438
   npm .....................: 141
   cargo ...................: 297
-  texto do proprio artefato: 427
-  texto vendorizado .......: 11
+  texto do proprio artefato: 426
+  texto vendorizado .......: 12
 
 Dependencias de desenvolvimento nao constam: nao sao incorporadas ao executavel.
 Gerado por scripts/generate-notices.mjs a partir de package-lock.json e de
@@ -16846,7 +16846,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 dunce 1.0.5  (cargo)
 Licenca declarada: CC0-1.0 OR MIT-0 OR Apache-2.0
-Licenca eleita: Apache-2.0 (ordem de preferencia da politica)
+Licenca eleita: CC0-1.0 (registrada na politica)
 
 --- LICENSE ---
 
@@ -41634,17 +41634,58 @@ SOFTWARE.
 
 siphasher 1.0.2  (cargo)
 Licenca declarada: MIT/Apache-2.0
-Licenca eleita: MIT (ordem de preferencia da politica)
+Licenca eleita: MIT (registrada na politica)
+Origem do texto: https://github.com/jedisct1/rust-siphash @ db8172048a1c9bdef0dcec782d965c236161af13
+Motivo do texto vendorizado: O crate empacota apenas um COPYING de 281 bytes que APONTA para LICENSE-APACHE e LICENSE-MIT sem incluir nenhum dos dois, e no commit fixado o repositorio de origem tambem so publica esse mesmo ponteiro. Ponteiro nao cumpre a exigencia de reproduzir o texto na distribuicao. Texto canonico da MIT obtido da SPDX, precedido das linhas de copyright que o COPYING declara.
 
---- COPYING ---
+--- scripts/legal/siphasher-mit.txt ---
+
+Aplica-se a: siphasher 1.0.2
+Licenca declarada em Cargo.toml: MIT/Apache-2.0
+Alcance: dependencia transitiva no grafo Rust distribuido
+Origem: https://github.com/jedisct1/rust-siphash
+Commit inspecionado: db8172048a1c9bdef0dcec782d965c236161af13
+
+O UPSTREAM PUBLICA APENAS UM PONTEIRO, NAO O TEXTO. Verificado em 30/08/2026:
+o crate empacota somente um arquivo COPYING de 281 bytes que remete a
+LICENSE-APACHE e LICENSE-MIT, e nenhum dos dois acompanha o pacote. No commit
+acima o repositorio de origem tambem nao publica LICENSE-MIT, LICENSE-APACHE
+nem LICENSE: so o mesmo COPYING.
+
+Um ponteiro nao cumpre a exigencia da MIT de reproduzir o texto e o aviso de
+copyright na distribuicao. Elege-se MIT, primeira da ordem de preferencia entre
+as duas oferecidas, e reproduz-se abaixo o texto canonico obtido da fonte
+oficial SPDX (https://spdx.org/licenses/MIT.json), precedido das linhas de
+copyright que o proprio COPYING declara, transcritas sem alteracao:
+
+  Copyright 2012-2016 The Rust Project Developers.
+  Copyright 2016-2026 Frank Denis.
+
+Este e um registro tecnico de compliance; nao constitui parecer juridico.
+
+------------------------------------------------------------------------
 
 Copyright 2012-2016 The Rust Project Developers.
 Copyright 2016-2026 Frank Denis.
 
-Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-<LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-option.
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 

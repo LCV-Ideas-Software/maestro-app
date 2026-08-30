@@ -94,10 +94,85 @@ export const POLICY = Object.freeze({
     "CC0-1.0",
   ]),
 
+  // Corroboracao da eleicao pelo texto efetivamente reproduzido.
+  //
+  // Eleger uma licenca cujo texto nao acompanha o artefato produz uma afirmacao
+  // falsa: o arquivo diria que Apache-2.0 foi eleita enquanto reproduz o texto
+  // da CC0. Cada identificador elegivel declara aqui um trecho caracteristico
+  // do seu proprio texto, e a eleicao so vale se ao menos um deles aparecer no
+  // que foi reproduzido.
+  //
+  // Isto nao e deteccao de licenca: e uma tabela declarada e auditavel. Um
+  // identificador sem marcador nao pode ser eleito, e o gate diz isso em vez de
+  // aceitar em silencio.
+  licenseTextMarkers: Object.freeze({
+    MIT: Object.freeze([
+      "Permission is hereby granted, free of charge",
+    ]),
+    "MIT-0": Object.freeze([
+      "Permission is hereby granted, free of charge",
+    ]),
+    // Precisa ser frase que so existe no CORPO da licenca. "Apache License" e
+    // a URL aparecem tambem em arquivos que apenas APONTAM para a licenca sem
+    // reproduzi-la, e aceitar isso faria o gate corroborar um ponteiro.
+    "Apache-2.0": Object.freeze([
+      "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION",
+    ]),
+    "BSD-2-Clause": Object.freeze([
+      "Redistributions of source code must retain the above copyright notice",
+    ]),
+    "BSD-3-Clause": Object.freeze([
+      "Neither the name of",
+    ]),
+    ISC: Object.freeze([
+      "Permission to use, copy, modify, and/or distribute this software",
+    ]),
+    "0BSD": Object.freeze([
+      "Permission to use, copy, modify, and/or distribute this software",
+    ]),
+    "CC0-1.0": Object.freeze([
+      "CC0 1.0 Universal",
+      "Creative Commons Legal Code",
+    ]),
+    "Unicode-3.0": Object.freeze([
+      "UNICODE LICENSE",
+      "Unicode",
+    ]),
+    Unlicense: Object.freeze([
+      "This is free and unencumbered software released into the public domain",
+    ]),
+    Zlib: Object.freeze([
+      "This software is provided 'as-is'",
+      "altered source versions must be plainly marked",
+    ]),
+    "MPL-2.0": Object.freeze([
+      "Mozilla Public License",
+    ]),
+    "BSL-1.0": Object.freeze([
+      "Boost Software License",
+    ]),
+  }),
+
   // Eleicoes explicitas, por `<nome>@<versao>`. Necessarias para toda expressao
   // que nao seja uma das duas formas triviais. Fixar a versao impede que a
   // decisao sobreviva em silencio a uma atualizacao de dependencia.
+  //
+  // `expression` e conferida contra o que o pacote declara: entrada obsoleta ou
+  // com erro de digitacao reprova em vez de aplicar uma escolha que o pacote
+  // nunca ofereceu.
   licenseElections: Object.freeze({
+    "siphasher@1.0.2": Object.freeze({
+      expression: "MIT/Apache-2.0",
+      elected: "MIT",
+      rationale:
+        "O crate nao reproduz nenhuma das duas licencas, so um ponteiro para elas, e o upstream tambem nao. Elege-se MIT, primeira da ordem de preferencia entre as oferecidas, com o texto vendorizado em scripts/legal/siphasher-mit.txt.",
+    }),
+    "dunce@1.0.5": Object.freeze({
+      expression: "CC0-1.0 OR MIT-0 OR Apache-2.0",
+      elected: "CC0-1.0",
+      rationale:
+        "A ordem de preferencia elegeria Apache-2.0, mas o crate empacota um unico LICENSE, e o texto nele e o da CC0-1.0. Eleger uma licenca cujo texto nao acompanha o artefato produziria afirmacao falsa; elege-se a que esta efetivamente reproduzida.",
+    }),
     "dompurify@3.4.14": Object.freeze({
       expression: "(MPL-2.0 OR Apache-2.0)",
       elected: "Apache-2.0",
@@ -138,6 +213,10 @@ export const POLICY = Object.freeze({
       path: "scripts/legal/selectors-mpl-2.0.txt",
       sha256: "23018b646001457ad9dc56311bd3d63cdf23d8e4a3e7822419ab5dc532b7a043",
     }),
+    siphasherMit: Object.freeze({
+      path: "scripts/legal/siphasher-mit.txt",
+      sha256: "79c66f20755bf42f245b6d06c531c4b03788a0af0a00064ffa4af82fd968f8d9",
+    }),
     isarrayMit: Object.freeze({
       path: "scripts/legal/isarray-mit.txt",
       sha256: "f55049a90ff1d58d3ce9c2cdda21ee3b07d4cba4715448ae96e24736345f3e83",
@@ -152,6 +231,21 @@ export const POLICY = Object.freeze({
   // `<nome>@<versao>`: fixar a versao impede que a excecao sobreviva em
   // silencio a uma atualizacao de dependencia.
   licenseFallbacks: Object.freeze({
+    "siphasher@1.0.2": Object.freeze({
+      ecosystem: "cargo",
+      license: "MIT/Apache-2.0",
+      fragments: Object.freeze(["siphasherMit"]),
+      sourceRepository: "https://github.com/jedisct1/rust-siphash",
+      revision: "db8172048a1c9bdef0dcec782d965c236161af13",
+      revisionSource: ".cargo_vcs_info.json",
+      licensePaths: Object.freeze([]),
+      copyrightHolder:
+        "The Rust Project Developers (2012-2016); Frank Denis (2016-2026)",
+      copyrightBasis:
+        "Linhas de copyright transcritas do arquivo COPYING publicado pelo proprio crate.",
+      rationale:
+        "O crate empacota apenas um COPYING de 281 bytes que APONTA para LICENSE-APACHE e LICENSE-MIT sem incluir nenhum dos dois, e no commit fixado o repositorio de origem tambem so publica esse mesmo ponteiro. Ponteiro nao cumpre a exigencia de reproduzir o texto na distribuicao. Texto canonico da MIT obtido da SPDX, precedido das linhas de copyright que o COPYING declara.",
+    }),
     "isarray@1.0.0": Object.freeze({
       ecosystem: "npm",
       license: "MIT",
