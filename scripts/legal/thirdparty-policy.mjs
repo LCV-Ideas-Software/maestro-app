@@ -84,12 +84,12 @@ export const POLICY = Object.freeze({
   // as obrigacoes assumidas. Sem registro, nada impede que uma dependencia nova
   // passe a oferecer escolha sem que ninguem decida qual foi tomada.
   //
-  // A eleicao automatica so vale para as duas formas inequivocas: uma disjuncao
-  // plana (`A OR B OR C`) e a forma legada do Cargo (`A/B`, com ou sem espacos
-  // ao redor da barra). Qualquer outra expressao — com parenteses, com AND, com
-  // WITH — precisa de entrada em `licenseElections`, senao o gate reprova. Nao
-  // ha aqui um parser de SPDX escrito a mao: formas nao triviais nao sao
-  // interpretadas, sao recusadas.
+  // A arvore completa e analisada pelo parser SPDX oficial usado pelo npm. A
+  // eleicao automatica so ocorre quando UM identificador desta ordem satisfaz a
+  // expressao inteira sozinho e o corpo correspondente acompanha o artefato.
+  // Parenteses nao mudam essa regra; AND, WITH e `+` permanecem semanticamente
+  // distintos. Quando nenhuma folha preferida basta, `licenseElections` precisa
+  // registrar a escolha completa e o gate valida todas as folhas oferecidas.
   // So entram aqui identificadores cujo texto e distinguivel dos demais por um
   // marcador proprio. MIT-0 e 0BSD ficaram DE FORA de proposito: o texto deles
   // difere de MIT e de ISC por uma clausula que o outro tem e eles nao, e
@@ -152,9 +152,10 @@ export const POLICY = Object.freeze({
       "CC0 1.0 Universal",
       "Creative Commons Legal Code",
     ]),
+    // Titulo, identificador e URL podem existir num arquivo que apenas aponta
+    // para a licenca. Esta frase pertence ao corpo concessivo da Unicode-3.0.
     "Unicode-3.0": Object.freeze([
-      "UNICODE LICENSE",
-      "Unicode",
+      "Permission is hereby granted, free of charge, to any person obtaining a copy of data files",
     ]),
     Unlicense: Object.freeze([
       "This is free and unencumbered software released into the public domain",
@@ -190,9 +191,10 @@ export const POLICY = Object.freeze({
     }),
   }),
 
-  // Eleicoes explicitas, por `<nome>@<versao>`. Necessarias para toda expressao
-  // que nao seja uma das duas formas triviais. Fixar a versao impede que a
-  // decisao sobreviva em silencio a uma atualizacao de dependencia.
+  // Eleicoes explicitas, por `<nome>@<versao>`. Necessarias quando nenhuma
+  // licenca preferida satisfaz sozinha a arvore completa ou quando uma decisao
+  // auditada deve prevalecer sobre a preferencia automatica. Fixar a versao
+  // impede que a decisao sobreviva em silencio a uma atualizacao de dependencia.
   //
   // `expression` e conferida contra o que o pacote declara: entrada obsoleta ou
   // com erro de digitacao reprova em vez de aplicar uma escolha que o pacote
@@ -258,13 +260,13 @@ export const POLICY = Object.freeze({
       expression: "(MPL-2.0 OR Apache-2.0)",
       elected: "Apache-2.0",
       rationale:
-        "A expressao vem entre parenteses e portanto nao e eleita automaticamente. Elege-se Apache-2.0: e permissiva e evita as obrigacoes de arquivo da MPL-2.0 sobre um componente que e embutido no bundle distribuido.",
+        "Elege-se explicitamente Apache-2.0: e permissiva e evita as obrigacoes de arquivo da MPL-2.0 sobre um componente que e embutido no bundle distribuido. O registro fixa a decisao auditada mesmo que a ordem automatica mude.",
     }),
     "jszip@3.10.1": Object.freeze({
       expression: "(MIT OR GPL-3.0-or-later)",
       elected: "MIT",
       rationale:
-        "A expressao vem entre parenteses e portanto nao e eleita automaticamente. Elege-se MIT por ser a opcao permissiva: nao acrescenta obrigacao reciproca ao trabalho combinado nem estende termos de copyleft a quem recebe o executavel.",
+        "Elege-se explicitamente MIT por ser a opcao permissiva: nao acrescenta obrigacao reciproca ao trabalho combinado nem estende termos de copyleft a quem recebe o executavel. O registro fixa a decisao auditada mesmo que a ordem automatica mude.",
       correction:
         "Uma versao anterior desta justificativa afirmava que a aplicacao e proprietaria e que GPL-3.0-or-later seria incompativel. As duas afirmacoes sao falsas. Este repositorio e AGPL-3.0-or-later, e a secao 13 do LICENSE empacotado (linha 540, 'Remote Network Interaction; Use with the GNU General Public License') permite expressamente a combinacao com GPLv3. A eleicao de MIT permanece, mas pelo motivo correto acima, nao por incompatibilidade inexistente.",
     }),

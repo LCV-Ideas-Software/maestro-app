@@ -25,12 +25,17 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Implementacao de referencia da jslicense, a mesma que o npm usa para validar
-// o campo `license`. Dependencia de desenvolvimento: roda no gate, nao vai
-// para o executavel distribuido.
-import spdxParse from "spdx-expression-parse";
-
 import { POLICY } from "./legal/thirdparty-policy.mjs";
+import {
+  analisarExpressao,
+  componentesCargoDaMetadata,
+  corroboradas,
+  folhasDaExpressao,
+  plataformaExcluida,
+  resolverMetaNpm,
+  satisfaz,
+  validarEleicao,
+} from "./legal/thirdparty-runtime.mjs";
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MODO_CHECK = process.argv.includes("--check");
@@ -178,35 +183,6 @@ function textoDeLicencaNoDiretorio(dir) {
 // cabecalho do arquivo gerado.
 let plataformaExcluidos = [];
 
-// npm documenta `os`, `cpu` e `libc` como restricoes de plataforma. Um pacote
-// restrito a outra plataforma nao e instalado e nao pode estar no artefato, e
-// exigi-lo faria o gate reprovar por uma ausencia legitima.
-//
-// A referencia e a plataforma do ARTEFATO declarada na politica, nao a da
-// maquina que executa: filtrar pelo host faria o conjunto de avisos mudar
-// conforme onde o comando roda.
-function plataformaExcluida(meta) {
-  // `semValorReprova`: quando o pacote restringe um atributo que o alvo NAO
-  // tem — `libc` num alvo Windows —, o npm o trata como incompativel e nao o
-  // instala (npm-install-checks: `libcOk = false` quando `target.libc` existe
-  // e a libc corrente e desconhecida). Aceita-lo aqui faria o gate exigir um
-  // artefato que o proprio npm, corretamente, deixou de fora.
-  const casa = (lista, atual, semValorReprova) => {
-    if (!Array.isArray(lista) || !lista.length) return true;
-    if (atual === null || atual === undefined) return !semValorReprova;
-    const negados = lista.filter((v) => v.startsWith("!")).map((v) => v.slice(1));
-    const permitidos = lista.filter((v) => !v.startsWith("!"));
-    if (negados.includes(atual)) return false;
-    return permitidos.length === 0 || permitidos.includes(atual);
-  };
-  const alvo = POLICY.scope.npm;
-  return (
-    !casa(meta.os, alvo.targetOs, false) ||
-    !casa(meta.cpu, alvo.targetCpu, false) ||
-    !casa(meta.libc, alvo.targetLibc, true)
-  );
-}
-
 function componentesNpm() {
   const lock = JSON.parse(readFileSync(resolve(RAIZ, "package-lock.json"), "utf8"));
 
@@ -268,27 +244,23 @@ function componentesNpm() {
       if (devNaRaiz.has(nomeLink) && !producaoNaRaiz.has(nomeLink)) continue;
     }
 
-    if (plataformaExcluida(metaOriginal)) {
-      excluidosPorPlataforma.push(nomeDaChaveDoLock(chave));
-      continue;
-    }
-
     // Uma entrada com `link: true` (dependencia `file:` ou de workspace) nao
     // carrega versao nem licenca: esses metadados vivem na entrada alvo. Pular
     // por ausencia de versao faria o componente sumir dos avisos sem que o
     // gate reclamasse, que e exatamente o oposto de fechar em falha.
-    let meta = metaOriginal;
-    if (metaOriginal.link === true) {
-      const alvo = metaOriginal.resolved
-        ? lock.packages[metaOriginal.resolved]
-        : null;
-      if (!alvo) {
-        naoResolvidos.push(
-          `${chave}: entrada com link nao resolvida (resolved=${metaOriginal.resolved ?? "ausente"})`,
-        );
-        continue;
-      }
-      meta = { ...alvo, name: alvo.name || metaOriginal.name };
+    const resolvida = resolverMetaNpm(lock.packages, chave, metaOriginal);
+    if (resolvida.erro) {
+      naoResolvidos.push(resolvida.erro);
+      continue;
+    }
+    const { meta, origemDaIdentidade } = resolvida;
+
+    // Usa a implementacao oficial que o proprio npm aplica a `os`, `cpu` e
+    // `libc`. A conferencia ocorre DEPOIS de resolver um link: as restricoes
+    // pertencem ao pacote efetivo, nao ao apontador sem metadados.
+    if (plataformaExcluida(meta, POLICY.scope.npm)) {
+      excluidosPorPlataforma.push(meta.name || nomeDaChaveDoLock(chave));
+      continue;
     }
 
     const nome = meta.name || nomeDaChaveDoLock(chave);
@@ -314,8 +286,6 @@ function componentesNpm() {
     // do alvo: a entrada-alvo de um pacote de workspace nao tem `resolved`, e
     // dois links para alvos diferentes de mesmo nome e versao colapsariam num
     // componente so. Fora de link, `metaOriginal` e o proprio `meta`.
-    const origemDaIdentidade =
-      metaOriginal.link === true ? metaOriginal.resolved : meta.resolved;
     const identidade = `${id}|${origemDaIdentidade ?? ""}`;
     if (vistos.has(identidade)) continue;
     vistos.add(identidade);
@@ -352,62 +322,10 @@ function componentesNpm() {
 // Quando um componente oferece mais de uma licenca, e a eleicao que determina
 // as obrigacoes assumidas.
 //
-// A expressao NAO e interpretada aqui a mao. Ela e analisada por
-// `spdx-expression-parse`, a implementacao de referencia da jslicense, a mesma
-// que o npm usa para validar o campo `license`. Tres rodadas de revisao sobre
-// divisao de string por `OR`/`AND` mostraram o que a diretriz da frota ja dizia:
-// gramatica de especificacao nao se implementa a mao. Com a arvore em maos, o
-// que antes era heuristica vira calculo exato.
-const normalizarBarraLegada = (expressao) =>
-  expressao.includes("/") ? expressao.split("/").map((t) => t.trim()).join(" OR ") : expressao;
-
-// A forma legada do Cargo (`MIT/Apache-2.0`) e uma disjuncao e o proprio Cargo
-// a documenta como equivalente a `OR`, mas nao e SPDX valido. Normaliza-se
-// antes de analisar. Nao ha excecao para URL: uma URL tambem nao e expressao
-// SPDX valida e cai na mesma falha de analise, que e o tratamento correto.
-function analisarExpressao(expressao) {
-  try {
-    return { ast: spdxParse(normalizarBarraLegada(expressao.trim())) };
-  } catch (erro) {
-    return { erro: erro.message };
-  }
-}
-
-// Uma folha e uma licenca — com a excecao acoplada, quando ha `WITH`, porque
-// `Apache-2.0 WITH LLVM-exception` e uma unica licenca efetiva, nao duas; e com
-// o modificador `+` preservado, porque `GPL-2.0+` ("ou posterior") e um termo
-// juridicamente distinto de `GPL-2.0`, e o parser o representa a parte.
-const folhaComoTexto = (no) =>
-  `${no.license}${no.plus ? "+" : ""}${no.exception ? ` WITH ${no.exception}` : ""}`;
-
-function folhasDaExpressao(no) {
-  if (no.license) return [folhaComoTexto(no)];
-  return [...folhasDaExpressao(no.left), ...folhasDaExpressao(no.right)];
-}
-
-// Obrigatoria e a licenca presente em TODA atribuicao que satisfaz a expressao.
-// Uniao sob `AND`, intersecao sob `OR`. Isso resolve exatamente o caso misto
-// `(MIT OR Apache-2.0) AND Unicode-3.0`, em que a Unicode-3.0 e obrigatoria e a
-// escolha entre as outras duas e livre — que a divisao por string nao decidia.
-function licencasObrigatorias(no) {
-  if (no.license) return new Set([folhaComoTexto(no)]);
-  const esquerda = licencasObrigatorias(no.left);
-  const direita = licencasObrigatorias(no.right);
-  return no.conjunction === "and"
-    ? new Set([...esquerda, ...direita])
-    : new Set([...esquerda].filter((l) => direita.has(l)));
-}
-
-// Um conjunto de licencas satisfaz a expressao? Esta unica pergunta substitui
-// as tres conferencias anteriores: que a eleita e oferecida, que ela cobre todo
-// termo obrigatorio, e que a escolha e legitima. Uma atribuicao que satisfaz a
-// expressao contem os obrigatorios por construcao.
-function satisfaz(no, escolhidas) {
-  if (no.license) return escolhidas.has(folhaComoTexto(no));
-  return no.conjunction === "and"
-    ? satisfaz(no.left, escolhidas) && satisfaz(no.right, escolhidas)
-    : satisfaz(no.left, escolhidas) || satisfaz(no.right, escolhidas);
-}
+// A expressao NAO e interpretada aqui a mao. A analise, as folhas e o
+// predicado de satisfacao vem do modulo compartilhado que usa
+// `spdx-expression-parse`, a implementacao de referencia da jslicense. Os
+// testes chamam essas mesmas funcoes de producao, inclusive para `WITH` e `+`.
 
 // A licenca eleita precisa estar efetivamente reproduzida no artefato. Sem
 // isso, o arquivo pode afirmar Apache-2.0 enquanto reproduz o texto da CC0.
@@ -420,37 +338,6 @@ function satisfaz(no, escolhidas) {
 // diferencas tipograficas, nao juridicas, e sao normalizadas dos dois lados
 // antes de comparar. A normalizacao so remove; nunca insere texto que o arquivo
 // nao tenha.
-const normalizarParaComparar = (t) =>
-  t
-    .split("\n")
-    .map((l) => l.replace(/^\s*(?:\/\/+|#+|\*+)\s?/u, ""))
-    .join("\n")
-    .replace(/\s+/gu, " ")
-    .trim()
-    .toLowerCase();
-
-function corroboradas(licencas, textos) {
-  const corpo = normalizarParaComparar(textos.map((t) => t.texto).join("\n"));
-  for (const termo of licencas) {
-    const marcadores = POLICY.licenseTextMarkers[termo];
-    if (!marcadores) return { ok: false, motivo: `sem marcador declarado para ${termo}` };
-    if (!marcadores.some((m) => corpo.includes(normalizarParaComparar(m)))) {
-      return {
-        ok: false,
-        motivo: `nenhum marcador de ${termo} aparece no texto reproduzido`,
-      };
-    }
-  }
-  return { ok: true };
-}
-
-// A eleicao registrada e escrita como expressao (`MIT AND Unicode-3.0`); as
-// licencas efetivamente assumidas sao as folhas dela.
-function licencasDaEleicao(elected) {
-  const { ast, erro } = analisarExpressao(elected);
-  return erro ? { erro } : { licencas: new Set(folhasDaExpressao(ast)) };
-}
-
 function elegerLicencas(componentes) {
   const pendentes = [];
   for (const c of componentes) {
@@ -492,10 +379,10 @@ function elegerLicencas(componentes) {
         pendentes.push(`${c.id}: entrada em licenseElections sem \`elected\` utilizavel`);
         continue;
       }
-      const eleitas = licencasDaEleicao(explicita.elected);
-      if (eleitas.erro) {
+      const validacao = validarEleicao(c.licencaDeclarada, explicita.elected);
+      if (validacao.tipo === "eleicao-invalida") {
         pendentes.push(
-          `${c.id}: a eleicao registrada "${explicita.elected}" nao e expressao SPDX valida (${eleitas.erro})`,
+          `${c.id}: a eleicao registrada "${explicita.elected}" nao e expressao SPDX valida (${validacao.erro})`,
         );
         continue;
       }
@@ -503,25 +390,32 @@ function elegerLicencas(componentes) {
       // fora, mas NAO que todo termo eleito foi oferecido: "MIT OR Zlib" eleito
       // para "MIT OR Apache-2.0" satisfaz pela MIT e ainda assim publicaria a
       // Zlib, que o pacote nunca ofereceu. As duas conferencias sao distintas.
-      const oferecidas = new Set(folhas);
-      const forasteiras = [...eleitas.licencas].filter((l) => !oferecidas.has(l));
-      if (forasteiras.length) {
+      if (validacao.tipo === "forasteiras") {
         pendentes.push(
-          `${c.id}: a eleicao registrada "${explicita.elected}" cita ${forasteiras.join(", ")}, que a expressao "${c.licencaDeclarada}" nao oferece`,
+          `${c.id}: a eleicao registrada "${explicita.elected}" cita ${validacao.forasteiras.join(", ")}, que a expressao "${c.licencaDeclarada}" nao oferece`,
         );
         continue;
       }
-      if (!satisfaz(ast, eleitas.licencas)) {
-        const obrigatorias = [...licencasObrigatorias(ast)];
+      if (validacao.tipo === "nao-satisfaz") {
         pendentes.push(
           `${c.id}: a eleicao registrada "${explicita.elected}" nao satisfaz "${c.licencaDeclarada}"` +
-            (obrigatorias.length
-              ? `; a expressao exige ${obrigatorias.join(", ")} em qualquer escolha`
+            (validacao.obrigatorias.length
+              ? `; a expressao exige ${validacao.obrigatorias.join(", ")} em qualquer escolha`
               : ""),
         );
         continue;
       }
-      const corr = corroboradas(eleitas.licencas, c.textos || []);
+      if (!validacao.ok) {
+        pendentes.push(
+          `${c.id}: a eleicao registrada "${explicita.elected}" nao pode ser validada (${validacao.erro ?? validacao.tipo})`,
+        );
+        continue;
+      }
+      const corr = corroboradas(
+        validacao.licencas,
+        c.textos || [],
+        POLICY.licenseTextMarkers,
+      );
       if (!corr.ok) {
         pendentes.push(
           `${c.id}: eleicao registrada de ${explicita.elected} nao se sustenta — ${corr.motivo}`,
@@ -542,7 +436,7 @@ function elegerLicencas(componentes) {
       (p) =>
         folhas.includes(p) &&
         satisfaz(ast, new Set([p])) &&
-        corroboradas([p], c.textos || []).ok,
+        corroboradas([p], c.textos || [], POLICY.licenseTextMarkers).ok,
     );
     if (!eleita) {
       pendentes.push(
@@ -581,54 +475,21 @@ function componentesCargo() {
     }),
   );
 
-  const porId = new Map(meta.packages.map((p) => [p.id, p]));
-  const nos = new Map((meta.resolve?.nodes || []).map((n) => [n.id, n]));
-  const raizId = meta.resolve?.root;
-  const kinds = new Set(POLICY.scope.cargo.includedDependencyKinds);
-
-  const alcancados = new Set();
-  const fila = [raizId];
-  while (fila.length) {
-    const id = fila.pop();
-    if (!id || alcancados.has(id)) continue;
-    alcancados.add(id);
-    for (const d of nos.get(id)?.deps || []) {
-      const normal = (d.dep_kinds || []).some((k) => kinds.has(k.kind ?? null));
-      if (normal) fila.push(d.pkg);
-    }
+  // Cargo ja informa o manifesto ABSOLUTO do pacote exato que resolveu. Usa-lo
+  // evita confundir uma dependencia git/path com uma crate de mesmo nome e
+  // versao encontrada no cache do registro. Dependencias path (`source: null`)
+  // tambem permanecem no universo e so sao aceitas quando vivem nesta ilha.
+  const resultado = componentesCargoDaMetadata(meta, {
+    includedDependencyKinds: POLICY.scope.cargo.includedDependencyKinds,
+    repositoryRoot: RAIZ,
+  });
+  if (resultado.erros.length) {
+    falhar(
+      "Pacotes de cargo metadata que nao puderam ser associados ao artefato exato:",
+      resultado.erros,
+    );
   }
-  alcancados.delete(raizId);
-
-  const base = join(
-    process.env.CARGO_HOME || join(process.env.USERPROFILE || process.env.HOME || "", ".cargo"),
-    "registry",
-    "src",
-  );
-  const indices = existsSync(base) ? readdirSync(base) : [];
-
-  const saida = [];
-  for (const id of alcancados) {
-    const p = porId.get(id);
-    if (!p || !p.source) continue;
-    let diretorio = null;
-    for (const idx of indices) {
-      const cand = join(base, idx, `${p.name}-${p.version}`);
-      if (existsSync(cand)) {
-        diretorio = cand;
-        break;
-      }
-    }
-    saida.push({
-      ecossistema: "cargo",
-      nome: p.name,
-      versao: p.version,
-      id: `${p.name}@${p.version}`,
-      licencaDeclarada: p.license || null,
-      origemPacote: p.source || null,
-      diretorio,
-    });
-  }
-  return saida.sort((a, b) => a.id.localeCompare(b.id));
+  return resultado.componentes;
 }
 
 // ------------------------------------------------------------------ montagem
@@ -764,7 +625,11 @@ function corroborarLicencaUnica(componentes) {
     // Sem marcador declarado nao se afirma nem se nega nada — e por isso o
     // componente para o gate, em vez de passar por omissao. Ou alguem declara
     // o marcador, ou registra a inspecao manual acima.
-    const corr = corroboradas(folhas, c.textos || []);
+    const corr = corroboradas(
+      folhas,
+      c.textos || [],
+      POLICY.licenseTextMarkers,
+    );
     if (!corr.ok) {
       pendentes.push(
         corr.motivo.startsWith("sem marcador")

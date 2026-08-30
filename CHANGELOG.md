@@ -6,6 +6,15 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Changed
 
+- **MAESTRO-22 — notice scope now follows the package managers' exact
+  resolution.** npm platform restrictions use the official
+  `npm-install-checks` implementation after resolving linked packages, including
+  npm's `any`, negation and Windows `libc` semantics. Cargo license text is read
+  from each resolved package's absolute `manifest_path`, so path and git
+  dependencies cannot disappear or inherit a same-name registry crate's text.
+  SPDX election tests now execute the production parser and preserve `+`, reject
+  extra leaves, and require a phrase from the Unicode-3.0 licence body rather
+  than accepting a title or URL pointer.
 - **MAESTRO-23 — an election can no longer contradict the text it ships with.**
   Electing a licence whose text does not accompany the artefact turns the notice
   file into a false statement, and `dunce 1.0.5` was exactly that: it offers
@@ -24,10 +33,11 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   licence, not the licence text, so the two lists are now separate and a
   supplementary file never suffices on its own. Nothing required an election
   when a component offers a choice of licence, so the policy now declares a
-  preference order, elects from it for the two unambiguous shapes — a flat
-  disjunction and Cargo's legacy form — and refuses every other expression until
-  an explicit election is recorded; 214 distributed components offer a choice,
-  and the elected licence is printed beside each. Lockfile entries with
+  preference order and evaluates the complete official SPDX syntax tree. A
+  preferred leaf is automatic only when it alone satisfies the whole expression;
+  otherwise the complete choice must be recorded explicitly. The elected
+  licence is printed beside each of the 214 distributed components that offer a
+  choice. Lockfile entries with
   `link: true` carry their version and licence on the target entry, so skipping
   them for having no version made a distributed component vanish from the
   notices silently; linked entries now resolve, and an unresolvable one fails by

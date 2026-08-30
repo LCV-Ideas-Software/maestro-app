@@ -60,6 +60,7 @@ declared explicitly in this inventory and in the fail-closed verifier.
 | @types/react-dom | 19.2.4 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
 | @vitejs/plugin-react | 6.1.0 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
 | jsdom | 30.0.1 | MIT | development | No | https://www.npmjs.com/package/jsdom |
+| npm-install-checks | 8.0.0 | BSD-2-Clause | development | No | https://www.npmjs.com/package/npm-install-checks |
 | prettier | 3.9.6 | MIT | development | No | https://www.npmjs.com/package/prettier |
 | spdx-expression-parse | 5.0.0 | MIT | development | No | https://www.npmjs.com/package/spdx-expression-parse |
 | typescript | 7.0.2 | Apache-2.0 | development | No | https://www.npmjs.com/package/typescript |

@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
-import spdxParse from "spdx-expression-parse";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
+import {
+  componentesCargoDaMetadata,
+  corroboradas,
+  plataformaExcluida,
+  resolverMetaNpm,
+  validarEleicao,
+} from "./legal/thirdparty-runtime.mjs";
 import { verifyThirdPartyInventory } from "./verify-thirdparty.mjs";
 
 const packageJson = {
@@ -701,32 +707,212 @@ test("every explicit licence election records what was chosen and why", async ()
     assert.ok(eleicao.expression, `${id} must record the expression it resolves`);
     assert.ok(eleicao.elected, `${id} must record the elected licence`);
     assert.ok(eleicao.rationale, `${id} must record why that licence was chosen`);
-    // The obligations an expression imposes are DERIVED from its syntax tree,
-    // never declared by hand: a licence is mandatory when it appears in every
-    // assignment that satisfies the expression. This asserts the recorded
-    // election is one of those assignments, which is the same predicate the
-    // generator uses and subsumes "elected is offered" and "elected covers
-    // every mandatory conjunct".
-    const barraLegada = (e) =>
-      e.includes("/") ? e.split("/").map((t) => t.trim()).join(" OR ") : e;
-    const folhas = (n) =>
-      n.license
-        ? [n.exception ? `${n.license} WITH ${n.exception}` : n.license]
-        : [...folhas(n.left), ...folhas(n.right)];
-    const satisfaz = (n, escolhidas) =>
-      n.license
-        ? escolhidas.has(n.exception ? `${n.license} WITH ${n.exception}` : n.license)
-        : n.conjunction === "and"
-          ? satisfaz(n.left, escolhidas) && satisfaz(n.right, escolhidas)
-          : satisfaz(n.left, escolhidas) || satisfaz(n.right, escolhidas);
-
-    const ast = spdxParse(barraLegada(eleicao.expression));
-    const eleitas = new Set(folhas(spdxParse(barraLegada(eleicao.elected))));
+    // This is the production predicate, not a test-side reimplementation: it
+    // checks both satisfiability and that every elected leaf was offered.
     assert.ok(
-      satisfaz(ast, eleitas),
+      validarEleicao(eleicao.expression, eleicao.elected).ok,
       `${id}: the election "${eleicao.elected}" does not satisfy "${eleicao.expression}"`,
     );
   }
+});
+
+test("production election validation rejects foreign leaves and preserves GPL plus", () => {
+  const forasteira = validarEleicao("MIT OR Apache-2.0", "MIT OR Zlib");
+  assert.equal(forasteira.ok, false);
+  assert.equal(forasteira.tipo, "forasteiras");
+  assert.deepEqual(forasteira.forasteiras, ["Zlib"]);
+
+  const perdeuOuPosterior = validarEleicao("GPL-2.0+", "GPL-2.0");
+  assert.equal(perdeuOuPosterior.ok, false);
+  assert.equal(perdeuOuPosterior.tipo, "forasteiras");
+  assert.deepEqual(perdeuOuPosterior.forasteiras, ["GPL-2.0"]);
+  assert.equal(validarEleicao("GPL-2.0+", "GPL-2.0+").ok, true);
+});
+
+test("official npm platform semantics cover any, negation, libc and linked targets", () => {
+  const alvo = { targetOs: "win32", targetCpu: "x64", targetLibc: null };
+  assert.equal(plataformaExcluida({ os: ["any"] }, alvo), false);
+  assert.equal(plataformaExcluida({ cpu: ["any"] }, alvo), false);
+  assert.equal(plataformaExcluida({ os: "linux" }, alvo), true);
+  assert.equal(plataformaExcluida({ os: ["!linux"] }, alvo), false);
+  assert.equal(plataformaExcluida({ os: ["win32"], cpu: ["x64"] }, alvo), false);
+  assert.equal(plataformaExcluida({ libc: ["glibc"] }, alvo), true);
+
+  const packages = {
+    "node_modules/local": { link: true, resolved: "packages/local" },
+    "packages/local": {
+      name: "local",
+      version: "1.0.0",
+      os: ["linux"],
+    },
+  };
+  const resolvida = resolverMetaNpm(
+    packages,
+    "node_modules/local",
+    packages["node_modules/local"],
+  );
+  assert.equal(resolvida.erro, undefined);
+  assert.equal(resolvida.origemDaIdentidade, "packages/local");
+  assert.equal(plataformaExcluida(resolvida.meta, alvo), true);
+
+  const quebrada = resolverMetaNpm(
+    { "node_modules/missing": { link: true, resolved: "packages/missing" } },
+    "node_modules/missing",
+    { link: true, resolved: "packages/missing" },
+  );
+  assert.match(quebrada.erro, /node_modules\/missing.*packages\/missing/u);
+});
+
+test("Cargo components use each package exact manifest for path, git and registry", () => {
+  const raizId = "path+file:///repo/root#0.0.0";
+  const pathId = "path+file:///repo/vendor/local#1.0.0";
+  const gitId = "git+https://example.invalid/shared#1.0.0";
+  const registryId = "registry+https://github.com/rust-lang/crates.io-index#shared@1.0.0";
+  const pathManifest = resolve(repositoryRoot, "vendor/local/Cargo.toml");
+  const gitManifest = resolve(repositoryRoot, "..", "cargo-git", "shared", "Cargo.toml");
+  const registryManifest = resolve(
+    repositoryRoot,
+    "..",
+    "cargo-registry",
+    "shared-1.0.0",
+    "Cargo.toml",
+  );
+  const metadata = {
+    resolve: {
+      root: raizId,
+      nodes: [
+        {
+          id: raizId,
+          deps: [pathId, gitId, registryId].map((pkg) => ({
+            pkg,
+            dep_kinds: [{ kind: null }],
+          })),
+        },
+        { id: pathId, deps: [] },
+        { id: gitId, deps: [] },
+        { id: registryId, deps: [] },
+      ],
+    },
+    packages: [
+      {
+        id: raizId,
+        name: "root",
+        version: "0.0.0",
+        license: "AGPL-3.0-or-later",
+        source: null,
+        manifest_path: resolve(repositoryRoot, "src-tauri/Cargo.toml"),
+      },
+      {
+        id: pathId,
+        name: "local",
+        version: "1.0.0",
+        license: "MIT",
+        source: null,
+        manifest_path: pathManifest,
+      },
+      {
+        id: gitId,
+        name: "shared",
+        version: "1.0.0",
+        license: "MIT",
+        source: "git+https://example.invalid/shared#0123456789abcdef",
+        manifest_path: gitManifest,
+      },
+      {
+        id: registryId,
+        name: "shared",
+        version: "1.0.0",
+        license: "Apache-2.0",
+        source: "registry+https://github.com/rust-lang/crates.io-index",
+        manifest_path: registryManifest,
+      },
+    ],
+  };
+
+  const resultado = componentesCargoDaMetadata(metadata, {
+    includedDependencyKinds: [null],
+    repositoryRoot,
+  });
+  assert.deepEqual(resultado.erros, []);
+  const local = resultado.componentes.find((componente) => componente.nome === "local");
+  const compartilhados = resultado.componentes.filter(
+    (componente) => componente.nome === "shared",
+  );
+  assert.equal(local.origemPacote, "path:vendor/local");
+  assert.equal(local.diretorio, dirname(pathManifest));
+  assert.equal(compartilhados.length, 2);
+  assert.deepEqual(
+    new Set(compartilhados.map((componente) => componente.diretorio)),
+    new Set([dirname(gitManifest), dirname(registryManifest)]),
+  );
+  assert.equal(
+    compartilhados.find((componente) => componente.origemPacote.startsWith("git+")).diretorio,
+    dirname(gitManifest),
+  );
+});
+
+test("Cargo path dependencies outside the repository fail closed", () => {
+  const raizId = "root";
+  const foraId = "outside";
+  const resultado = componentesCargoDaMetadata(
+    {
+      resolve: {
+        root: raizId,
+        nodes: [
+          {
+            id: raizId,
+            deps: [{ pkg: foraId, dep_kinds: [{ kind: null }] }],
+          },
+          { id: foraId, deps: [] },
+        ],
+      },
+      packages: [
+        {
+          id: raizId,
+          name: "root",
+          version: "0.0.0",
+          source: null,
+          manifest_path: resolve(repositoryRoot, "src-tauri/Cargo.toml"),
+        },
+        {
+          id: foraId,
+          name: "outside",
+          version: "1.0.0",
+          license: "MIT",
+          source: null,
+          manifest_path: resolve(repositoryRoot, "..", "outside", "Cargo.toml"),
+        },
+      ],
+    },
+    { includedDependencyKinds: [null], repositoryRoot },
+  );
+  assert.equal(resultado.componentes.length, 0);
+  assert.match(resultado.erros[0], /dependencia path fora do repositorio/u);
+});
+
+test("Unicode corroboration requires licence body, not a title or URL pointer", async () => {
+  const { POLICY } = await import("./legal/thirdparty-policy.mjs");
+  assert.equal(
+    corroboradas(
+      ["Unicode-3.0"],
+      [{ texto: "Unicode-3.0: https://unicode.org/license.txt" }],
+      POLICY.licenseTextMarkers,
+    ).ok,
+    false,
+  );
+  assert.equal(
+    corroboradas(
+      ["Unicode-3.0"],
+      [
+        {
+          texto:
+            "// Permission is hereby granted, free of charge, to any person obtaining a copy of data files",
+        },
+      ],
+      POLICY.licenseTextMarkers,
+    ).ok,
+    true,
+  );
 });
 
 test("every declared supplement pins immutable provenance", async () => {
