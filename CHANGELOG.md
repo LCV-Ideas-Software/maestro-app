@@ -4,7 +4,7 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
-## [v0.5.59] - 2026-08-30
+## [v0.5.60] - 2026-08-30
 
 ### Changed
 
@@ -125,6 +125,16 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   visible instead of being converted into a successful run.
 - Agent guidance now names only the current `cross-review` service and exempts
   simple mechanical action replacements from a heavyweight cross-review gate.
+
+### Fixed
+
+- **MAESTRO-22 — release authorization no longer expires before normal Rust
+  gates.** The exact-SHA workflow poll now keeps its fail-closed five-second
+  checks for up to ten minutes and still proceeds immediately when every
+  required workflow succeeds, instead of abandoning publication after roughly
+  five minutes while valid CI and CodeQL Rust jobs are still running. Each
+  remote poll is bounded by the remaining wait budget, and results returned at
+  or after the deadline are rejected.
 
 ## [v0.5.58] - 2026-08-21
 
