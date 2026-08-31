@@ -6,6 +6,79 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Changed
 
+- **MAESTRO-23 — notice decisions now close three remaining identity gaps.**
+  Explicit SPDX elections must match one exact branch in the parsed expression,
+  so a package that offers `MIT OR Apache-2.0` cannot be recorded as the
+  unoffered conjunction `MIT AND Apache-2.0`. Missing license metadata fails
+  closed, and branch matching prunes incompatible choices under a fixed budget
+  before any Cartesian expansion. Missing metadata is accepted only through an
+  artifact-bound manual inspection with `declared: null` and exact text hashes.
+  npm license files are read only from the precise path recorded in
+  `package-lock.json`; a missing path can no longer fall back to another origin.
+  Vendored fallbacks and supplements are likewise selected by ecosystem and
+  the exact resolved source: a same-name/version git or path artefact without a
+  matching policy entry now falls through to its own packaged licence text,
+  while incomplete or duplicate policy records still fail closed.
+- **MAESTRO-22 — licence evidence is now source-qualified and body-specific.**
+  Explicit elections and manual inspections select the exact npm or Cargo
+  artefact by ecosystem and resolved source, support multiple same-name/version
+  artefacts without taking the first policy entry, and reject duplicate
+  decisions for one identity. BSD-2-Clause and BSD-3-Clause can no longer be
+  corroborated by markers shared with neighbouring variants: each distributed
+  artefact now carries a recorded inspection, including the explicit `serial2`
+  election. Zlib likewise requires exact inspection instead of accepting
+  markers shared with `zlib-acknowledgement`; the `pako` election records that
+  evidence against its pinned SPDX supplement. Every manual reading is bound
+  to the complete reproduced file set by filename and SHA-256, so changed,
+  added or removed material fails closed. BSL-1.0,
+  Python-2.0, CC0-1.0 and CDLA-Permissive-2.0 corroboration now require phrases
+  from the official licence bodies instead of accepting a title or URL pointer.
+- **MAESTRO-22 — explicit licence decisions are now unambiguous and
+  artefact-bound.** A recorded election may retain mandatory `AND` terms, but
+  may not contain `OR`: the production SPDX AST must identify the alternative
+  actually chosen. Every election is bound to the package ecosystem and the
+  exact origin resolved by npm or Cargo, so a same-name/version git or path
+  replacement cannot inherit an audit made against the registry artefact.
+  MPL-2.0 corroboration now requires a phrase from the licence body instead of
+  accepting its title or URL. The vendored `siphasher` notice separately pins
+  the MIT text to SPDX `license-list-data` and its copyright lines to the
+  crate's own `COPYING`, and the generated notice prints both provenances.
+- **MAESTRO-22 — notice scope now follows the package managers' exact
+  resolution.** npm platform restrictions use the official
+  `npm-install-checks` implementation after resolving linked packages, including
+  npm's `any`, negation and Windows `libc` semantics. Cargo license text is read
+  from each resolved package's absolute `manifest_path`, so path and git
+  dependencies cannot disappear or inherit a same-name registry crate's text.
+  SPDX election tests now execute the production parser and preserve `+`, reject
+  extra leaves, and require a phrase from the Unicode-3.0 licence body rather
+  than accepting a title or URL pointer.
+- **MAESTRO-23 — an election can no longer contradict the text it ships with.**
+  Electing a licence whose text does not accompany the artefact turns the notice
+  file into a false statement, and `dunce 1.0.5` was exactly that: it offers
+  three licences, packages only the CC0-1.0 text, and preference order picked
+  Apache-2.0. Each electable identifier now declares a phrase drawn from the
+  body of its own licence, and an election only stands when one of them appears
+  in what was reproduced; explicit entries are additionally checked against the
+  expression the package declares today, so a stale or mistyped one fails
+  instead of applying a choice never offered. The same check surfaced
+  `siphasher 1.0.2`, which packages a 281-byte pointer to two licences and
+  neither text — upstream publishes only that pointer as well — now covered by a
+  vendored MIT text carrying the copyright lines its own `COPYING` declares.
+- **MAESTRO-22 — three holes closed in the notice gate.** A `NOTICE` file alone
+  satisfied the licence requirement, because it shared the prefix list with
+  `LICENSE`; an Apache-2.0 notice is material clause 4(d) requires alongside the
+  licence, not the licence text, so the two lists are now separate and a
+  supplementary file never suffices on its own. Nothing required an election
+  when a component offers a choice of licence, so the policy now declares a
+  preference order and evaluates the complete official SPDX syntax tree. A
+  preferred leaf is automatic only when it alone satisfies the whole expression;
+  otherwise the complete choice must be recorded explicitly. The elected
+  licence is printed beside each of the 214 distributed components that offer a
+  choice. Lockfile entries with
+  `link: true` carry their version and licence on the target entry, so skipping
+  them for having no version made a distributed component vanish from the
+  notices silently; linked entries now resolve, and an unresolvable one fails by
+  name.
 - **MAESTRO-22 — the required notices are now reproduced, not just referenced.**
   `THIRD-PARTY-NOTICES.txt` reproduces the full license text of all 438
   components embedded in the distributed executable — 141 npm and 297 Rust —

@@ -1,0 +1,50 @@
+Aplica-se a: siphasher 1.0.2
+Licenca declarada em Cargo.toml: MIT/Apache-2.0
+Alcance: dependencia transitiva no grafo Rust distribuido
+Origem do texto MIT: https://github.com/spdx/license-list-data
+Commit do texto: c4a7237ec8f4654e867546f9f409749300f1bf4c
+Caminho do texto: text/MIT.txt
+Origem do aviso de copyright: https://github.com/jedisct1/rust-siphash
+Commit do aviso: db8172048a1c9bdef0dcec782d965c236161af13
+Caminho do aviso: COPYING
+
+O UPSTREAM PUBLICA APENAS UM PONTEIRO, NAO O TEXTO. Verificado em 30/08/2026:
+o crate empacota somente um arquivo COPYING de 281 bytes que remete a
+LICENSE-APACHE e LICENSE-MIT, e nenhum dos dois acompanha o pacote. No commit
+do aviso, o repositorio de origem tambem nao publica LICENSE-MIT,
+LICENSE-APACHE nem LICENSE: so o mesmo COPYING.
+
+Um ponteiro nao cumpre a exigencia da MIT de reproduzir o texto e o aviso de
+copyright na distribuicao. Elege-se MIT, primeira da ordem de preferencia entre
+as duas oferecidas, e reproduz-se abaixo o texto canonico obtido do caminho e
+commit fixos da lista oficial SPDX registrados acima, precedido das linhas de
+copyright que o COPYING do crate declara, transcritas sem alteracao:
+
+  Copyright 2012-2016 The Rust Project Developers.
+  Copyright 2016-2026 Frank Denis.
+
+Este e um registro tecnico de compliance; nao constitui parecer juridico.
+
+------------------------------------------------------------------------
+
+Copyright 2012-2016 The Rust Project Developers.
+Copyright 2016-2026 Frank Denis.
+
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.

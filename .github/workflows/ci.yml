@@ -83,17 +83,19 @@ jobs:
         with:
           node-version: 24
           check-latest: true
+      # A arvore npm e instalada antes do primeiro passo que a usa. A
+      # verificacao de inventario passou a analisar expressao SPDX com a
+      # implementacao de referencia, que e dependencia de desenvolvimento; e a
+      # geracao de avisos le o texto de licenca do artefato realmente
+      # instalado. O runner e windows-latest, o mesmo alvo do --filter-platform
+      # usado na politica.
+      - name: Install Node dependencies
+        run: npm ci
       - name: Verify direct dependency inventory
         run: npm run verify:thirdparty
       - name: cargo check --locked
         working-directory: src-tauri
         run: cargo check --locked --all-targets
-      # A geracao de avisos le o texto de licenca do artefato realmente
-      # instalado, entao precisa da arvore npm sincronizada com o lockfile e
-      # das fontes dos crates, que o cargo check acima ja baixou. O runner e
-      # windows-latest, o mesmo alvo do --filter-platform usado na politica.
-      - name: Install Node dependencies for notice generation
-        run: npm ci
       - name: Verify third-party notices
         run: npm run notices:check
       - name: cargo test --locked
