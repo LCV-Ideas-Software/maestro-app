@@ -11,6 +11,16 @@ on:
       - "src-tauri/tauri.conf.json"
     tags:
       - "v*.*.*"
+  # Privileged recovery runs only after merge and checks out protected main, never PR-head code.
+  pull_request_target:
+    types: [closed]
+    branches:
+      - "main"
+    paths:
+      - ".github/workflows/release.yml"
+      - "package.json"
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/tauri.conf.json"
   workflow_dispatch:
     inputs:
       tag:
@@ -26,6 +36,11 @@ concurrency:
 jobs:
   prepare-release:
     name: Authorize immutable release identity
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      (github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.base.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       actions: write # Read exact-SHA runs and dispatch the tag-bound recovery run.
@@ -55,6 +70,10 @@ jobs:
           EVENT_REF_TYPE: ${{ github.ref_type }}
           EVENT_REF_PROTECTED: ${{ github.ref_protected }}
           EVENT_SHA: ${{ github.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          PR_MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
           set -euo pipefail
 
@@ -122,6 +141,17 @@ jobs:
           elif [[ "$EVENT_NAME" == "push" && "$EVENT_REF_TYPE" == "branch" && "$EVENT_REF" == "refs/heads/main" ]]; then
             if [[ "$EVENT_REF_PROTECTED" != "true" ]]; then
               echo "::error::Automatic release preparation requires protected main."
+              exit 1
+            fi
+            tag="$expected_tag"
+            mode="branch"
+          elif [[ "$EVENT_NAME" == "pull_request_target" && "$PR_MERGED" == "true" && "$PR_BASE_REF" == "main" && "$PR_BASE_REPOSITORY" == "$GITHUB_REPOSITORY" && "$EVENT_REF_TYPE" == "branch" && "$EVENT_REF" == "refs/heads/main" ]]; then
+            if [[ "$EVENT_REF_PROTECTED" != "true" ]]; then
+              echo "::error::Merged-PR release preparation requires protected main."
+              exit 1
+            fi
+            if [[ "$PR_MERGE_SHA" != "$EVENT_SHA" ]]; then
+              echo "::error::Merged pull request identity diverges (pull_request=$PR_MERGE_SHA event=$EVENT_SHA)."
               exit 1
             fi
             tag="$expected_tag"
@@ -299,7 +329,7 @@ jobs:
             soft_timeout_seconds=$((remaining_seconds - kill_grace_seconds))
             command_status=0
             if runs_json="$(
-              timeout --signal=TERM --kill-after="${kill_grace_seconds}s" "${soft_timeout_seconds}s" gh run list --repo "$GITHUB_REPOSITORY" --branch main --commit "$RELEASE_SHA" --event push --limit 100 --json databaseId,workflowName,name,status,conclusion,url
+              timeout --signal=TERM --kill-after="${kill_grace_seconds}s" "${soft_timeout_seconds}s" gh run list --repo "$GITHUB_REPOSITORY" --commit "$RELEASE_SHA" --limit 100 --json databaseId,workflowName,name,status,conclusion,url,event,headBranch,headSha
             )"; then
               command_status=0
             else
@@ -317,12 +347,29 @@ jobs:
                 ;;
             esac
 
+            runs_json="$(jq --arg sha "$RELEASE_SHA" '
+              [
+                .[]
+                | select(
+                    .headSha == $sha and
+                    (
+                      (.event == "push" and .headBranch == "main") or
+                      (.event == "merge_group" and ((.headBranch // "") | startswith("gh-readonly-queue/main/")))
+                    )
+                  )
+              ]
+            ' <<<"$runs_json")"
+
             all_ready="true"
             for workflow_name in "${required_workflows[@]}"; do
               workflow_state="$(jq -r --arg workflow "$workflow_name" '
-                [.[] | select(.workflowName == $workflow)]
-                | sort_by(.databaseId)
-                | last
+                [.[] | select(.workflowName == $workflow and .event == "push")] as $push_runs
+                | if ($push_runs | length) > 0 then
+                    $push_runs
+                  else
+                    [.[] | select(.workflowName == $workflow and .event == "merge_group")]
+                  end
+                | sort_by(.databaseId) | last
                 | if . == null then "missing" else "\(.status):\(.conclusion // "")" end
               ' <<<"$runs_json")"
               if [[ "$workflow_state" == "completed:success" ]]; then
@@ -330,7 +377,7 @@ jobs:
               fi
               if [[ "$workflow_state" == completed:* ]]; then
                 echo "::error::$workflow_name finished as $workflow_state for exact SHA $RELEASE_SHA."
-                jq -r --arg workflow "$workflow_name" '.[] | select(.workflowName == $workflow) | [.databaseId, .name, .status, .conclusion, .url] | @tsv' <<<"$runs_json"
+                jq -r --arg workflow "$workflow_name" '.[] | select(.workflowName == $workflow) | [.databaseId, .event, .headBranch, .headSha, .name, .status, .conclusion, .url] | @tsv' <<<"$runs_json"
                 exit 1
               fi
               all_ready="false"
@@ -351,13 +398,44 @@ jobs:
             sleep "${sleep_seconds}s"
           done
 
+          mapfile -t accepted_analysis_refs < <(
+            {
+              printf '%s\n' "refs/heads/main"
+              jq -r '
+                .[]
+                | select(.event == "merge_group")
+                | "refs/heads/" + .headBranch
+              ' <<<"$runs_json"
+            } | sort -u
+          )
+          if [[ "${#accepted_analysis_refs[@]}" -eq 0 ]]; then
+            echo "::error::No exact-SHA main or main-queue refs were available for security verification."
+            exit 1
+          fi
+
+          code_scanning_categories_for_release() {
+            local analysis_ref
+            local ref_categories
+            for analysis_ref in "${accepted_analysis_refs[@]}"; do
+              ref_categories="$(
+                gh api --method GET --paginate -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/code-scanning/analyses" \
+                  -f ref="$analysis_ref" -f per_page=100 \
+                  --jq '.[] | .commit_sha + " " + .ref + " " + .category' |
+                  grep -F "$RELEASE_SHA $analysis_ref " || true
+              )"
+              if [[ -n "$ref_categories" ]]; then
+                printf '%s\n' "$ref_categories"
+              fi
+            done
+          }
+
           for attempt in {1..12}; do
             remote_main_sha="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
             if [[ "$remote_main_sha" != "$RELEASE_SHA" ]]; then
               echo "::error::main advanced while waiting for CodeQL analyses."
               exit 1
             fi
-            categories="$(gh api --paginate -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/code-scanning/analyses?ref=refs/heads/main&per_page=100" --jq '.[] | .commit_sha + " " + .category' | grep -F "$RELEASE_SHA " || true)"
+            categories="$(code_scanning_categories_for_release)"
             if grep -Fq "/language:actions" <<<"$categories" && \
               grep -Fq "/language:javascript-typescript" <<<"$categories" && \
               grep -Fq "/language:rust" <<<"$categories"; then
@@ -373,7 +451,7 @@ jobs:
 
           if [[ "$scorecard_required" == "true" ]]; then
             for attempt in {1..12}; do
-              categories="$(gh api --paginate -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/code-scanning/analyses?ref=refs/heads/main&per_page=100" --jq '.[] | .commit_sha + " " + .category' | grep -F "$RELEASE_SHA " || true)"
+              categories="$(code_scanning_categories_for_release)"
               if grep -Fq "supply-chain/local" <<<"$categories" && \
                 grep -Fq "supply-chain/online-scm" <<<"$categories" && \
                 grep -Fq "supply-chain/branch-protection" <<<"$categories"; then
@@ -390,7 +468,16 @@ jobs:
 
           alert_main_before="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
           [[ "$alert_main_before" == "$RELEASE_SHA" ]] || { echo "::error::main changed before alert query."; exit 1; }
-          open_alerts="$(gh api --paginate -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/code-scanning/alerts?state=open&ref=refs/heads/main&per_page=100" --jq '.[].number')"
+          open_alerts=""
+          for analysis_ref in "${accepted_analysis_refs[@]}"; do
+            ref_alerts="$(
+              gh api --method GET --paginate -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/code-scanning/alerts" \
+                -f state=open -f ref="$analysis_ref" -f per_page=100 --jq '.[].number'
+            )"
+            if [[ -n "$ref_alerts" ]]; then
+              open_alerts+="${analysis_ref}:$(tr '\n' ',' <<<"$ref_alerts") "
+            fi
+          done
           alert_main_after="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
           [[ "$alert_main_after" == "$RELEASE_SHA" ]] || { echo "::error::main changed during alert query."; exit 1; }
           if [[ -n "$open_alerts" ]]; then
@@ -444,6 +531,28 @@ jobs:
           git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
           final_tag_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
           [[ "$final_tag_sha" == "$RELEASE_SHA" ]] || { echo "::error::Tag verification failed after creation."; exit 1; }
+
+          tag_dispatch_runs="$(
+            gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml --commit "$RELEASE_SHA" --event workflow_dispatch --limit 100 \
+              --json databaseId,status,conclusion,headBranch,headSha,url
+          )"
+          existing_dispatch="$(jq -r --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" '
+            [
+              .[]
+              | select(
+                  .headBranch == $tag and
+                  .headSha == $sha and
+                  (.status != "completed" or .conclusion == "success")
+                )
+            ]
+            | sort_by(.databaseId) | last
+            | if . == null then "" else "\(.databaseId)\t\(.status)\t\(.conclusion // "")\t\(.url)" end
+          ' <<<"$tag_dispatch_runs")"
+          if [[ -n "$existing_dispatch" ]]; then
+            echo "Tag-bound Release is already active or successful for $RELEASE_TAG at $RELEASE_SHA: $existing_dispatch"
+            exit 0
+          fi
+
           gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG" -f tag="$RELEASE_TAG"
           echo "Dispatched tag-bound Release workflow for $RELEASE_TAG."
     timeout-minutes: 60

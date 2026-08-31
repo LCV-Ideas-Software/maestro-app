@@ -135,6 +135,13 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   five minutes while valid CI and CodeQL Rust jobs are still running. Each
   remote poll is bounded by the remaining wait budget, and results returned at
   or after the deadline are rejected.
+- **MAESTRO-22 — merge-queue publication now has a native recovery path.** A
+  merged pull request can prepare the release when GitHub does not deliver the
+  corresponding `push` workflow run. The fallback accepts required gates only
+  from the exact current-main SHA on `push` to `main` or `merge_group` for the
+  protected `main` queue, runs Scorecard on merge groups, and deduplicates the
+  tag-bound dispatch by its exact tag, SHA and live/successful workflow state so
+  a failed partial attempt remains recoverable.
 
 ## [v0.5.58] - 2026-08-21
 
