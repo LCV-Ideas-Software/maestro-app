@@ -57,7 +57,7 @@ declared explicitly in this inventory and in the fail-closed verifier.
 | @testing-library/jest-dom | 7.0.1 | MIT | development | No | https://www.npmjs.com/package/@testing-library/jest-dom |
 | @testing-library/react | 16.3.2 | MIT | development | No | https://www.npmjs.com/package/@testing-library/react |
 | @types/react | 19.2.18 | MIT | development | No | https://www.npmjs.com/package/@types/react |
-| @types/react-dom | 19.2.4 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
+| @types/react-dom | 19.2.5 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
 | @vitejs/plugin-react | 6.1.0 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
 | jsdom | 30.0.1 | MIT | development | No | https://www.npmjs.com/package/jsdom |
 | npm-install-checks | 8.0.0 | BSD-2-Clause | development | No | https://www.npmjs.com/package/npm-install-checks |
