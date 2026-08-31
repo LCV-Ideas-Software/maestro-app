@@ -311,7 +311,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/core 3.30.2  (npm)
+@tiptap/core 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -340,7 +340,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-blockquote 3.30.2  (npm)
+@tiptap/extension-blockquote 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -369,7 +369,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-bold 3.30.2  (npm)
+@tiptap/extension-bold 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -398,7 +398,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-bubble-menu 3.30.2  (npm)
+@tiptap/extension-bubble-menu 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -427,7 +427,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-bullet-list 3.30.2  (npm)
+@tiptap/extension-bullet-list 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -456,7 +456,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-character-count 3.30.2  (npm)
+@tiptap/extension-character-count 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -485,7 +485,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-code-block-lowlight 3.30.2  (npm)
+@tiptap/extension-code-block-lowlight 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -514,7 +514,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-code-block 3.30.2  (npm)
+@tiptap/extension-code-block 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -543,7 +543,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-code 3.30.2  (npm)
+@tiptap/extension-code 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -572,7 +572,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-collaboration 3.30.2  (npm)
+@tiptap/extension-collaboration 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -601,7 +601,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-color 3.30.2  (npm)
+@tiptap/extension-color 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -630,7 +630,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-document 3.30.2  (npm)
+@tiptap/extension-document 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -659,7 +659,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-drag-handle-react 3.30.2  (npm)
+@tiptap/extension-drag-handle-react 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -688,7 +688,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-drag-handle 3.30.2  (npm)
+@tiptap/extension-drag-handle 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -717,7 +717,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-dropcursor 3.30.2  (npm)
+@tiptap/extension-dropcursor 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -746,7 +746,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-floating-menu 3.30.2  (npm)
+@tiptap/extension-floating-menu 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -775,7 +775,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-focus 3.30.2  (npm)
+@tiptap/extension-focus 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -804,7 +804,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-font-family 3.30.2  (npm)
+@tiptap/extension-font-family 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -833,7 +833,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-gapcursor 3.30.2  (npm)
+@tiptap/extension-gapcursor 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -862,7 +862,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-hard-break 3.30.2  (npm)
+@tiptap/extension-hard-break 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -891,7 +891,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-heading 3.30.2  (npm)
+@tiptap/extension-heading 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -920,7 +920,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-highlight 3.30.2  (npm)
+@tiptap/extension-highlight 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -949,7 +949,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-horizontal-rule 3.30.2  (npm)
+@tiptap/extension-horizontal-rule 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -978,7 +978,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-image 3.30.2  (npm)
+@tiptap/extension-image 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1007,7 +1007,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-italic 3.30.2  (npm)
+@tiptap/extension-italic 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1036,7 +1036,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-link 3.30.2  (npm)
+@tiptap/extension-link 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1065,7 +1065,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-list-item 3.30.2  (npm)
+@tiptap/extension-list-item 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1094,7 +1094,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-list-keymap 3.30.2  (npm)
+@tiptap/extension-list-keymap 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1123,7 +1123,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-list 3.30.2  (npm)
+@tiptap/extension-list 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1152,7 +1152,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-mention 3.30.2  (npm)
+@tiptap/extension-mention 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1181,7 +1181,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-node-range 3.30.2  (npm)
+@tiptap/extension-node-range 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1210,7 +1210,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-ordered-list 3.30.2  (npm)
+@tiptap/extension-ordered-list 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1239,7 +1239,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-paragraph 3.30.2  (npm)
+@tiptap/extension-paragraph 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1268,7 +1268,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-placeholder 3.30.2  (npm)
+@tiptap/extension-placeholder 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1297,7 +1297,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-strike 3.30.2  (npm)
+@tiptap/extension-strike 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1326,7 +1326,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-subscript 3.30.2  (npm)
+@tiptap/extension-subscript 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1355,7 +1355,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-superscript 3.30.2  (npm)
+@tiptap/extension-superscript 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1384,7 +1384,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-table-cell 3.30.2  (npm)
+@tiptap/extension-table-cell 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1413,7 +1413,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-table-header 3.30.2  (npm)
+@tiptap/extension-table-header 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1442,7 +1442,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-table-row 3.30.2  (npm)
+@tiptap/extension-table-row 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1471,7 +1471,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-table 3.30.2  (npm)
+@tiptap/extension-table 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1500,7 +1500,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-task-item 3.30.2  (npm)
+@tiptap/extension-task-item 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1529,7 +1529,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-task-list 3.30.2  (npm)
+@tiptap/extension-task-list 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1558,7 +1558,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-text-align 3.30.2  (npm)
+@tiptap/extension-text-align 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1587,7 +1587,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-text-style 3.30.2  (npm)
+@tiptap/extension-text-style 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1616,7 +1616,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-text 3.30.2  (npm)
+@tiptap/extension-text 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1645,7 +1645,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-typography 3.30.2  (npm)
+@tiptap/extension-typography 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1674,7 +1674,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-underline 3.30.2  (npm)
+@tiptap/extension-underline 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1703,7 +1703,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-youtube 3.30.2  (npm)
+@tiptap/extension-youtube 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1732,7 +1732,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extensions 3.30.2  (npm)
+@tiptap/extensions 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1761,7 +1761,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/pm 3.30.2  (npm)
+@tiptap/pm 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -1790,7 +1790,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/react 3.30.2  (npm)
+@tiptap/react 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1819,7 +1819,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/starter-kit 3.30.2  (npm)
+@tiptap/starter-kit 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1848,7 +1848,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/suggestion 3.30.2  (npm)
+@tiptap/suggestion 3.30.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
