@@ -4,6 +4,8 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+## [v0.5.59] - 2026-08-30
+
 ### Changed
 
 - **MAESTRO-23 — notice decisions now close three remaining identity gaps.**

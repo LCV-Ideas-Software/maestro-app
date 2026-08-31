@@ -81,7 +81,7 @@ artifacts from the official [crates.io registry](https://crates.io/); the SBOM
 identifies the graph but does not currently populate `licenseDeclared` for
 these Cargo packages.
 
-Normalized `Cargo.lock` SHA-256: `49fdf991438f7ca22a702d83d6d99fbb184f3fd0fc9545b866e9c11fcf9146fe`
+Normalized `Cargo.lock` SHA-256: `49722ea5e4a22708f1dae44f35afc7d2b8481ff1a1f7ba491b8964adc2e82d55`
 
 This fingerprint is computed after normalizing CRLF to LF. Any direct or
 transitive lockfile change invalidates this review and must update the Rust
