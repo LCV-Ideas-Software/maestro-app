@@ -253,7 +253,8 @@ jobs:
           fi
 
           runs_json="[]"
-          for attempt in {1..60}; do
+          workflow_wait_deadline=$((SECONDS + 600))
+          while true; do
             remote_main_sha="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
             checked_out_sha="$(git rev-parse HEAD)"
             if [[ "$remote_main_sha" != "$RELEASE_SHA" || "$checked_out_sha" != "$RELEASE_SHA" ]]; then
@@ -285,8 +286,8 @@ jobs:
               echo "All exact-SHA workflows passed: ${required_workflows[*]}."
               break
             fi
-            if [[ "$attempt" -eq 60 ]]; then
-              echo "::error::Required workflows did not all complete successfully for $RELEASE_SHA."
+            if (( SECONDS >= workflow_wait_deadline )); then
+              echo "::error::Required workflows did not all complete successfully for $RELEASE_SHA within 10 minutes."
               exit 1
             fi
             sleep 5
