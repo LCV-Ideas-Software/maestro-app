@@ -17,7 +17,7 @@ Portable Windows editorial workbench for protocol-driven AI drafting, source ver
 [![stack: Tauri 2 + React 19](https://img.shields.io/badge/stack-Tauri%202%20%2B%20React%2019-blueviolet.svg)](#architecture)
 [![license: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 
-**Status.** Stable. Current release target: **v0.5.59** (release tag `v00.05.59`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release target: **v0.5.60** (release tag `v00.05.60`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 Operational stable baseline started at `v0.5.25`, with live bootstrap, diagnostics, navigation, Cloudflare credential provisioning, AI API credential checks, PostEditor parity, link auditing, and a real background Claude/Codex/Gemini/DeepSeek/Grok editorial session path. From `v0.5.27`, Maestro also supports Perplexity as an API-only Sonar peer. Runtime evidence from session `run-2026-05-11T01-09-30-556Z` confirms the first documented end-to-end unanimous editorial delivery: Maestro `0.5.25` resumed a real API-mode session, reached `READY_UNANIMOUS`, and wrote a clean `texto-final.md`.
 
@@ -25,7 +25,7 @@ The version history at a glance:
 
 | Release | Scope |
 | --- | --- |
-| **`v0.5.59`** | Ships the complete MAESTRO-17/20/22/23 release set, including the official Linear writer, fail-closed dependency inventory, source-qualified third-party licence evidence, and complete portable legal notices. |
+| **`v0.5.60`** | Ships the complete MAESTRO-17/20/22/23 release set, including the official Linear writer, fail-closed dependency inventory, source-qualified third-party licence evidence, complete portable legal notices, and the bounded release-gate wait. |
 | **`v0.5.58`** | Completes the active Maestro implementation set: modularized code, secure runtime bootstrap, web-evidence acquisition, deterministic ABNT and link-integrity gates, bounded corrective retries, MainSite-compatible durable drafts, safe shared-chat import and Markdown/HTML/PDF export, and operator-confirmed Cloudflare D1 publication with optimistic concurrency and readback. |
 | **`v0.5.57`** | Refreshes the portable editor baseline through Tiptap 3.29.2, ProseMirror View 1.42.2 and Lucide 1.28.0; removes the expired Socket/StepSecurity integrations; updates verified CI controls; resolves audited Undici 8.10.0; and stops retaining duplicate raw render errors in React state. |
 | **`v0.5.56`** | Circular-review state is persisted atomically and bound to the accepted artifact by SHA-256; rejected attempts cannot take custody or erase READY votes for an unchanged version, resume preserves the exact accepted author/text/votes, and rejected reports stay outside actionable peer context. |

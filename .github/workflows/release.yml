@@ -254,15 +254,69 @@ jobs:
 
           runs_json="[]"
           workflow_wait_deadline=$((SECONDS + 600))
+          kill_grace_seconds=1
+          fail_workflow_wait_deadline() {
+            echo "::error::Required workflows did not all complete successfully for $RELEASE_SHA within 10 minutes."
+            exit 1
+          }
+
           while true; do
-            remote_main_sha="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
+            remaining_seconds=$((workflow_wait_deadline - SECONDS))
+            if (( remaining_seconds <= kill_grace_seconds )); then
+              fail_workflow_wait_deadline
+            fi
+            soft_timeout_seconds=$((remaining_seconds - kill_grace_seconds))
+            command_status=0
+            if remote_main_sha="$(
+              timeout --signal=TERM --kill-after="${kill_grace_seconds}s" "${soft_timeout_seconds}s" git ls-remote --heads origin "refs/heads/main" |
+                awk '{print $1}'
+            )"; then
+              command_status=0
+            else
+              command_status=$?
+            fi
+            if (( SECONDS >= workflow_wait_deadline )); then
+              fail_workflow_wait_deadline
+            fi
+            case "$command_status" in
+              0) ;;
+              124 | 137) fail_workflow_wait_deadline ;;
+              *)
+                echo "::error::Unable to read the current main SHA while waiting for required workflows."
+                exit "$command_status"
+                ;;
+            esac
             checked_out_sha="$(git rev-parse HEAD)"
             if [[ "$remote_main_sha" != "$RELEASE_SHA" || "$checked_out_sha" != "$RELEASE_SHA" ]]; then
               echo "::error::Release identity changed while waiting for checks (expected=$RELEASE_SHA checkout=$checked_out_sha main=${remote_main_sha:-missing})."
               exit 1
             fi
 
-            runs_json="$(gh run list --repo "$GITHUB_REPOSITORY" --branch main --commit "$RELEASE_SHA" --event push --limit 100 --json databaseId,workflowName,name,status,conclusion,url)"
+            remaining_seconds=$((workflow_wait_deadline - SECONDS))
+            if (( remaining_seconds <= kill_grace_seconds )); then
+              fail_workflow_wait_deadline
+            fi
+            soft_timeout_seconds=$((remaining_seconds - kill_grace_seconds))
+            command_status=0
+            if runs_json="$(
+              timeout --signal=TERM --kill-after="${kill_grace_seconds}s" "${soft_timeout_seconds}s" gh run list --repo "$GITHUB_REPOSITORY" --branch main --commit "$RELEASE_SHA" --event push --limit 100 --json databaseId,workflowName,name,status,conclusion,url
+            )"; then
+              command_status=0
+            else
+              command_status=$?
+            fi
+            if (( SECONDS >= workflow_wait_deadline )); then
+              fail_workflow_wait_deadline
+            fi
+            case "$command_status" in
+              0) ;;
+              124 | 137) fail_workflow_wait_deadline ;;
+              *)
+                echo "::error::Unable to read required workflow runs for exact SHA $RELEASE_SHA."
+                exit "$command_status"
+                ;;
+            esac
+
             all_ready="true"
             for workflow_name in "${required_workflows[@]}"; do
               workflow_state="$(jq -r --arg workflow "$workflow_name" '
@@ -283,14 +337,18 @@ jobs:
               echo "Waiting for $workflow_name on exact SHA $RELEASE_SHA (state: $workflow_state)."
             done
             if [[ "$all_ready" == "true" ]]; then
+              if (( SECONDS >= workflow_wait_deadline )); then
+                fail_workflow_wait_deadline
+              fi
               echo "All exact-SHA workflows passed: ${required_workflows[*]}."
               break
             fi
-            if (( SECONDS >= workflow_wait_deadline )); then
-              echo "::error::Required workflows did not all complete successfully for $RELEASE_SHA within 10 minutes."
-              exit 1
+            remaining_seconds=$((workflow_wait_deadline - SECONDS))
+            if (( remaining_seconds <= 0 )); then
+              fail_workflow_wait_deadline
             fi
-            sleep 5
+            sleep_seconds=$((remaining_seconds < 5 ? remaining_seconds : 5))
+            sleep "${sleep_seconds}s"
           done
 
           for attempt in {1..12}; do
