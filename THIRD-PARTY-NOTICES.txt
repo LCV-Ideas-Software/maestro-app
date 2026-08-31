@@ -2110,7 +2110,7 @@ MIT License
 
 ==============================================================================
 
-@types/react-dom 19.2.4  (npm)
+@types/react-dom 19.2.5  (npm)
 Licenca declarada: MIT
 
 --- LICENSE ---
