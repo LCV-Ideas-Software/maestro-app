@@ -9,8 +9,7 @@ on:
       - ".github/workflows/**"
       - ".github/dependabot.yml"
       - "SECURITY.md"
-  merge_group:
-    types: [checks_requested]
+  workflow_dispatch:
   schedule:
     - cron: "37 8 * * 1"
 

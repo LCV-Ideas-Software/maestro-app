@@ -11,8 +11,8 @@ on:
       - "src-tauri/tauri.conf.json"
     tags:
       - "v*.*.*"
-  # Privileged recovery runs only after merge and checks out protected main, never PR-head code.
-  pull_request_target:
+  # Native recovery runs only after a same-repository merge to protected main.
+  pull_request:
     types: [closed]
     branches:
       - "main"
@@ -37,10 +37,11 @@ jobs:
   prepare-release:
     name: Authorize immutable release identity
     if: >-
-      github.event_name != 'pull_request_target' ||
+      github.event_name != 'pull_request' ||
       (github.event.pull_request.merged == true &&
       github.event.pull_request.base.ref == 'main' &&
-      github.event.pull_request.base.repo.full_name == github.repository)
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       actions: write # Read exact-SHA runs and dispatch the tag-bound recovery run.
@@ -72,6 +73,7 @@ jobs:
           EVENT_SHA: ${{ github.sha }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           PR_MERGED: ${{ github.event.pull_request.merged }}
           PR_MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
@@ -145,7 +147,7 @@ jobs:
             fi
             tag="$expected_tag"
             mode="branch"
-          elif [[ "$EVENT_NAME" == "pull_request_target" && "$PR_MERGED" == "true" && "$PR_BASE_REF" == "main" && "$PR_BASE_REPOSITORY" == "$GITHUB_REPOSITORY" && "$EVENT_REF_TYPE" == "branch" && "$EVENT_REF" == "refs/heads/main" ]]; then
+          elif [[ "$EVENT_NAME" == "pull_request" && "$PR_MERGED" == "true" && "$PR_BASE_REF" == "main" && "$PR_BASE_REPOSITORY" == "$GITHUB_REPOSITORY" && "$PR_HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" && "$EVENT_REF_TYPE" == "branch" && "$EVENT_REF" == "refs/heads/main" ]]; then
             if [[ "$EVENT_REF_PROTECTED" != "true" ]]; then
               echo "::error::Merged-PR release preparation requires protected main."
               exit 1
@@ -275,7 +277,6 @@ jobs:
           required_workflows=("CI" "CodeQL" "Public Format" "Zizmor")
           scorecard_required="false"
           if grep -Eq '^(\.github/workflows/|\.github/dependabot\.yml$|SECURITY\.md$)' <<<"$changed_files"; then
-            required_workflows+=("OpenSSF Scorecard")
             scorecard_required="true"
           fi
           if grep -Eq '^(\.github/workflows/pages\.yml$|site/)' <<<"$changed_files"; then
@@ -285,10 +286,129 @@ jobs:
           runs_json="[]"
           workflow_wait_deadline=$((SECONDS + 600))
           kill_grace_seconds=1
+          scorecard_min_database_id=0
           fail_workflow_wait_deadline() {
-            echo "::error::Required workflows did not all complete successfully for $RELEASE_SHA within 10 minutes."
+            echo "::error::Release workflow gates did not all complete successfully for $RELEASE_SHA within 10 minutes."
             exit 1
           }
+
+          # scorecard-action only supports the default branch. When this release is
+          # recovered from a merge-group SHA, run the repository-local official
+          # workflow on the already-bound current main instead of the queue ref.
+          if [[ "$scorecard_required" == "true" ]]; then
+            remaining_seconds=$((workflow_wait_deadline - SECONDS))
+            if (( remaining_seconds <= kill_grace_seconds )); then
+              fail_workflow_wait_deadline
+            fi
+            soft_timeout_seconds=$((remaining_seconds - kill_grace_seconds))
+            command_status=0
+            if scorecard_runs="$(
+              timeout --signal=TERM --kill-after="${kill_grace_seconds}s" "${soft_timeout_seconds}s" \
+                gh run list --repo "$GITHUB_REPOSITORY" --workflow scorecard.yml --commit "$RELEASE_SHA" --limit 100 \
+                  --json databaseId,workflowName,name,status,conclusion,url,event,headBranch,headSha
+            )"; then
+              command_status=0
+            else
+              command_status=$?
+            fi
+            if (( SECONDS >= workflow_wait_deadline )); then
+              fail_workflow_wait_deadline
+            fi
+            case "$command_status" in
+              0) ;;
+              124 | 137) fail_workflow_wait_deadline ;;
+              *)
+                echo "::error::Unable to read OpenSSF Scorecard runs for exact SHA $RELEASE_SHA."
+                exit "$command_status"
+                ;;
+            esac
+            scorecard_state="$(jq -r --arg sha "$RELEASE_SHA" '
+              [
+                .[]
+                | select(
+                    .headSha == $sha and
+                    (
+                      (.event == "push" and .headBranch == "main") or
+                      (.event == "workflow_dispatch" and .headBranch == "main")
+                    )
+                  )
+              ]
+              | sort_by(.databaseId) | last
+              | if . == null then "missing" else "\(.status):\(.conclusion // "")" end
+            ' <<<"$scorecard_runs")"
+            scorecard_latest_database_id="$(jq -r --arg sha "$RELEASE_SHA" '
+              [
+                .[]
+                | select(
+                    .headSha == $sha and
+                    (
+                      (.event == "push" and .headBranch == "main") or
+                      (.event == "workflow_dispatch" and .headBranch == "main")
+                    )
+                  )
+                | .databaseId
+              ]
+              | max // 0
+            ' <<<"$scorecard_runs")"
+            if [[ "$scorecard_state" == "completed:success" || "$scorecard_state" != completed:* && "$scorecard_state" != "missing" ]]; then
+              echo "Reusing OpenSSF Scorecard run for exact main SHA $RELEASE_SHA (state: $scorecard_state)."
+            else
+              scorecard_min_database_id="$scorecard_latest_database_id"
+              remaining_seconds=$((workflow_wait_deadline - SECONDS))
+              if (( remaining_seconds <= kill_grace_seconds )); then
+                fail_workflow_wait_deadline
+              fi
+              soft_timeout_seconds=$((remaining_seconds - kill_grace_seconds))
+              command_status=0
+              if scorecard_main_sha="$(
+                timeout --signal=TERM --kill-after="${kill_grace_seconds}s" "${soft_timeout_seconds}s" git ls-remote --heads origin "refs/heads/main" |
+                  awk '{print $1}'
+              )"; then
+                command_status=0
+              else
+                command_status=$?
+              fi
+              if (( SECONDS >= workflow_wait_deadline )); then
+                fail_workflow_wait_deadline
+              fi
+              case "$command_status" in
+                0) ;;
+                124 | 137) fail_workflow_wait_deadline ;;
+                *)
+                  echo "::error::Unable to read current main before OpenSSF Scorecard dispatch."
+                  exit "$command_status"
+                  ;;
+              esac
+              if [[ "$scorecard_main_sha" != "$RELEASE_SHA" ]]; then
+                echo "::error::main changed before OpenSSF Scorecard dispatch (expected=$RELEASE_SHA actual=${scorecard_main_sha:-missing})."
+                exit 1
+              fi
+              remaining_seconds=$((workflow_wait_deadline - SECONDS))
+              if (( remaining_seconds <= kill_grace_seconds )); then
+                fail_workflow_wait_deadline
+              fi
+              soft_timeout_seconds=$((remaining_seconds - kill_grace_seconds))
+              command_status=0
+              if timeout --signal=TERM --kill-after="${kill_grace_seconds}s" "${soft_timeout_seconds}s" \
+                gh workflow run scorecard.yml --repo "$GITHUB_REPOSITORY" --ref main; then
+                command_status=0
+              else
+                command_status=$?
+              fi
+              if (( SECONDS >= workflow_wait_deadline )); then
+                fail_workflow_wait_deadline
+              fi
+              case "$command_status" in
+                0) ;;
+                124 | 137) fail_workflow_wait_deadline ;;
+                *)
+                  echo "::error::Unable to dispatch OpenSSF Scorecard for exact SHA $RELEASE_SHA."
+                  exit "$command_status"
+                  ;;
+              esac
+              echo "Dispatched OpenSSF Scorecard on exact current main SHA $RELEASE_SHA (previous state: $scorecard_state)."
+            fi
+          fi
 
           while true; do
             remaining_seconds=$((workflow_wait_deadline - SECONDS))
@@ -354,7 +474,8 @@ jobs:
                     .headSha == $sha and
                     (
                       (.event == "push" and .headBranch == "main") or
-                      (.event == "merge_group" and ((.headBranch // "") | startswith("gh-readonly-queue/main/")))
+                      (.event == "merge_group" and ((.headBranch // "") | startswith("gh-readonly-queue/main/"))) or
+                      (.event == "workflow_dispatch" and .headBranch == "main")
                     )
                   )
               ]
@@ -383,11 +504,39 @@ jobs:
               all_ready="false"
               echo "Waiting for $workflow_name on exact SHA $RELEASE_SHA (state: $workflow_state)."
             done
+            if [[ "$scorecard_required" == "true" ]]; then
+              scorecard_state="$(jq -r --arg sha "$RELEASE_SHA" --argjson min_database_id "$scorecard_min_database_id" '
+                [
+                  .[]
+                  | select(
+                      .headSha == $sha and
+                      .databaseId > $min_database_id and
+                      .workflowName == "OpenSSF Scorecard" and
+                      (
+                        (.event == "push" and .headBranch == "main") or
+                        (.event == "workflow_dispatch" and .headBranch == "main")
+                      )
+                    )
+                ]
+                | sort_by(.databaseId) | last
+                | if . == null then "missing" else "\(.status):\(.conclusion // "")" end
+              ' <<<"$runs_json")"
+              if [[ "$scorecard_state" == "completed:success" ]]; then
+                :
+              elif [[ "$scorecard_state" == completed:* ]]; then
+                echo "::error::OpenSSF Scorecard finished as $scorecard_state for exact main SHA $RELEASE_SHA."
+                jq -r '.[] | select(.workflowName == "OpenSSF Scorecard") | [.databaseId, .event, .headBranch, .headSha, .name, .status, .conclusion, .url] | @tsv' <<<"$runs_json"
+                exit 1
+              else
+                all_ready="false"
+                echo "Waiting for OpenSSF Scorecard on exact main SHA $RELEASE_SHA (state: $scorecard_state)."
+              fi
+            fi
             if [[ "$all_ready" == "true" ]]; then
               if (( SECONDS >= workflow_wait_deadline )); then
                 fail_workflow_wait_deadline
               fi
-              echo "All exact-SHA workflows passed: ${required_workflows[*]}."
+              echo "All exact-SHA workflows passed: ${required_workflows[*]}$([[ "$scorecard_required" == "true" ]] && printf ' OpenSSF Scorecard')."
               break
             fi
             remaining_seconds=$((workflow_wait_deadline - SECONDS))
