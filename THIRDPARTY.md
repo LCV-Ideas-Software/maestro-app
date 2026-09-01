@@ -43,7 +43,7 @@ declared explicitly in this inventory and in the fail-closed verifier.
 | @tiptap/suggestion | 3.30.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/suggestion |
 | dompurify | 3.4.14 | (MPL-2.0 OR Apache-2.0) | runtime | No | https://www.npmjs.com/package/dompurify |
 | lowlight | 3.3.0 | MIT | runtime | No | https://www.npmjs.com/package/lowlight |
-| lucide-react | 1.33.0 | ISC | runtime | No | https://www.npmjs.com/package/lucide-react |
+| lucide-react | 1.34.0 | ISC | runtime | No | https://www.npmjs.com/package/lucide-react |
 | mammoth | 1.12.1 | BSD-2-Clause | runtime | No | https://www.npmjs.com/package/mammoth |
 | marked | 18.0.10 | MIT | runtime | No | https://www.npmjs.com/package/marked |
 | prosemirror-model | 1.25.11 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-model |

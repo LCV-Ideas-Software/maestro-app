@@ -4429,7 +4429,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-lucide-react 1.33.0  (npm)
+lucide-react 1.34.0  (npm)
 Licenca declarada: ISC
 
 --- LICENSE ---
