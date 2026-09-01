@@ -48,7 +48,7 @@ declared explicitly in this inventory and in the fail-closed verifier.
 | marked | 18.0.10 | MIT | runtime | No | https://www.npmjs.com/package/marked |
 | prosemirror-model | 1.25.11 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-model |
 | prosemirror-state | 1.4.4 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-state |
-| prosemirror-view | 1.42.2 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-view |
+| prosemirror-view | 1.42.3 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-view |
 | react | 19.2.8 | MIT | runtime | No | https://www.npmjs.com/package/react |
 | react-dom | 19.2.8 | MIT | runtime | No | https://www.npmjs.com/package/react-dom |
 | tiptap-markdown | 0.9.0 | MIT | runtime | No | https://www.npmjs.com/package/tiptap-markdown |
