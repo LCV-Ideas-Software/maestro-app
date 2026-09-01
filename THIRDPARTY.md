@@ -45,7 +45,7 @@ declared explicitly in this inventory and in the fail-closed verifier.
 | lowlight | 3.3.0 | MIT | runtime | No | https://www.npmjs.com/package/lowlight |
 | lucide-react | 1.34.0 | ISC | runtime | No | https://www.npmjs.com/package/lucide-react |
 | mammoth | 1.12.1 | BSD-2-Clause | runtime | No | https://www.npmjs.com/package/mammoth |
-| marked | 18.0.10 | MIT | runtime | No | https://www.npmjs.com/package/marked |
+| marked | 18.0.11 | MIT | runtime | No | https://www.npmjs.com/package/marked |
 | prosemirror-model | 1.25.11 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-model |
 | prosemirror-state | 1.4.4 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-state |
 | prosemirror-view | 1.42.3 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-view |
