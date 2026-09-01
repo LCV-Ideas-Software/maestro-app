@@ -5202,7 +5202,7 @@ THE SOFTWARE.
 
 ==============================================================================
 
-prosemirror-view 1.42.2  (npm)
+prosemirror-view 1.42.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE ---
