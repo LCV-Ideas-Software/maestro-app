@@ -4,6 +4,12 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Refresh the compatible Tiptap 3.30.5 dependency group's inventory and notices,
+  and update its transitive `@xmldom/xmldom` dependency to the patched 0.8.15
+  release so the dependency update can pass the existing security checks.
+
 ## [v0.5.60] - 2026-08-30
 
 ### Changed
