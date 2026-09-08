@@ -287,9 +287,9 @@ export const POLICY = Object.freeze({
       rationale:
         "Inspecionado em 30/08/2026: o LICENSE do tarball enumera somente as duas condicoes de redistribuicao e nao contem clausula de nao-endosso.",
     }),
-    "mammoth@1.12.1": Object.freeze({
+    "mammoth@1.12.2": Object.freeze({
       ecosystem: "npm",
-      source: "https://registry.npmjs.org/mammoth/-/mammoth-1.12.1.tgz",
+      source: "https://registry.npmjs.org/mammoth/-/mammoth-1.12.2.tgz",
       declared: "BSD-2-Clause",
       identifiedLicense: "BSD-2-Clause",
       textEvidence: Object.freeze([
@@ -299,7 +299,7 @@ export const POLICY = Object.freeze({
         }),
       ]),
       rationale:
-        "Inspecionado em 30/08/2026: o LICENSE do tarball enumera somente as duas condicoes de redistribuicao e nao contem clausula de nao-endosso.",
+        "Inspecionado em 08/09/2026: o LICENSE do tarball enumera somente as duas condicoes de redistribuicao e nao contem clausula de nao-endosso.",
     }),
     "option@0.2.4": Object.freeze({
       ecosystem: "npm",

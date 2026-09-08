@@ -78,7 +78,7 @@
     "dompurify": "3.4.14",
     "lowlight": "3.3.0",
     "lucide-react": "1.38.0",
-    "mammoth": "1.12.1",
+    "mammoth": "1.12.2",
     "marked": "18.0.11",
     "prosemirror-model": "1.25.11",
     "prosemirror-state": "1.4.4",

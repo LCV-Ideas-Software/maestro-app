@@ -1296,8 +1296,8 @@ test("BSD-2-Clause cannot be corroborated by text shared with BSD-3-Clause", asy
     ],
     ["lop@0.4.2", "https://registry.npmjs.org/lop/-/lop-0.4.2.tgz"],
     [
-      "mammoth@1.12.1",
-      "https://registry.npmjs.org/mammoth/-/mammoth-1.12.1.tgz",
+      "mammoth@1.12.2",
+      "https://registry.npmjs.org/mammoth/-/mammoth-1.12.2.tgz",
     ],
     ["option@0.2.4", "https://registry.npmjs.org/option/-/option-0.2.4.tgz"],
   ]);
