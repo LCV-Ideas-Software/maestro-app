@@ -10,14 +10,13 @@ Portable Windows editorial workbench for protocol-driven AI drafting, source ver
 [![CI](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/ci.yml/badge.svg)](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/ci.yml)
 [![Pages](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/pages.yml/badge.svg)](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/pages.yml)
 [![Release](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/release.yml/badge.svg)](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/release.yml)
-[![CodeQL](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/codeql.yml/badge.svg)](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/codeql.yml)
-[![Public Format](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/format-public.yml/badge.svg)](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/format-public.yml)
+[CodeQL Default Setup](https://github.com/LCV-Ideas-Software/maestro-app/security/code-scanning)
 [![status: stable](https://img.shields.io/badge/status-stable-brightgreen.svg)](#status)
 [![target: Windows 11+](https://img.shields.io/badge/target-Windows%2011%2B-blue.svg)](#status)
 [![stack: Tauri 2 + React 19](https://img.shields.io/badge/stack-Tauri%202%20%2B%20React%2019-blueviolet.svg)](#architecture)
 [![license: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 
-**Status.** Stable. Current release target: **v0.5.60** (release tag `v00.05.60`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release target: **v0.5.61** (release tag `v00.05.61`), pending publication. The latest published version remains `v00.05.60`. See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 Operational stable baseline started at `v0.5.25`, with live bootstrap, diagnostics, navigation, Cloudflare credential provisioning, AI API credential checks, PostEditor parity, link auditing, and a real background Claude/Codex/Gemini/DeepSeek/Grok editorial session path. From `v0.5.27`, Maestro also supports Perplexity as an API-only Sonar peer. Runtime evidence from session `run-2026-05-11T01-09-30-556Z` confirms the first documented end-to-end unanimous editorial delivery: Maestro `0.5.25` resumed a real API-mode session, reached `READY_UNANIMOUS`, and wrote a clean `texto-final.md`.
 
@@ -186,15 +185,18 @@ Persistent link checking, MainSite-safe sanitization, explicit editorial decisio
 ## Repository conventions
 
 - **License**: [AGPL-3.0-or-later](./LICENSE). Network-service trigger applies: running a modified fork as a public service obligates you to publish modifications.
-- **Notices**: see [NOTICE](./NOTICE) and [THIRDPARTY](./THIRDPARTY.md).
+- **Notices**: see [NOTICE](./NOTICE), [THIRDPARTY](./THIRDPARTY.md), and the preserved full [THIRD-PARTY-NOTICES.txt](./THIRD-PARTY-NOTICES.txt) shipped inside the portable ZIP. The governance reform does not regenerate or recertify this historical license snapshot; official full-distribution notice automation remains tracked separately in GIT-213.
 - **Security disclosure**: see [SECURITY.md](./SECURITY.md).
 - **Code of conduct**: see [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
 - **Changelog**: [CHANGELOG.md](./CHANGELOG.md).
 - **Contributing**: see [CONTRIBUTING.md](./CONTRIBUTING.md).
+- **Inbound rights**: see [INBOUND.md](./INBOUND.md).
 - **Sponsorship**: see the repo's `Sponsor` button or [central sponsor page](https://www.lcv.dev/sponsor).
 - **Action pinning**: all GitHub Actions are pinned by full SHA per supply-chain hardening baseline.
-- **Automation authority**: queue admission is explicit and human; GitHub's native merge queue and Project workflows replace repository-owned auto-merge and Project controllers.
-- **Release authority**: a synchronized version change on the GitHub-verified `main` authorizes the preserved release engine to create its protected `vXX.YY.ZZ` tag and dispatch the tag-bound Windows/Release/GHCR publication; an existing protected tag is also the recovery boundary.
+- **Automation authority**: same-repository Dependabot PRs enable native GitHub auto-merge with squash against their exact head SHA, including standalone major updates. Required checks and inherited Enterprise protections remain authoritative; no merge queue or central controller is used. Version updates run weekly on Monday at 06:00 in `America/Sao_Paulo`, with minor/patch grouping.
+- **Validation**: CI retains frontend tests, Biome, build, public HTML formatting and the local PostEditor compatibility snapshot. Rust checks, tests and Clippy run only on GitHub-hosted Windows runners. CodeQL uses Default Setup for Actions, JavaScript/TypeScript and Rust; native Code Quality, Dependency Review, Zizmor and Scorecard remain separate controls.
+- **Release authority**: a synchronized new version on protected `main` authorizes the local release workflow; manual execution also targets `main`. Native job dependencies order Windows packaging, immutable GitHub Release publication and the GHCR mirror. Existing published GitHub Releases and their assets are never overwritten. The portable ZIP keeps its flat extract-and-run layout, full notices, SHA-256 manifest and build-provenance attestation; no tag self-dispatch or custom CI/security poller is used. A fresh run for an already-published version does nothing further. Recover a partially failed publication using **Re-run failed jobs** on the original run, as documented in the [release plan](./docs/release-engineering-plan.md#existing-versions-and-failed-job-recovery); a new dispatch or full rerun is not equivalent. GHCR may re-push the same verified ZIP under its version tag during that recovery.
+- **Linear integration**: the release workflow calls the same-repository reusable Linear Release workflow only after a new GitHub Release and its GHCR mirror have been published successfully. It uses the official Linear action and the existing `linear-release` environment.
 - **Fork Pages setup**: enable **Settings -> Pages -> GitHub Actions** once in a fresh fork before its first Pages run; no administrative token is stored for self-enablement.
 - **Code owners**: [.github/CODEOWNERS](.github/CODEOWNERS).
 

@@ -3,38 +3,53 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily"
-      time: "01:00"
-      timezone: "America/Los_Angeles"
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Sao_Paulo"
     cooldown:
       default-days: 7
       exclude:
         - "actions/*"
         - "github/*"
+    rebase-strategy: auto
     labels:
       - "dependencies"
-      - "github-actions"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
     open-pull-requests-limit: 10
     groups:
-      codeql-action:
+      minor-e-patch:
         applies-to: version-updates
         patterns:
-          - "github/codeql-action*"
-      codeql-action-security-updates:
-        applies-to: security-updates
-        patterns:
-          - "github/codeql-action*"
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "daily"
-      time: "01:00"
-      timezone: "America/Los_Angeles"
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Sao_Paulo"
     cooldown:
       default-days: 7
+    rebase-strategy: auto
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    versioning-strategy: increase
+    open-pull-requests-limit: 10
     groups:
+      # Keep the existing product families together, including major updates:
+      # React/React DOM and Tiptap extensions have coordinated peer constraints.
       react:
+        applies-to: version-updates
         patterns:
           - "@types/react"
           - "@types/react-dom"
@@ -45,6 +60,7 @@ updates:
           - "minor"
           - "patch"
       tiptap-editor:
+        applies-to: version-updates
         patterns:
           - "@tiptap/*"
           - "tiptap-*"
@@ -52,20 +68,42 @@ updates:
           - "major"
           - "minor"
           - "patch"
-    labels:
-      - "dependencies"
-      - "npm"
-    open-pull-requests-limit: 10
+      minor-e-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@types/react"
+          - "@types/react-dom"
+          - "react"
+          - "react-dom"
+          - "@tiptap/*"
+          - "tiptap-*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
     schedule:
-      interval: "daily"
-      time: "01:00"
-      timezone: "America/Los_Angeles"
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Sao_Paulo"
     cooldown:
       default-days: 7
+    rebase-strategy: auto
     labels:
       - "dependencies"
-      - "rust"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
     open-pull-requests-limit: 10
+    groups:
+      minor-e-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

@@ -4,6 +4,31 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+## [v0.5.61] - 2026-09-08
+
+### Changed
+
+- **MAESTRO-25 — native repository governance.** Align Dependabot, native
+  auto-merge, Dependency Review, Pages, Zizmor and Scorecard with the reformed
+  repositories. Keep the React and Tiptap dependency families coordinated.
+- Use the already-configured CodeQL Default Setup, including Rust, and retain
+  frontend checks and Windows Rust gates without a merge queue or custom secret
+  scanner. Move public HTML formatting into CI.
+- Replace the release check poller, policy interpreter and tag self-dispatch with
+  native job dependencies. Preserve the portable Windows ZIP, full bundled
+  notices, checksum, provenance attestation and GHCR mirror; record Linear
+  releases after successful Windows publication through a same-repository
+  reusable workflow. Previously published versions are not overwritten.
+- Retire custom license generators/verifiers and their two obsolete workflow
+  contract tests. Preserve the complete legal snapshot and vendored license
+  texts; official full-distribution notice automation remains tracked in GIT-213.
+  Production dependencies are unchanged.
+- Bump the synchronized product version to 0.5.61 at the operator's request so
+  the approved governance rollout can exercise an actual Windows publication
+  under the new v00.05.61 tag. Publication remains pending PR approval and CI.
+- Add INBOUND and update governance and release documentation. Rust checks run
+  only on GitHub-hosted Windows runners, never on the operator's local machine.
+
 ### Fixed
 
 - Remove the retired Actions lockfile and its direct consumers so dependency

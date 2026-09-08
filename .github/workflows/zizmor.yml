@@ -2,12 +2,11 @@ name: Zizmor
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
-  merge_group:
-    types:
-      - checks_requested
+    branches:
+      - "**"
   schedule:
     - cron: "43 5 * * 1"
   workflow_dispatch:
@@ -15,8 +14,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: zizmor-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: zizmor-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   zizmor:
@@ -24,18 +23,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read # Read the workflows checked out for analysis.
-      security-events: write # Upload the official Zizmor SARIF analysis.
+      security-events: write # Upload the zizmor SARIF to code scanning.
+      contents: read # Check out the repository.
+      actions: read # Read workflow metadata for the upload.
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Run Zizmor
+      - name: Run zizmor
         uses: zizmorcore/zizmor-action@70fb788f84895a7701f5643d103d587e460b5c99 # v0.6.3
-        with:
-          collect: all
-          inputs: .github
-          persona: auditor
-          version: 1.29.0
