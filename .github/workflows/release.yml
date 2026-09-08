@@ -190,6 +190,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      attestations: read
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
@@ -225,6 +226,17 @@ jobs:
             fi
             args+=(--latest="$make_latest")
           fi
+          # --target only creates an absent tag; recheck any existing remote tag
+          # after the Windows build, resolving annotated tags to their commit.
+          tag_ref="$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$RELEASE_TAG" \
+            --jq ".[] | select(.ref == \"refs/tags/$RELEASE_TAG\") | .ref")"
+          if [[ -n "$tag_ref" ]]; then
+            tag_commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag_ref" --jq .sha)"
+            [[ "$tag_commit" == "$GITHUB_SHA" ]] || {
+              echo "::error::Remote release tag names another commit. Refusing publication."
+              exit 1
+            }
+          fi
           if [[ "$release" == null ]]; then
             gh release create "$RELEASE_TAG" "$zip" release/SHA256SUMS.txt \
               --target "$GITHUB_SHA" --generate-notes "${args[@]}"
@@ -249,6 +261,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      attestations: read
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}

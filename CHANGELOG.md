@@ -36,6 +36,8 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Fixed
 
+- Recheck the remote release tag after the Windows build and reject a different
+  source commit; explicitly grant attestation reads to release verification jobs.
 - Remove the retired Actions lockfile and its direct consumers so dependency
   updates can start the native workflows; align Linear Release with its official
   v0.17.2 CLI.
