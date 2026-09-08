@@ -55,7 +55,7 @@ declared explicitly in this inventory and in the fail-closed verifier.
 | @biomejs/biome | 2.5.10 | MIT OR Apache-2.0 | development | No | https://www.npmjs.com/package/@biomejs/biome |
 | @tauri-apps/cli | 2.11.4 | Apache-2.0 OR MIT | development | No | https://www.npmjs.com/package/@tauri-apps/cli |
 | @testing-library/jest-dom | 7.0.1 | MIT | development | No | https://www.npmjs.com/package/@testing-library/jest-dom |
-| @testing-library/react | 16.3.2 | MIT | development | No | https://www.npmjs.com/package/@testing-library/react |
+| @testing-library/react | 16.3.3 | MIT | development | No | https://www.npmjs.com/package/@testing-library/react |
 | @types/react | 19.2.18 | MIT | development | No | https://www.npmjs.com/package/@types/react |
 | @types/react-dom | 19.2.5 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
 | @vitejs/plugin-react | 6.1.0 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
