@@ -4480,7 +4480,7 @@ SOFTWARE.
 
 ==============================================================================
 
-mammoth 1.12.1  (npm)
+mammoth 1.12.2  (npm)
 Licenca declarada: BSD-2-Clause
 
 --- LICENSE ---
