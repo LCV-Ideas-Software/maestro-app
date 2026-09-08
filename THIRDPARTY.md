@@ -43,7 +43,7 @@ declared explicitly in this inventory and in the fail-closed verifier.
 | @tiptap/suggestion | 3.30.5 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/suggestion |
 | dompurify | 3.4.14 | (MPL-2.0 OR Apache-2.0) | runtime | No | https://www.npmjs.com/package/dompurify |
 | lowlight | 3.3.0 | MIT | runtime | No | https://www.npmjs.com/package/lowlight |
-| lucide-react | 1.34.0 | ISC | runtime | No | https://www.npmjs.com/package/lucide-react |
+| lucide-react | 1.38.0 | ISC | runtime | No | https://www.npmjs.com/package/lucide-react |
 | mammoth | 1.12.2 | BSD-2-Clause | runtime | No | https://www.npmjs.com/package/mammoth |
 | marked | 18.0.11 | MIT | runtime | No | https://www.npmjs.com/package/marked |
 | prosemirror-model | 1.25.11 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-model |
@@ -52,13 +52,13 @@ declared explicitly in this inventory and in the fail-closed verifier.
 | react | 19.2.8 | MIT | runtime | No | https://www.npmjs.com/package/react |
 | react-dom | 19.2.8 | MIT | runtime | No | https://www.npmjs.com/package/react-dom |
 | tiptap-markdown | 0.9.0 | MIT | runtime | No | https://www.npmjs.com/package/tiptap-markdown |
-| @biomejs/biome | 2.5.10 | MIT OR Apache-2.0 | development | No | https://www.npmjs.com/package/@biomejs/biome |
+| @biomejs/biome | 2.5.11 | MIT OR Apache-2.0 | development | No | https://www.npmjs.com/package/@biomejs/biome |
 | @tauri-apps/cli | 2.11.4 | Apache-2.0 OR MIT | development | No | https://www.npmjs.com/package/@tauri-apps/cli |
 | @testing-library/jest-dom | 7.0.1 | MIT | development | No | https://www.npmjs.com/package/@testing-library/jest-dom |
-| @testing-library/react | 16.3.2 | MIT | development | No | https://www.npmjs.com/package/@testing-library/react |
+| @testing-library/react | 16.3.3 | MIT | development | No | https://www.npmjs.com/package/@testing-library/react |
 | @types/react | 19.2.18 | MIT | development | No | https://www.npmjs.com/package/@types/react |
 | @types/react-dom | 19.2.5 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
-| @vitejs/plugin-react | 6.1.0 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
+| @vitejs/plugin-react | 6.1.1 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
 | jsdom | 30.0.1 | MIT | development | No | https://www.npmjs.com/package/jsdom |
 | npm-install-checks | 9.0.0 | BSD-2-Clause | development | No | https://www.npmjs.com/package/npm-install-checks |
 | prettier | 3.9.6 | MIT | development | No | https://www.npmjs.com/package/prettier |
