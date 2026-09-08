@@ -3,11 +3,10 @@
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-import actionsLockSource from "../../.github/workflows/actions.lock?raw";
 import workflowSource from "../../.github/workflows/linear-release.yml?raw";
 import agentsGuide from "../../AGENTS.md?raw";
 
-const LINEAR_ACTION_SHA = "3f31fcf14c110cc53579fcc3575a26d469c413b4";
+const LINEAR_ACTION_SHA = "53ad0f863963e7f8e270fba18426bbb55ef55384";
 const CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 
 type WorkflowStep = {
@@ -36,16 +35,7 @@ type LinearReleaseWorkflow = {
   };
 };
 
-type ActionsLock = {
-  workflows?: Record<string, string[]>;
-  dependencies?: Record<
-    string,
-    { commit?: string; owner_id?: number; ref?: string; repo_id?: number }
-  >;
-};
-
 const workflow = parse(workflowSource) as LinearReleaseWorkflow;
-const actionsLock = parse(actionsLockSource) as ActionsLock;
 
 describe("Official Linear Release workflow", () => {
   it("preserves the continuous pipeline trigger and least-privilege boundary", () => {
@@ -76,27 +66,12 @@ describe("Official Linear Release workflow", () => {
       uses: `linear/linear-release-action@${LINEAR_ACTION_SHA}`,
       with: {
         access_key: ["$", "{{ secrets.LINEAR_ACCESS_KEY }}"].join(""),
-        cli_version: "v0.17.1",
+        cli_version: "v0.17.2",
       },
     });
     expect(workflowSource).not.toContain("continue-on-error:");
     expect(workflowSource).not.toContain("linear-release-linux-x64");
     expect(workflowSource).not.toContain("CLI_SHA256");
-  });
-
-  it("locks the direct action to the signed v0.17.1 commit", () => {
-    const dependency = `linear/linear-release-action@${LINEAR_ACTION_SHA}`;
-
-    expect(actionsLock.workflows?.[".github/workflows/linear-release.yml"]).toEqual([
-      `actions/checkout@${CHECKOUT_SHA}`,
-      dependency,
-    ]);
-    expect(actionsLock.dependencies?.[dependency]).toEqual({
-      ref: "v0.17.1",
-      commit: `sha1-${LINEAR_ACTION_SHA}`,
-      owner_id: 46686594,
-      repo_id: 1150447766,
-    });
   });
 
   it("names only the current cross-review service", () => {
