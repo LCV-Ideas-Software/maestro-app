@@ -14,14 +14,23 @@ Pointer for AI agents working in this repository.
 Portable Windows desktop app (Tauri shell + React front-end) for protocol-driven AI
 drafting, source verification and multi-agent editorial convergence.
 
-## Mandatory Gates
+## Validation
 
-```bash
+Frontend checks may run locally in PowerShell:
+
+```powershell
 npm test
 npm run biome
 npm run build
 npm run format:public:check
+npm run parity:check
 npm audit --audit-level=moderate
+```
+
+Run Rust validation only on GitHub-hosted Windows runners. Do not run `cargo`
+or `rustc` on the operator's local machine:
+
+```powershell
 cargo check --locked --all-targets --manifest-path src-tauri/Cargo.toml
 cargo test --locked --manifest-path src-tauri/Cargo.toml
 cargo clippy --locked --no-deps --all-targets --manifest-path src-tauri/Cargo.toml
@@ -29,13 +38,41 @@ cargo clippy --locked --no-deps --all-targets --manifest-path src-tauri/Cargo.to
 
 ## Workspace Policy
 
-Follow the workspace-root `AGENTS.md` directives of the private workspace that
-hosts this checkout (not versioned in this public repository). In particular:
-no self-review in cross-review gates; use `ultrabrain` for every change and the
-single `cross-review` service for substantive work (simple mechanical changes,
-such as replacing an action without changing product behavior, are exempt);
-use `main` as the deployment branch; and Commit & Sync only after the final
-audit when requested.
+Follow the workspace-root `AGENTS.md` and the operator's current decisions.
+Prefer official native GitHub capabilities, followed by official third-party
+solutions. Customizations require prior case-specific operator approval.
+Central controllers are prohibited: this repository owns its workflows and
+lifecycle without depending on another repository's controller. Do not restore
+retired action-lock mechanisms, merge queues, custom release pollers or legal
+verifiers. Keep dependency-manager lockfiles.
+
+Use Ultrabrain for substantive reasoning and cross-review only when complexity
+justifies it. Send complete raw evidence and communicate internally in English;
+preserve external evidence verbatim. Do not use Codespaces. Do not change Git
+configuration if SSH commit signing fails: report the exact failure and wait
+for the operator's instruction.
+
+Dependabot enables native auto-merge on same-repository PRs, including major
+updates, while required checks and inherited Enterprise protections govern
+admission. CodeQL uses Default Setup, including Rust; CI retains the product's
+local PostEditor parity snapshot. Do not mistake that in-repository product
+contract for a central controller.
+
+Preserve Windows portable distribution, padded release tags, full bundled
+license texts, checksums, GitHub attestation and the GHCR mirror. The legal
+snapshot is retained, not newly certified by the governance reform; official
+full-distribution notice automation is tracked separately in GIT-213. Do not
+reintroduce the retired custom legal executables or discard vendor license texts.
+
+Prepare changes locally. Present the change report before pushing or opening a
+PR and wait for operator approval. GitHub configuration changes require explicit
+prior approval. Clean up only this execution's no-longer-needed branches and
+worktrees after verifying their work is preserved remotely.
+
+Keep related GitHub Projects, Discussions and Issues and Linear Issues,
+Projects, Teams, Initiatives and Cycles cross-linked and current as material
+work changes. Preserve unrelated ownership, priority and history; apply the
+`Codex` label to Codex-owned work. Provider quota exhaustion is not a code defect.
 
 ## Registro de trabalho (GitHub Projects, Issues e Discussions)
 
@@ -119,9 +156,9 @@ com desvios `Bloqueado` e `Descartado`.
 > proprios em cada quadro. Atualize os DOIS quadros — o deste repositorio e o portfolio
 > #17 — a cada transicao; ID de opcao de um quadro nunca vale no outro (Discussion org#176).
 
-### Nada de identificador real em repositorio publico
+### Public metadata and confidential information
 
-Issues, PRs e Discussions deste repositorio sao publicos e permanentes. Use placeholders
-(`proj-x`, `exemplo-projeto-000`, `exemplo.com`) no lugar de IDs de projeto de nuvem, nomes
-de banco, dominios e contas. Detalhe operacional sensivel vai para o quadro privado ou para
-`.github-private`.
+Necessary nonsecret identifiers and configuration metadata may be versioned and
+used in public tracking. Do not publish credentials, secret values, private
+editorial material, personal data or confidential agreement contents. Keep
+private evidence in the appropriate private tracking or disclosure channel.

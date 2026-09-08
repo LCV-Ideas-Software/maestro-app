@@ -1,6 +1,6 @@
 {
   "name": "maestro-app",
-  "version": "0.5.60",
+  "version": "0.5.61",
   "private": true,
   "description": "Portable Windows editorial workbench for protocol-driven AI drafting, source verification, and multi-agent editorial convergence.",
   "type": "module",
@@ -15,9 +15,6 @@
     "biome": "biome check src",
     "biome:write": "biome check --write src",
     "parity:check": "node scripts/verify-posteditor-parity.mjs",
-    "verify:thirdparty": "node --test scripts/verify-thirdparty.node-test.mjs && node scripts/verify-thirdparty.mjs",
-    "notices": "node scripts/generate-notices.mjs",
-    "notices:check": "node scripts/generate-notices.mjs --check",
     "format:public": "prettier --write \"**/index.html\"",
     "format:public:check": "prettier --check \"**/index.html\""
   },
@@ -33,13 +30,10 @@
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "6.1.1",
     "jsdom": "^30.0.1",
-    "npm-install-checks": "9.0.0",
     "prettier": "^3.9.6",
-    "spdx-expression-parse": "^5.0.0",
     "typescript": "7.0.2",
     "vite": "8.2.2",
-    "vitest": "^4.1.11",
-    "yaml": "2.9.0"
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",

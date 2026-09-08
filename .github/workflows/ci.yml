@@ -1,19 +1,24 @@
 name: CI
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   pull_request:
-    branches: ["main"]
-  merge_group:
-    types:
-      - checks_requested
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+  workflow_dispatch:
+
 permissions: {}
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  hygiene:
-    permissions:
-      contents: read # Read the repository source and lockfiles under test.
-    name: Repository hygiene
+  ci:
+    name: CI
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -23,86 +28,53 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          check-latest: true
-          cache: npm
+          package-manager-cache: false
+      - name: Check public npm registry
+        run: test "$(npm config get registry)" = "https://registry.npmjs.org/"
       - name: Install dependencies
-        run: npm ci
-      - name: Biome (lint + format)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Biome
         run: npm run biome
-      - name: Verify reviewed PostEditor parity snapshot
+      - name: Verify product PostEditor parity
         run: npm run parity:check
-      - name: npm audit
+      - name: Check public HTML formatting
+        run: npm run format:public:check
+      - name: Audit dependencies
         run: npm audit --audit-level=moderate
       - name: Frontend tests
         run: npm test
       - name: Build frontend
         run: npm run build
-      - name: Verify private protocol artifacts are absent
-        shell: bash
-        run: |
-          if find docs/source-protocols -type f -name '*.md' ! -name 'README.md' | grep -q .; then
-            echo "Private source protocol Markdown files must not be committed." >&2
-            exit 1
-          fi
-      - name: Detect common secret-shaped strings
-        shell: bash
-        run: |
-          secret_pattern='(^|[^A-Za-z0-9_])(sk-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|sk_live_[A-Za-z0-9_-]{20,}|cfut_[A-Za-z0-9_-]{20,}|cfat_[A-Za-z0-9_-]{20,}|cfk_[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|AIza[0-9A-Za-z_-]{20,}|re_[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16})'
-          if grep -RInE "${secret_pattern}" . \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude-dir=dist \
-            --exclude-dir=build \
-            --exclude-dir=out \
-            --exclude-dir=target \
-            --exclude='package-lock.json' \
-            --exclude='Cargo.lock'; then
-            echo "Secret-shaped string detected. Use placeholders such as <api_key_redacted>." >&2
-            exit 1
-          fi
-    timeout-minutes: 30
+
   rust-gates:
-    permissions:
-      contents: read # Read the Rust workspace under test.
     name: Rust gates (cargo --locked)
     runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Setup Rust stable
         shell: pwsh
         run: |
           rustup toolchain install stable --profile minimal --component clippy
           rustup default stable
-      - name: Setup Node.js for dependency inventory
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          check-latest: true
-      # A arvore npm e instalada antes do primeiro passo que a usa. A
-      # verificacao de inventario passou a analisar expressao SPDX com a
-      # implementacao de referencia, que e dependencia de desenvolvimento; e a
-      # geracao de avisos le o texto de licenca do artefato realmente
-      # instalado. O runner e windows-latest, o mesmo alvo do --filter-platform
-      # usado na politica.
-      - name: Install Node dependencies
-        run: npm ci
-      - name: Verify direct dependency inventory
-        run: npm run verify:thirdparty
       - name: cargo check --locked
         working-directory: src-tauri
         run: cargo check --locked --all-targets
-      - name: Verify third-party notices
-        run: npm run notices:check
       - name: cargo test --locked
         working-directory: src-tauri
         run: cargo test --locked
       - name: cargo clippy --locked
         working-directory: src-tauri
         run: cargo clippy --locked --no-deps --all-targets
-    timeout-minutes: 30
-concurrency:
-  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}

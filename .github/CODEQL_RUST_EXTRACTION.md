@@ -1,9 +1,28 @@
 # CodeQL Rust extraction boundary
 
-Status: accepted platform diagnostic, not an application defect or a CodeQL
-finding.
+## Current setup — 08/09/2026
 
-## Exact audited evidence
+The repository uses GitHub CodeQL Default Setup for Actions,
+JavaScript/TypeScript and Rust, with the extended query suite and standard
+GitHub-hosted runners. The repository-owned advanced workflow is retired;
+an explicit repository Rust sysroot is not required by the current setup.
+
+At commit `b79a7060ed9c1a9d0b0566495cd59b7e3bab1b80`, native Default Setup Rust
+analysis `1740961198` used analysis key
+`dynamic/github-code-scanning/codeql:analyze` and category `/language:rust`,
+with 27 rules, zero results and an empty analysis error. This is an exact-head
+observation, not a promise about future analyses. The separate Windows CI job
+continues to run the product's locked Rust checks, tests and Clippy.
+
+GitHub documents Rust support in Default Setup using build mode `none`:
+[CodeQL for compiled languages](https://docs.github.com/en/code-security/concepts/code-scanning/codeql/codeql-for-compiled-languages).
+
+## Historical incident — 08/08/2026
+
+The following accepted platform diagnostic is preserved as historical evidence,
+not a current requirement to restore Advanced Setup or an application defect.
+
+### Exact audited evidence
 
 At pull request head
 `657062704a186953b29c0622cf9beb967f058a72`, the Rust job in
@@ -19,7 +38,7 @@ The repository's independent `cargo --locked` gates passed on the same pull
 request head. No application source change is justified by this extractor-only
 warning.
 
-## Platform boundary
+### Platform boundary
 
 GitHub documents that CodeQL Rust `build-mode: none` uses `rust-analyzer` to
 compile build scripts and macro code without invoking a full build. GitHub also
@@ -40,15 +59,12 @@ issue:
 
 ## Enforcement
 
-This record does not suppress or baseline any CodeQL result. The repository uses
-GitHub's official CodeQL Advanced Setup for Actions, JavaScript/TypeScript and
-Rust, while the Enterprise code-scanning rule protects pull requests and the
-default branch. Exact-head analyses and open alerts are checked before queue
-admission; the separate Rust job enforces the complete `cargo --locked` gates.
-No repository-owned SARIF parser or log parser is used. GitHub's documented
-merge-group boundary for code-scanning merge protection is an accepted platform
-limit under the organization-wide native-controls policy, not a waiver for an
-open alert.
+This record does not suppress or baseline any CodeQL result. The inherited
+Enterprise code-scanning rule remains authoritative for pull requests and the
+default branch. There is no merge queue, repository-owned SARIF parser, log
+parser or release-readiness polling gate. Native Default Setup and the separate
+Windows Rust job have distinct responsibilities; neither historical extractor
+warnings nor this note waive actionable current findings.
 
 This evidence is specific to the exact run, head, location, and messages above.
 Any change in that evidence requires a new investigation; it is not pre-approved

@@ -1,44 +1,33 @@
 name: Linear Release
+
 on:
-  push:
-    branches:
-      - main
-# Política enterprise (Discussion #150): sem write-all. Conjunto vazio no escopo do
-# workflow e grant mínimo declarado no job.
+  workflow_call:
+    inputs:
+      version:
+        description: Published Windows release tag
+        required: true
+        type: string
+
 permissions: {}
-# Fila integral: o grupo serializa as criações de release e queue: max preserva
-# todos os runs pendentes suportados, sem substituir pushes intermediários.
-concurrency:
-  group: linear-release-${{ github.ref }}
-  queue: max
+
 jobs:
   linear_release:
     name: Linear Release
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Política zizmor da casa: secret só é lido dentro de environment dedicado.
-    # LINEAR_ACCESS_KEY vive como environment secret de linear-release — escopo
-    # restrito a criar releases na pipeline deste repositório, nada além.
     environment: linear-release
     permissions:
-      contents: read # o CLI lê o histórico de commits para associar issues à release
+      contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout published source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # histórico completo: o CLI varre commits desde a última release
+          fetch-depth: 0
           persist-credentials: false
-
-      # Action oficial da Linear, pinada ao commit da release v0.17.2, com a
-      # versão do CLI selecionada explicitamente. Desde a v0.16.1 o instalador
-      # verifica o CLI baixado contra um checksum SHA-256 publicado antes de
-      # executá-lo, fechando a lacuna rastreada em
-      # linear/linear-release-action#59.
-      #
-      # Falha fechada: indisponibilidade, erro do CLI ou segredo expirado deixam o
-      # run vermelho, em vez de ocultar uma divergência entre GitHub e Linear.
-      - name: Create Linear release with the official action
-        id: linear_release
+      - name: Sync the published version with the official Linear action
         uses: linear/linear-release-action@53ad0f863963e7f8e270fba18426bbb55ef55384 # v0.17.2
         with:
           access_key: ${{ secrets.LINEAR_ACCESS_KEY }}
           cli_version: v0.17.2
+          version: ${{ inputs.version }}
+          links: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.version }}

@@ -1,10 +1,26 @@
 # Third-Party Components
 
+## Inventory and preserved notice snapshot
+
+The direct-dependency table records the repository's declared dependencies.
+The Rust review below and the full `THIRD-PARTY-NOTICES.txt` bundle are retained
+from the pre-reform review. The governance reform of 08/09/2026 preserves that
+bundle and all static vendor license texts in `scripts/legal/` byte-for-byte;
+it does not regenerate them or certify coverage for a new dependency graph.
+
+The repository-owned legal generator, verifier and their helper modules have
+been retired. These documents remain maintained distribution records, not the
+output of a currently enforced custom CI gate. Dependency changes must be
+reviewed for corresponding notice updates before a new product distribution.
+Official full-distribution notice automation remains a separate task, GIT-213;
+native GitHub dependency/security checks are not a claim that this full npm and
+Rust notice bundle has been regenerated.
+
 Direct dependencies declared by this repository:
 
 `Modified? = No` means the locked upstream artifact is consumed without a
 repository-maintained patch or vendored modification. Any exception must be
-declared explicitly in this inventory and in the fail-closed verifier.
+declared explicitly in this inventory and the applicable distribution notices.
 
 | Component | Version | License | Scope | Modified? | Source |
 | --- | --- | --- | --- | --- | --- |
@@ -60,32 +76,31 @@ declared explicitly in this inventory and in the fail-closed verifier.
 | @types/react-dom | 19.2.5 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
 | @vitejs/plugin-react | 6.1.1 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
 | jsdom | 30.0.1 | MIT | development | No | https://www.npmjs.com/package/jsdom |
-| npm-install-checks | 9.0.0 | BSD-2-Clause | development | No | https://www.npmjs.com/package/npm-install-checks |
 | prettier | 3.9.6 | MIT | development | No | https://www.npmjs.com/package/prettier |
-| spdx-expression-parse | 5.0.0 | MIT | development | No | https://www.npmjs.com/package/spdx-expression-parse |
 | typescript | 7.0.2 | Apache-2.0 | development | No | https://www.npmjs.com/package/typescript |
 | vite | 8.2.2 | MIT | development | No | https://www.npmjs.com/package/vite |
 | vitest | 4.1.11 | MIT | development | No | https://www.npmjs.com/package/vitest |
-| yaml | 2.9.0 | ISC | development | No | https://www.npmjs.com/package/yaml |
 
-## Rust components
+## Rust components — preserved review
 
-The versions below are resolved by `src-tauri/Cargo.lock`. Direct package
-identity, resolved version, license expression, source and dependency kind are
-verified with Cargo's official `cargo metadata --locked --all-features`
+The versions below were recorded for the `src-tauri/Cargo.lock` fingerprint
+shown below. In that review, direct package identity, resolved version, license
+expression, source and dependency kind were verified with Cargo's official
+`cargo metadata --locked --all-features`
 interface, including renamed and target-specific dependencies. The complete
 package/version graph was cross-checked against the repository's SPDX-compatible
 [GitHub dependency graph SBOM](https://docs.github.com/en/rest/dependency-graph/sboms).
 License expressions were verified against checksum-matched, exact-version
 artifacts from the official [crates.io registry](https://crates.io/); the SBOM
-identifies the graph but does not currently populate `licenseDeclared` for
-these Cargo packages.
+identified the graph but did not populate `licenseDeclared` for these Cargo
+packages in that recorded response.
 
 Normalized `Cargo.lock` SHA-256: `b214fea3b4251be6e0cf83658da2ed2b0b31c19427cc4661382219f29cdfe516`
 
-This fingerprint is computed after normalizing CRLF to LF. Any direct or
-transitive lockfile change invalidates this review and must update the Rust
-inventory and obligations before CI can pass.
+This historical fingerprint was computed after normalizing CRLF to LF. It is
+not recalculated by a repository-owned CI verifier. Direct or transitive
+dependency changes require review of the inventory and distribution obligations;
+the preserved fingerprint must not be presented as evidence for a changed graph.
 
 | Component | Version | License | Scope | Modified? | Source |
 | --- | --- | --- | --- | --- | --- |
@@ -104,10 +119,12 @@ inventory and obligations before CI can pass.
 
 ### Transitive Rust license review
 
-At these locked versions, the GitHub SBOM reports 478 registry-backed Rust
-package-version entries. A complete scan of their exact-version Cargo manifests
-resolved every license expression and found no GPL, AGPL, SSPL, or unresolved
-license term. The entries below require explicit operational treatment because
+At the versions covered by the recorded review, the GitHub SBOM reported 478
+registry-backed Rust package-version entries. That review recorded a scan of
+their exact-version Cargo manifests which resolved every license expression and
+found no GPL, AGPL, SSPL, or unresolved license term. This is historical evidence,
+not a new result from the governance reform. The entries below require explicit
+operational treatment because
 they are weak-copyleft, offer a weak-copyleft alternative, or are the complete
 set of conjunctive license expressions in the locked graph.
 
@@ -147,7 +164,8 @@ Cargo interprets `OR` as a license choice and `AND` as simultaneous compliance,
 as documented in the official
 [Cargo manifest reference](https://doc.rust-lang.org/cargo/reference/manifest.html#the-license-and-license-file-fields).
 
-No material license incompatibility with the repository's
-AGPL-3.0-or-later license was observed in the locked Rust graph. This is a
-technical compliance inventory, not legal advice, and must be refreshed when
-`src-tauri/Cargo.lock` changes.
+The recorded review found no material license incompatibility with the
+repository's AGPL-3.0-or-later license in its locked Rust graph. This is a
+historical technical compliance inventory, not legal advice or a new coverage
+certification. It must be reviewed and refreshed for dependency changes before
+a new distribution; the retired custom verifier no longer enforces that work.

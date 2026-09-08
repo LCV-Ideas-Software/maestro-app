@@ -2,14 +2,34 @@
 
 ## Supported status
 
-Latest supported source/release target: v00.05.60 for project version v0.5.60.
+Current source/release target: v00.05.61 for project version v0.5.61, pending
+publication. The latest published supported release remains v00.05.60.
 The current `main` branch remains supported for security fixes. Repository
 automation uses native GitHub controls and SHA-pinned official Actions with
-least-privilege job tokens. The preserved release engine authorizes a
-synchronized version change on the GitHub-verified `main`, creates its protected
-padded tag, and dispatches the tag-bound Windows/Release/GHCR publication. No
-repository-owned controller arms auto-merge, mutates Projects, or interprets
-SARIF.
+least-privilege job tokens. CodeQL Default Setup analyzes Actions,
+JavaScript/TypeScript and Rust; the separate Windows CI job runs the Rust
+compiler, tests and Clippy on GitHub-hosted runners, never on the operator's
+local machine.
+
+Same-repository Dependabot PRs enable native GitHub auto-merge for their exact
+head SHA, including major updates, subject to required checks and inherited
+Enterprise protections. There is no merge queue, central controller, custom
+SARIF interpreter or custom release-readiness poller.
+
+The repository-local release workflow publishes a new synchronized version
+from protected `main`, using native job dependencies for the Windows portable
+archive, immutable GitHub Release and GHCR mirror. Published GitHub Releases
+and their assets are never overwritten; the GHCR version tag may be pushed
+again with the same verified published ZIP during failed-job recovery. A fresh
+run for an already-published version creates no new archive or Linear release.
+Recovery uses the original run's native **Re-run failed jobs**, not deletion or
+retagging of a published release; see the
+[release recovery contract](./docs/release-engineering-plan.md#existing-versions-and-failed-job-recovery).
+Full bundled notices, SHA-256 checksums and GitHub
+build-provenance attestation are preserved. These attestations are not a claim
+of Windows Authenticode signing or a configured application updater. The
+official Linear integration runs after successful publication through the
+same-repository reusable workflow and existing `linear-release` environment.
 
 ## Reporting a vulnerability
 
