@@ -6,22 +6,21 @@
 
 [![release](https://img.shields.io/github/v/release/LCV-Ideas-Software/maestro-app?sort=semver)](https://github.com/LCV-Ideas-Software/maestro-app/releases)
 [![CI](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/ci.yml/badge.svg)](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/codeql.yml/badge.svg)](https://github.com/LCV-Ideas-Software/maestro-app/actions/workflows/codeql.yml)
 [![license: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](../../LICENSE)
 
-This folder is for local operator-supplied editorial protocols used during planning or testing.
+Keep private operator-supplied editorial protocols in private storage outside this public repository's checkout, including during planning and testing. This directory documents that boundary; it is not a private staging area.
 
-Protocol documents placed here are ignored by Git by default. Do not commit private editorial protocols unless the operator explicitly approves a public fixture.
+The existing ignore rules remain a safeguard against accidental staging, not an access-control boundary: a forced add can bypass them. Only explicitly approved, non-confidential public fixtures may be committed. A post-push CI check cannot prevent initial disclosure through a public branch, and Secret Scanning does not classify arbitrary confidential editorial prose.
 
 ## Change History
 
-**Status.** Active local protocol staging area. Current release: **not versioned**. See [CHANGELOG.md](../../CHANGELOG.md) for the full release history.
+**Status.** Documentation-only confidentiality boundary; private protocols belong outside the checkout. Current release: **not versioned**. See [CHANGELOG.md](../../CHANGELOG.md) for the full release history.
 
 The version history at a glance:
 
 | Change  | Notes                                                                                                  |
 | ------- | ------------------------------------------------------------------------------------------------------ |
-| Current | Local operator protocol staging area; content remains ignored unless a public fixture is approved.       |
+| Current | Private protocols stay outside the checkout; only explicitly approved non-confidential fixtures are public. |
 
 ## Repository conventions
 

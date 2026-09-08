@@ -212,6 +212,18 @@ jobs:
           args=(--repo "$GITHUB_REPOSITORY" --title "Maestro Editorial AI $RELEASE_TAG")
           if [[ "$PRERELEASE" == true ]]; then
             args+=(--prerelease --latest=false)
+          elif [[ "$release" == null || "$(jq -r .draft <<< "$release")" == true ]]; then
+            # Explicitly promote a new stable release, but do not let an older
+            # pre-publication retry move GitHub Latest or GHCR latest backwards.
+            make_latest=true
+            if [[ "$(jq '[.[][] | select(.draft == false and .prerelease == false)] | length' <<< "$releases")" -gt 0 ]]; then
+              latest_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name | @uri')"
+              relation="$(gh api "repos/$GITHUB_REPOSITORY/compare/$latest_tag...$GITHUB_SHA" --jq .status)"
+              if [[ "$relation" != ahead ]]; then
+                make_latest=false
+              fi
+            fi
+            args+=(--latest="$make_latest")
           fi
           if [[ "$release" == null ]]; then
             gh release create "$RELEASE_TAG" "$zip" release/SHA256SUMS.txt \

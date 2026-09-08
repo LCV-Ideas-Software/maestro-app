@@ -18,8 +18,10 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   native job dependencies. Preserve the portable Windows ZIP, full bundled
   notices, checksum, provenance attestation and GHCR mirror; record Linear
   releases after successful Windows publication through a same-repository
-  reusable workflow using the caller's commit directly, without a caller-supplied
-  checkout input. Previously published versions are not overwritten.
+  reusable workflow using the official checkout default for the caller's exact
+  commit. Previously published versions are not overwritten. Explicitly promote
+  advancing stable releases to Latest using GitHub's native commit comparison;
+  an older publication retry cannot move the stable channels backwards.
 - Retire custom license generators/verifiers and their two obsolete workflow
   contract tests. Preserve the complete legal snapshot and vendored license
   texts; official full-distribution notice automation remains tracked in GIT-213.
@@ -29,6 +31,8 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   under the new v00.05.61 tag. Publication remains pending PR approval and CI.
 - Add INBOUND and update governance and release documentation. Rust checks run
   only on GitHub-hosted Windows runners, never on the operator's local machine.
+- Keep private editorial protocols outside the public repository checkout;
+  preserve ignore rules and require explicit approval for public fixtures.
 
 ### Fixed
 
