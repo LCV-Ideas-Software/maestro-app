@@ -58,7 +58,7 @@ declared explicitly in this inventory and in the fail-closed verifier.
 | @testing-library/react | 16.3.3 | MIT | development | No | https://www.npmjs.com/package/@testing-library/react |
 | @types/react | 19.2.18 | MIT | development | No | https://www.npmjs.com/package/@types/react |
 | @types/react-dom | 19.2.5 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
-| @vitejs/plugin-react | 6.1.0 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
+| @vitejs/plugin-react | 6.1.1 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
 | jsdom | 30.0.1 | MIT | development | No | https://www.npmjs.com/package/jsdom |
 | npm-install-checks | 9.0.0 | BSD-2-Clause | development | No | https://www.npmjs.com/package/npm-install-checks |
 | prettier | 3.9.6 | MIT | development | No | https://www.npmjs.com/package/prettier |
