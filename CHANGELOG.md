@@ -18,7 +18,8 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   native job dependencies. Preserve the portable Windows ZIP, full bundled
   notices, checksum, provenance attestation and GHCR mirror; record Linear
   releases after successful Windows publication through a same-repository
-  reusable workflow. Previously published versions are not overwritten.
+  reusable workflow using the caller's commit directly, without a caller-supplied
+  checkout input. Previously published versions are not overwritten.
 - Retire custom license generators/verifiers and their two obsolete workflow
   contract tests. Preserve the complete legal snapshot and vendored license
   texts; official full-distribution notice automation remains tracked in GIT-213.

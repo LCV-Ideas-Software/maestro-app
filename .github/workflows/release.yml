@@ -293,5 +293,4 @@ jobs:
       contents: read
     uses: $/.github/workflows/linear-release.yml
     with:
-      sha: ${{ github.sha }}
       version: ${{ needs.prepare.outputs.tag }}
