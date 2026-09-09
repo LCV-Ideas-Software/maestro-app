@@ -4,6 +4,16 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+## [v0.5.62] - 2026-09-08
+
+### Changed
+
+- Bump the synchronized product version to 0.5.62 so a new Windows release
+  can validate the corrected automatic Linear Release integration. Existing
+  published releases remain unchanged; end-to-end validation is still pending.
+- Link current release status to GitHub Releases instead of retaining stale
+  pending-publication claims in the README, security policy and release plan.
+
 ### Fixed
 
 - Explicitly declare and pass only `LINEAR_ACCESS_KEY` through the native
