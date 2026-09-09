@@ -4,6 +4,12 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Explicitly declare and pass only `LINEAR_ACCESS_KEY` through the native
+  same-repository Linear Release workflow call, preserving the existing
+  `linear-release` environment and its access key.
+
 ## [v0.5.61] - 2026-09-08
 
 ### Changed
