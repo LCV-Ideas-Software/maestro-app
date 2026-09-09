@@ -44,8 +44,8 @@ Versioning convention:
   synchronized for a product version, including applicable dependency-manager
   lockfile metadata. Update `CHANGELOG.md` for the change actually delivered.
 - A governance-only change does not itself require a new product version.
-  For this rollout, the operator explicitly requested version `0.5.61` to test
-  the real Windows publication path; `v00.05.61` is pending approval and CI.
+  Testing the complete publication path requires a new synchronized version
+  and approval of its release PR; an existing published version is a no-op.
 
 Release readiness requires:
 
@@ -99,9 +99,10 @@ Distribution policy:
 A fresh push-triggered or manual run whose synchronized version is already a
 published GitHub Release succeeds without rebuilding or republishing it. Its
 publication jobs are skipped: no new ZIP, GHCR mirror run or Linear release is
-produced. An already-published `v00.05.60` remains a no-op. This rollout instead
-targets the new `v00.05.61` version at the operator's request, so its approved
-merge can exercise actual Windows publication, GHCR mirroring and Linear sync.
+produced. Use the [GitHub Releases list](https://github.com/LCV-Ideas-Software/maestro-app/releases)
+to distinguish published versions from the current source version. An approved
+new version exercises Windows publication, GHCR mirroring and Linear sync;
+success of the existing-version no-op does not validate those publication jobs.
 
 If a publication run fails after earlier jobs succeeded, recover through
 **Actions -> Release -> the original run -> Re-run jobs -> Re-run failed jobs**,

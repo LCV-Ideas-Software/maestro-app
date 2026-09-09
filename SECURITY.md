@@ -2,8 +2,8 @@
 
 ## Supported status
 
-Current source/release target: v00.05.61 for project version v0.5.61, pending
-publication. The latest published supported release remains v00.05.60.
+The [latest published stable Windows release](https://github.com/LCV-Ideas-Software/maestro-app/releases/latest)
+is supported. The source version in `package.json` may be ahead of that release.
 The current `main` branch remains supported for security fixes. Repository
 automation uses native GitHub controls and SHA-pinned official Actions with
 least-privilege job tokens. CodeQL Default Setup analyzes Actions,
