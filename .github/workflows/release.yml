@@ -317,5 +317,7 @@ jobs:
     permissions:
       contents: read
     uses: $/.github/workflows/linear-release.yml
+    secrets:
+      LINEAR_ACCESS_KEY: ${{ secrets.LINEAR_ACCESS_KEY }}
     with:
       version: ${{ needs.prepare.outputs.tag }}
