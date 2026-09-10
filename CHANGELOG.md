@@ -4,6 +4,15 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Update the pinned CodeQL Action to 4.38.0 and Zizmor Action to 0.6.4.
+
+### Fixed
+
+- Align Tiptap and lucide-react inventory versions and notice headers with the
+  lockfile, preserving the complete license texts and historical Rust review.
+
 ## [v0.5.62] - 2026-09-08
 
 ### Changed
