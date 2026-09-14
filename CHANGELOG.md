@@ -10,6 +10,10 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Fixed
 
+- Align the DOMPurify inventory entry and bundled notice header with version
+  3.4.15 already recorded in the package manifest and lockfile; both full license
+  texts match the exact upstream artifact.
+
 - Align direct dependency versions and bundled notice headers with the current
   npm and Cargo lockfiles, including the verified license texts of updated
   packages and preserving the historical Rust review.

@@ -2841,7 +2841,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 ==============================================================================
 
-dompurify 3.4.14  (npm)
+dompurify 3.4.15  (npm)
 Licenca declarada: (MPL-2.0 OR Apache-2.0)
 Licenca eleita: Apache-2.0 (registrada na politica)
 
