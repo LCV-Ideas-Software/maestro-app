@@ -25,41 +25,41 @@ declared explicitly in this inventory and the applicable distribution notices.
 | Component | Version | License | Scope | Modified? | Source |
 | --- | --- | --- | --- | --- | --- |
 | @tauri-apps/api | 2.11.1 | Apache-2.0 OR MIT | runtime | No | https://www.npmjs.com/package/@tauri-apps/api |
-| @tiptap/core | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/core |
-| @tiptap/extension-character-count | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-character-count |
-| @tiptap/extension-code-block-lowlight | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-code-block-lowlight |
-| @tiptap/extension-color | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-color |
-| @tiptap/extension-drag-handle | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-drag-handle |
-| @tiptap/extension-drag-handle-react | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-drag-handle-react |
-| @tiptap/extension-dropcursor | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-dropcursor |
-| @tiptap/extension-focus | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-focus |
-| @tiptap/extension-font-family | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-font-family |
-| @tiptap/extension-highlight | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-highlight |
-| @tiptap/extension-image | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-image |
-| @tiptap/extension-link | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-link |
-| @tiptap/extension-mention | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-mention |
-| @tiptap/extension-node-range | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-node-range |
-| @tiptap/extension-placeholder | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-placeholder |
-| @tiptap/extension-subscript | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-subscript |
-| @tiptap/extension-superscript | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-superscript |
-| @tiptap/extension-table | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-table |
-| @tiptap/extension-table-cell | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-table-cell |
-| @tiptap/extension-table-header | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-table-header |
-| @tiptap/extension-table-row | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-table-row |
-| @tiptap/extension-task-item | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-task-item |
-| @tiptap/extension-task-list | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-task-list |
-| @tiptap/extension-text-align | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-text-align |
-| @tiptap/extension-text-style | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-text-style |
-| @tiptap/extension-typography | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-typography |
-| @tiptap/extension-underline | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-underline |
-| @tiptap/extension-youtube | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-youtube |
-| @tiptap/pm | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/pm |
-| @tiptap/react | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/react |
-| @tiptap/starter-kit | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/starter-kit |
-| @tiptap/suggestion | 3.31.0 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/suggestion |
+| @tiptap/core | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/core |
+| @tiptap/extension-character-count | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-character-count |
+| @tiptap/extension-code-block-lowlight | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-code-block-lowlight |
+| @tiptap/extension-color | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-color |
+| @tiptap/extension-drag-handle | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-drag-handle |
+| @tiptap/extension-drag-handle-react | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-drag-handle-react |
+| @tiptap/extension-dropcursor | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-dropcursor |
+| @tiptap/extension-focus | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-focus |
+| @tiptap/extension-font-family | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-font-family |
+| @tiptap/extension-highlight | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-highlight |
+| @tiptap/extension-image | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-image |
+| @tiptap/extension-link | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-link |
+| @tiptap/extension-mention | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-mention |
+| @tiptap/extension-node-range | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-node-range |
+| @tiptap/extension-placeholder | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-placeholder |
+| @tiptap/extension-subscript | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-subscript |
+| @tiptap/extension-superscript | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-superscript |
+| @tiptap/extension-table | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-table |
+| @tiptap/extension-table-cell | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-table-cell |
+| @tiptap/extension-table-header | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-table-header |
+| @tiptap/extension-table-row | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-table-row |
+| @tiptap/extension-task-item | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-task-item |
+| @tiptap/extension-task-list | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-task-list |
+| @tiptap/extension-text-align | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-text-align |
+| @tiptap/extension-text-style | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-text-style |
+| @tiptap/extension-typography | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-typography |
+| @tiptap/extension-underline | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-underline |
+| @tiptap/extension-youtube | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-youtube |
+| @tiptap/pm | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/pm |
+| @tiptap/react | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/react |
+| @tiptap/starter-kit | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/starter-kit |
+| @tiptap/suggestion | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/suggestion |
 | dompurify | 3.4.14 | (MPL-2.0 OR Apache-2.0) | runtime | No | https://www.npmjs.com/package/dompurify |
 | lowlight | 3.3.0 | MIT | runtime | No | https://www.npmjs.com/package/lowlight |
-| lucide-react | 1.39.0 | ISC | runtime | No | https://www.npmjs.com/package/lucide-react |
+| lucide-react | 1.41.0 | ISC | runtime | No | https://www.npmjs.com/package/lucide-react |
 | mammoth | 1.12.2 | BSD-2-Clause | runtime | No | https://www.npmjs.com/package/mammoth |
 | marked | 18.0.11 | MIT | runtime | No | https://www.npmjs.com/package/marked |
 | prosemirror-model | 1.25.11 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-model |
@@ -68,18 +68,18 @@ declared explicitly in this inventory and the applicable distribution notices.
 | react | 19.2.8 | MIT | runtime | No | https://www.npmjs.com/package/react |
 | react-dom | 19.2.8 | MIT | runtime | No | https://www.npmjs.com/package/react-dom |
 | tiptap-markdown | 0.9.0 | MIT | runtime | No | https://www.npmjs.com/package/tiptap-markdown |
-| @biomejs/biome | 2.5.11 | MIT OR Apache-2.0 | development | No | https://www.npmjs.com/package/@biomejs/biome |
+| @biomejs/biome | 2.5.12 | MIT OR Apache-2.0 | development | No | https://www.npmjs.com/package/@biomejs/biome |
 | @tauri-apps/cli | 2.11.4 | Apache-2.0 OR MIT | development | No | https://www.npmjs.com/package/@tauri-apps/cli |
 | @testing-library/jest-dom | 7.0.1 | MIT | development | No | https://www.npmjs.com/package/@testing-library/jest-dom |
 | @testing-library/react | 16.3.3 | MIT | development | No | https://www.npmjs.com/package/@testing-library/react |
 | @types/react | 19.2.18 | MIT | development | No | https://www.npmjs.com/package/@types/react |
-| @types/react-dom | 19.2.5 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
+| @types/react-dom | 19.2.7 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
 | @vitejs/plugin-react | 6.1.1 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
 | jsdom | 30.0.1 | MIT | development | No | https://www.npmjs.com/package/jsdom |
 | prettier | 3.9.6 | MIT | development | No | https://www.npmjs.com/package/prettier |
 | typescript | 7.0.2 | Apache-2.0 | development | No | https://www.npmjs.com/package/typescript |
 | vite | 8.2.2 | MIT | development | No | https://www.npmjs.com/package/vite |
-| vitest | 4.1.11 | MIT | development | No | https://www.npmjs.com/package/vitest |
+| vitest | 5.0.0 | MIT | development | No | https://www.npmjs.com/package/vitest |
 
 ## Rust components — preserved review
 

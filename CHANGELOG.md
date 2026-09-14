@@ -10,8 +10,9 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Fixed
 
-- Align Tiptap and lucide-react inventory versions and notice headers with the
-  lockfile, preserving the complete license texts and historical Rust review.
+- Align direct dependency versions and bundled notice headers with the current
+  npm and Cargo lockfiles, including the verified license texts of updated
+  packages and preserving the historical Rust review.
 
 ## [v0.5.62] - 2026-09-08
 
