@@ -57,7 +57,7 @@ declared explicitly in this inventory and the applicable distribution notices.
 | @tiptap/react | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/react |
 | @tiptap/starter-kit | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/starter-kit |
 | @tiptap/suggestion | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/suggestion |
-| dompurify | 3.4.14 | (MPL-2.0 OR Apache-2.0) | runtime | No | https://www.npmjs.com/package/dompurify |
+| dompurify | 3.4.15 | (MPL-2.0 OR Apache-2.0) | runtime | No | https://www.npmjs.com/package/dompurify |
 | lowlight | 3.3.0 | MIT | runtime | No | https://www.npmjs.com/package/lowlight |
 | lucide-react | 1.41.0 | ISC | runtime | No | https://www.npmjs.com/package/lucide-react |
 | mammoth | 1.12.2 | BSD-2-Clause | runtime | No | https://www.npmjs.com/package/mammoth |
