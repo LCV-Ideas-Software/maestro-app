@@ -1,19 +1,28 @@
 AVISOS DE TERCEIROS - Maestro Editorial AI
 
-Este arquivo reproduz o texto de licenca de cada componente de terceiro incorporado
-ao executavel distribuido. Ele acompanha o LICENSE, o NOTICE e o THIRDPARTY.md no
-arquivo portatil.
+Este arquivo preserva textos de licenca e atribuicao de componentes de terceiros.
+Ele acompanha o LICENSE, o NOTICE e o THIRDPARTY.md no arquivo portatil.
 
-Componentes cobertos: 438
+Entradas do snapshot original preservadas: 438
   npm .....................: 141
   cargo ...................: 297
   texto do proprio artefato: 425
   texto vendorizado .......: 12
   artefato + complemento ..: 1
 
-Dependencias de desenvolvimento nao constam: nao sao incorporadas ao executavel.
-Gerado por scripts/generate-notices.mjs a partir de package-lock.json e de
-cargo metadata --locked, filtrado para x86_64-pc-windows-msvc.
+Os totais acima descrevem o snapshot original. A selecao original excluia
+dependencias de desenvolvimento e usava o alvo x86_64-pc-windows-msvc.
+O snapshot foi produzido pelo gerador scripts/generate-notices.mjs, hoje
+aposentado, com package-lock.json e cargo metadata --locked.
+
+Revisao documental limitada em 13/09/2026, sobre os lockfiles do commit
+b149af3ebdaba5e4809a403e6593ad2731e03bbb:
+163 entradas atualizadas mediante comparacao dos textos dos artefatos exatos;
+8 entradas antigas preservadas e identificadas como historicas. As outras
+267 entradas permanecem sem alteracao. Os textos adicionais dos artefatos
+revisados aparecem junto ao componente correspondente.
+Esta revisao nao recalcula o grafo do alvo Windows, nao certifica a cobertura
+de uma nova distribuicao e nao restaura o gerador aposentado.
 Codigo-fonte do produto: https://github.com/LCV-Ideas-Software/maestro-app
 
 ==============================================================================
@@ -311,7 +320,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/core 3.31.0  (npm)
+@tiptap/core 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -340,7 +349,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-blockquote 3.31.0  (npm)
+@tiptap/extension-blockquote 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -369,7 +378,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-bold 3.31.0  (npm)
+@tiptap/extension-bold 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -398,7 +407,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-bubble-menu 3.31.0  (npm)
+@tiptap/extension-bubble-menu 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -427,7 +436,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-bullet-list 3.31.0  (npm)
+@tiptap/extension-bullet-list 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -456,7 +465,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-character-count 3.31.0  (npm)
+@tiptap/extension-character-count 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -485,7 +494,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-code-block-lowlight 3.31.0  (npm)
+@tiptap/extension-code-block-lowlight 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -514,7 +523,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-code-block 3.31.0  (npm)
+@tiptap/extension-code-block 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -543,7 +552,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-code 3.31.0  (npm)
+@tiptap/extension-code 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -572,7 +581,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-collaboration 3.31.0  (npm)
+@tiptap/extension-collaboration 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -601,7 +610,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-color 3.31.0  (npm)
+@tiptap/extension-color 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -630,7 +639,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-document 3.31.0  (npm)
+@tiptap/extension-document 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -659,7 +668,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-drag-handle-react 3.31.0  (npm)
+@tiptap/extension-drag-handle-react 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -688,7 +697,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-drag-handle 3.31.0  (npm)
+@tiptap/extension-drag-handle 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -717,7 +726,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-dropcursor 3.31.0  (npm)
+@tiptap/extension-dropcursor 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -746,7 +755,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-floating-menu 3.31.0  (npm)
+@tiptap/extension-floating-menu 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -775,7 +784,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-focus 3.31.0  (npm)
+@tiptap/extension-focus 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -804,7 +813,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-font-family 3.31.0  (npm)
+@tiptap/extension-font-family 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -833,7 +842,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-gapcursor 3.31.0  (npm)
+@tiptap/extension-gapcursor 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -862,7 +871,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-hard-break 3.31.0  (npm)
+@tiptap/extension-hard-break 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -891,7 +900,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-heading 3.31.0  (npm)
+@tiptap/extension-heading 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -920,7 +929,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-highlight 3.31.0  (npm)
+@tiptap/extension-highlight 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -949,7 +958,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-horizontal-rule 3.31.0  (npm)
+@tiptap/extension-horizontal-rule 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -978,7 +987,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-image 3.31.0  (npm)
+@tiptap/extension-image 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1007,7 +1016,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-italic 3.31.0  (npm)
+@tiptap/extension-italic 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1036,7 +1045,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-link 3.31.0  (npm)
+@tiptap/extension-link 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1065,7 +1074,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-list-item 3.31.0  (npm)
+@tiptap/extension-list-item 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1094,7 +1103,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-list-keymap 3.31.0  (npm)
+@tiptap/extension-list-keymap 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1123,7 +1132,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-list 3.31.0  (npm)
+@tiptap/extension-list 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1152,7 +1161,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-mention 3.31.0  (npm)
+@tiptap/extension-mention 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1181,7 +1190,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-node-range 3.31.0  (npm)
+@tiptap/extension-node-range 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1210,7 +1219,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-ordered-list 3.31.0  (npm)
+@tiptap/extension-ordered-list 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1239,7 +1248,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-paragraph 3.31.0  (npm)
+@tiptap/extension-paragraph 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1268,7 +1277,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-placeholder 3.31.0  (npm)
+@tiptap/extension-placeholder 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1297,7 +1306,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-strike 3.31.0  (npm)
+@tiptap/extension-strike 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1326,7 +1335,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-subscript 3.31.0  (npm)
+@tiptap/extension-subscript 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1355,7 +1364,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-superscript 3.31.0  (npm)
+@tiptap/extension-superscript 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1384,7 +1393,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-table-cell 3.31.0  (npm)
+@tiptap/extension-table-cell 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1413,7 +1422,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-table-header 3.31.0  (npm)
+@tiptap/extension-table-header 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1442,7 +1451,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-table-row 3.31.0  (npm)
+@tiptap/extension-table-row 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1471,7 +1480,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-table 3.31.0  (npm)
+@tiptap/extension-table 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1500,7 +1509,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-task-item 3.31.0  (npm)
+@tiptap/extension-task-item 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1529,7 +1538,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-task-list 3.31.0  (npm)
+@tiptap/extension-task-list 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1558,7 +1567,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-text-align 3.31.0  (npm)
+@tiptap/extension-text-align 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1587,7 +1596,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-text-style 3.31.0  (npm)
+@tiptap/extension-text-style 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1616,7 +1625,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-text 3.31.0  (npm)
+@tiptap/extension-text 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1645,7 +1654,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-typography 3.31.0  (npm)
+@tiptap/extension-typography 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1674,7 +1683,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-underline 3.31.0  (npm)
+@tiptap/extension-underline 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1703,7 +1712,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extension-youtube 3.31.0  (npm)
+@tiptap/extension-youtube 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1732,7 +1741,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/extensions 3.31.0  (npm)
+@tiptap/extensions 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1761,7 +1770,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/pm 3.31.0  (npm)
+@tiptap/pm 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -1788,9 +1797,59 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+--- THIRD_PARTY_LICENSES.md ---
+
+# Third-party licenses
+
+This package re-exports packages from the [ProseMirror](https://prosemirror.net) project.
+
+ProseMirror is licensed under the MIT License.
+
+Copyright (C) Marijn Haverbeke <marijn@haverbeke.berlin> and others
+
+The following ProseMirror packages are re-exported by this package:
+
+- prosemirror-changeset
+- prosemirror-commands
+- prosemirror-dropcursor
+- prosemirror-gapcursor
+- prosemirror-history
+- prosemirror-inputrules
+- prosemirror-keymap
+- prosemirror-model
+- prosemirror-schema-list
+- prosemirror-state
+- prosemirror-tables
+- prosemirror-transform
+- prosemirror-view
+
+---
+
+## [MIT License (ProseMirror)](https://code.haverbeke.berlin/prosemirror/prosemirror/src/branch/main/LICENSE)
+
+Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
 ==============================================================================
 
-@tiptap/react 3.31.0  (npm)
+@tiptap/react 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1819,7 +1878,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/starter-kit 3.31.0  (npm)
+@tiptap/starter-kit 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -1848,7 +1907,7 @@ SOFTWARE.
 
 ==============================================================================
 
-@tiptap/suggestion 3.31.0  (npm)
+@tiptap/suggestion 3.31.3  (npm)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -2110,7 +2169,7 @@ MIT License
 
 ==============================================================================
 
-@types/react-dom 19.2.5  (npm)
+@types/react-dom 19.2.7  (npm)
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -4429,7 +4488,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-lucide-react 1.39.0  (npm)
+lucide-react 1.41.0  (npm)
 Licenca declarada: ISC
 
 --- LICENSE ---
@@ -6085,7 +6144,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-aho-corasick 1.1.4  (cargo)
+aho-corasick 1.1.5  (cargo)
 Licenca declarada: Unlicense OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -6148,7 +6207,7 @@ For more information, please refer to <http://unlicense.org/>
 
 ==============================================================================
 
-anyhow 1.0.103  (cargo)
+anyhow 1.0.104  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -7825,7 +7884,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-bitflags 2.11.1  (cargo)
+bitflags 2.13.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -8301,7 +8360,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-block-buffer 0.12.0  (cargo)
+block-buffer 0.12.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -8835,7 +8894,7 @@ For more information, please refer to <http://unlicense.org/>
 
 ==============================================================================
 
-bytes 1.11.1  (cargo)
+bytes 1.12.1  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -8868,7 +8927,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-camino 1.2.2  (cargo)
+camino 1.2.5  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -10124,7 +10183,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-cookie 0.18.1  (cargo)
+cookie 0.18.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -10602,7 +10661,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-cpufeatures 0.3.0  (cargo)
+cpufeatures 0.3.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -10812,7 +10871,7 @@ limitations under the License.
 
 --- LICENSE-MIT ---
 
-Copyright (c) 2020-2025 The RustCrypto Project Developers
+Copyright (c) 2020-2026 The RustCrypto Project Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -10840,7 +10899,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-crc32fast 1.5.0  (cargo)
+crc32fast 1.5.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -11074,7 +11133,7 @@ SOFTWARE.
 
 ==============================================================================
 
-crossbeam-channel 0.5.15  (cargo)
+crossbeam-channel 0.5.17  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -11910,7 +11969,7 @@ limitations under the License.
 
 ==============================================================================
 
-crossbeam-utils 0.8.21  (cargo)
+crossbeam-utils 0.8.23  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -12388,7 +12447,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-crypto-common 0.2.1  (cargo)
+crypto-common 0.2.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -13824,7 +13883,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ==============================================================================
 
-darling_core 0.23.0  (cargo)
+darling_core 0.24.1  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -13853,7 +13912,7 @@ SOFTWARE.
 
 ==============================================================================
 
-darling_macro 0.23.0  (cargo)
+darling_macro 0.24.1  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -13882,7 +13941,7 @@ SOFTWARE.
 
 ==============================================================================
 
-darling 0.23.0  (cargo)
+darling 0.24.1  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -15088,7 +15147,7 @@ SOFTWARE.
 
 ==============================================================================
 
-displaydoc 0.2.5  (cargo)
+displaydoc 0.2.7  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -17679,7 +17738,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-fastrand 2.4.1  (cargo)
+fastrand 2.5.0  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -18157,7 +18216,7 @@ SOFTWARE.
 
 ==============================================================================
 
-flate2 1.1.9  (cargo)
+flate2 1.1.10  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -18898,7 +18957,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-futures-channel 0.3.32  (cargo)
+futures-channel 0.3.34  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -19138,7 +19197,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-futures-core 0.3.32  (cargo)
+futures-core 0.3.34  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -19378,7 +19437,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-futures-io 0.3.32  (cargo)
+futures-io 0.3.34  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -19618,7 +19677,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-futures-macro 0.3.32  (cargo)
+futures-macro 0.3.34  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -19858,7 +19917,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-futures-sink 0.3.32  (cargo)
+futures-sink 0.3.34  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -20098,7 +20157,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-futures-task 0.3.32  (cargo)
+futures-task 0.3.34  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -20338,7 +20397,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-futures-util 0.3.32  (cargo)
+futures-util 0.3.34  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -21085,7 +21144,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-getrandom 0.4.2  (cargo)
+getrandom 0.4.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -21324,7 +21383,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-glob 0.3.3  (cargo)
+glob 0.3.4  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -21800,7 +21859,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-hashbrown 0.17.0  (cargo)
+hashbrown 0.17.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -22747,12 +22806,12 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-http-body-util 0.1.3  (cargo)
+http-body-util 0.1.5  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE ---
 
-Copyright (c) 2019-2025 Sean McArthur & Hyper Contributors
+Copyright (c) 2019-2026 Sean McArthur & Hyper Contributors
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -22780,12 +22839,12 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-http-body 1.0.1  (cargo)
+http-body 1.1.0  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE ---
 
-Copyright (c) 2019-2024 Sean McArthur & Hyper Contributors
+Copyright (c) 2019-2026 Sean McArthur & Hyper Contributors
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -22813,7 +22872,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-http 1.4.0  (cargo)
+http 1.5.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -23283,7 +23342,7 @@ THE SOFTWARE.
 
 ==============================================================================
 
-hybrid-array 0.4.11  (cargo)
+hybrid-array 0.4.15  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -23804,7 +23863,7 @@ THE SOFTWARE.
 
 ==============================================================================
 
-hyper 1.9.0  (cargo)
+hyper 1.11.1  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -23860,7 +23919,7 @@ SOFTWARE.
 
 ==============================================================================
 
-icu_collections 2.2.0  (cargo)
+icu_collections 2.3.0  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -23914,7 +23973,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-icu_locale_core 2.2.0  (cargo)
+icu_locale_core 2.3.0  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -23968,7 +24027,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-icu_normalizer_data 2.2.0  (cargo)
+icu_normalizer_data 2.3.0  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -24022,7 +24081,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-icu_normalizer 2.2.0  (cargo)
+icu_normalizer 2.3.0  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -24076,7 +24135,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-icu_properties_data 2.2.0  (cargo)
+icu_properties_data 2.3.0  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -24130,7 +24189,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-icu_properties 2.2.0  (cargo)
+icu_properties 2.3.0  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -24184,7 +24243,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-icu_provider 2.2.0  (cargo)
+icu_provider 2.3.1  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -24266,7 +24325,7 @@ SOFTWARE.
 
 ==============================================================================
 
-idna_adapter 1.2.1  (cargo)
+idna_adapter 1.2.2  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -24980,7 +25039,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-indexmap 2.14.0  (cargo)
+indexmap 2.14.2  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -25247,7 +25306,7 @@ SOFTWARE.
 
 ==============================================================================
 
-ipnet 2.12.0  (cargo)
+ipnet 2.12.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -25466,6 +25525,9 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
+
+Registro historico preservado: esta versao nao consta do Cargo.lock revisado
+no commit 78185cb51ea64f91c523fb9cb8a01aad37295302.
 
 iri-string 0.7.12  (cargo)
 Licenca declarada: MIT OR Apache-2.0
@@ -26854,7 +26916,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-libc 0.2.186  (cargo)
+libc 0.2.189  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -27067,7 +27129,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-litemap 0.8.2  (cargo)
+litemap 0.8.3  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -27359,7 +27421,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-log 0.4.29  (cargo)
+log 0.4.34  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -28077,7 +28139,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-memchr 2.8.0  (cargo)
+memchr 2.8.3  (cargo)
 Licenca declarada: Unlicense OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -28629,7 +28691,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 
 ==============================================================================
 
-mio 1.2.0  (cargo)
+mio 1.2.3  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -28656,7 +28718,7 @@ THE SOFTWARE.
 
 ==============================================================================
 
-muda 0.19.1  (cargo)
+muda 0.19.3  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -28888,6 +28950,27 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+--- LICENSE.spdx ---
+
+SPDXVersion: SPDX-2.1
+DataLicense: CC0-1.0
+PackageName: muda
+DataFormat: SPDXRef-1
+PackageSupplier: Organization: The Tauri Programme in the Commons Conservancy
+PackageHomePage: https://tauri.app
+PackageLicenseDeclared: Apache-2.0
+PackageLicenseDeclared: MIT
+PackageCopyrightText: 2020-2022, The Tauri Programme in the Commons Conservancy
+PackageSummary: <text>Menu Utilities for Desktop Applications.
+                </text>
+PackageComment: <text>The package includes the following libraries; see
+Relationship information.
+                </text>
+Created: 2022-12-05T09:00:00Z
+PackageDownloadLocation: git://github.com/tauri-apps/muda
+PackageDownloadLocation: git+https://github.com/tauri-apps/muda.git
+PackageDownloadLocation: git+ssh://github.com/tauri-apps/muda.git
+Creator: Person: Daniel Thompson-Yvetot
 ==============================================================================
 
 new_debug_unreachable 1.0.6  (cargo)
@@ -28952,7 +29035,7 @@ THE SOFTWARE.
 
 ==============================================================================
 
-num-conv 0.2.1  (cargo)
+num-conv 0.2.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -31345,7 +31428,7 @@ SOFTWARE.
 
 ==============================================================================
 
-potential_utf 0.1.5  (cargo)
+potential_utf 0.1.6  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -31631,6 +31714,9 @@ SOFTWARE.
 
 ==============================================================================
 
+Registro historico preservado: esta versao nao consta do Cargo.lock revisado
+no commit 78185cb51ea64f91c523fb9cb8a01aad37295302.
+
 ppv-lite86 0.2.21  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
@@ -31898,7 +31984,7 @@ SOFTWARE.
 
 ==============================================================================
 
-proc-macro2 1.0.106  (cargo)
+proc-macro2 1.0.107  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -32140,7 +32226,7 @@ THE SOFTWARE.
 
 ==============================================================================
 
-quinn-proto 0.11.15  (cargo)
+quinn-proto 0.11.17  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -32360,7 +32446,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ==============================================================================
 
-quinn-udp 0.5.14  (cargo)
+quinn-udp 0.5.15  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -32580,7 +32666,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ==============================================================================
 
-quinn 0.11.9  (cargo)
+quinn 0.11.11  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -32800,7 +32886,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ==============================================================================
 
-quote 1.0.45  (cargo)
+quote 1.0.47  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -33010,6 +33096,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
+
+Registro historico preservado: esta versao nao consta do Cargo.lock revisado
+no commit 78185cb51ea64f91c523fb9cb8a01aad37295302.
 
 rand_chacha 0.9.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
@@ -33225,7 +33314,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-rand_core 0.9.5  (cargo)
+rand_core 0.10.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -33421,8 +33510,7 @@ APPENDIX: How to apply the Apache License to your work.
 
 --- LICENSE-MIT ---
 
-Copyright 2018 Developers of the Rand project
-Copyright (c) 2014 The Rust Project Developers
+Copyright (c) 2018-2026 The Rand Project Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -33448,9 +33536,21 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
+--- COPYRIGHT ---
+
+Copyrights in the Rand project are retained by their contributors. No
+copyright assignment is required to contribute to the Rand project.
+
+For full authorship information, see the version control history.
+
+Except as otherwise noted (below and/or in individual files), Rand is
+licensed under the Apache License, Version 2.0 <LICENSE-APACHE> or
+<http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+<LICENSE-MIT> or <http://opensource.org/licenses/MIT>, at your option.
+
 ==============================================================================
 
-rand 0.9.4  (cargo)
+rand 0.10.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -33661,6 +33761,21 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+--- COPYRIGHT ---
+
+Copyrights in the Rand project are retained by their contributors. No
+copyright assignment is required to contribute to the Rand project.
+
+For full authorship information, see the version control history.
+
+Except as otherwise noted (below and/or in individual files), Rand is
+licensed under the Apache License, Version 2.0 <LICENSE-APACHE> or
+<http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+<LICENSE-MIT> or <http://opensource.org/licenses/MIT>, at your option.
+
+The Rand project includes code from the Rust project
+published under these same licenses.
 
 ==============================================================================
 
@@ -33887,7 +34002,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 
 ==============================================================================
 
-ref-cast-impl 1.0.25  (cargo)
+ref-cast-impl 1.0.27  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -34098,7 +34213,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-ref-cast 1.0.25  (cargo)
+ref-cast 1.0.27  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -34309,7 +34424,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-regex-automata 0.4.16  (cargo)
+regex-automata 0.4.18  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -35563,7 +35678,7 @@ CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ==============================================================================
 
-rustc-hash 2.1.2  (cargo)
+rustc-hash 2.1.3  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -35774,7 +35889,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-rustls-pki-types 1.14.1  (cargo)
+rustls-pki-types 1.15.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -36012,7 +36127,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-rustls-webpki 0.103.13  (cargo)
+rustls-webpki 0.103.15  (cargo)
 Licenca declarada: ISC
 
 --- LICENSE ---
@@ -36039,7 +36154,7 @@ third-party/chromium/LICENSE.
 
 ==============================================================================
 
-rustls 0.23.39  (cargo)
+rustls 0.23.44  (cargo)
 Licenca declarada: Apache-2.0 OR ISC OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -36656,7 +36771,7 @@ SOFTWARE.
 
 ==============================================================================
 
-schemars 1.2.1  (cargo)
+schemars 1.2.2  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -38385,7 +38500,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-serde_repr 0.1.20  (cargo)
+serde_repr 0.1.21  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -39041,7 +39156,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-serde_with_macros 3.21.0  (cargo)
+serde_with_macros 3.23.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -39279,7 +39394,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-serde_with 3.21.0  (cargo)
+serde_with 3.23.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -39939,7 +40054,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-serial2 0.2.37  (cargo)
+serial2 0.2.38  (cargo)
 Licenca declarada: BSD-2-Clause OR Apache-2.0
 Licenca eleita: BSD-2-Clause (registrada na politica)
 
@@ -41649,7 +41764,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-simd-adler32 0.3.9  (cargo)
+simd-adler32 0.3.10  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE.md ---
@@ -41678,12 +41793,19 @@ SOFTWARE.
 
 ==============================================================================
 
-siphasher 1.0.2  (cargo)
+siphasher 1.0.3  (cargo)
 Licenca declarada: MIT/Apache-2.0
 Licenca eleita: MIT (registrada na politica)
 Origem do texto: https://github.com/spdx/license-list-data @ c4a7237ec8f4654e867546f9f409749300f1bf4c (text/MIT.txt)
 Origem do aviso de copyright: https://github.com/jedisct1/rust-siphash @ db8172048a1c9bdef0dcec782d965c236161af13 (COPYING)
 Motivo do texto vendorizado: O crate empacota apenas um COPYING de 281 bytes que APONTA para LICENSE-APACHE e LICENSE-MIT sem incluir nenhum dos dois, e na revisao fixada para o copyright o repositorio do crate tambem so publica esse mesmo ponteiro. Ponteiro nao cumpre a exigencia de reproduzir o texto na distribuicao. O texto canonico MIT vem do caminho e commit fixos da lista oficial SPDX; as linhas de copyright vem separadamente do COPYING do crate.
+
+Revisao de 11/09/2026: o artefato siphasher 1.0.3, SHA-256
+8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649, mantem a mesma
+declaracao MIT/Apache-2.0 e as duas linhas de copyright reproduzidas abaixo.
+O complemento MIT integral e sua proveniencia da revisao anterior de 1.0.2
+sao preservados sem alteracao; o COPYING do artefato 1.0.3 esta ao final
+desta entrada. Esta revisao nao declara nova verificacao do repositorio upstream.
 
 --- scripts/legal/siphasher-mit.txt ---
 
@@ -41738,6 +41860,16 @@ EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+--- COPYING ---
+
+Copyright 2012-2016 The Rust Project Developers.
+Copyright 2016-2026 Frank Denis.
+
+Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+<LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+option.
+
 ==============================================================================
 
 slab 0.4.12  (cargo)
@@ -41773,7 +41905,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-smallvec 1.15.1  (cargo)
+smallvec 1.16.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -42011,7 +42143,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-socket2 0.6.3  (cargo)
+socket2 0.6.5  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -43025,7 +43157,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
 
-syn 2.0.117  (cargo)
+syn 2.0.119  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -43236,7 +43368,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-syn 3.0.3  (cargo)
+syn 3.0.5  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -43646,7 +43778,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ==============================================================================
 
-tao 0.35.0  (cargo)
+tao 0.35.3  (cargo)
 Licenca declarada: Apache-2.0
 
 --- LICENSE ---
@@ -43852,6 +43984,27 @@ Apache License
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+--- LICENSE.spdx ---
+
+SPDXVersion: SPDX-2.1
+DataLicense: CC0-1.0
+PackageName: tao
+DataFormat: SPDXRef-1
+PackageSupplier: Organization: The Tauri Programme in the Commons Conservancy
+PackageHomePage: https://tauri.app
+PackageLicenseDeclared: Apache-2.0
+PackageCopyrightText: 2021-2023, The Tauri Programme in the Commons Conservancy
+PackageSummary: <text>Tao is the official, rust-based window manager for Wry.
+                </text>
+PackageComment: <text>The package includes the following libraries; see
+Relationship information.
+                </text>
+Created: 2020-05-20T09:00:00Z
+PackageDownloadLocation: git://github.com/tauri-apps/tao
+PackageDownloadLocation: git+https://github.com/tauri-apps/tao.git
+PackageDownloadLocation: git+ssh://github.com/tauri-apps/tao.git
+Creator: Person: Daniel Thompson-Yvetot
 
 ==============================================================================
 
@@ -45109,7 +45262,7 @@ SOFTWARE.
 
 ==============================================================================
 
-tendril 0.5.0  (cargo)
+tendril 0.5.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -45558,7 +45711,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-thiserror-impl 2.0.18  (cargo)
+thiserror-impl 2.0.20  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -45980,7 +46133,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-thiserror 2.0.18  (cargo)
+thiserror 2.0.20  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -46191,7 +46344,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-time-core 0.1.8  (cargo)
+time-core 0.1.9  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -46398,7 +46551,7 @@ SOFTWARE.
 
 ==============================================================================
 
-time-macros 0.2.27  (cargo)
+time-macros 0.2.32  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -46605,7 +46758,7 @@ SOFTWARE.
 
 ==============================================================================
 
-time 0.3.47  (cargo)
+time 0.3.55  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -46812,7 +46965,7 @@ SOFTWARE.
 
 ==============================================================================
 
-tinystr 0.8.3  (cargo)
+tinystr 0.8.4  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -47122,7 +47275,7 @@ freely, subject to the following restrictions:
 
 ==============================================================================
 
-tinyvec 1.11.0  (cargo)
+tinyvec 1.13.2  (cargo)
 Licenca declarada: Zlib OR Apache-2.0 OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -47354,7 +47507,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 
 ==============================================================================
 
-tokio-macros 2.7.0  (cargo)
+tokio-macros 2.7.2  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -47384,7 +47537,7 @@ SOFTWARE.
 
 ==============================================================================
 
-tokio-rustls 0.26.4  (cargo)
+tokio-rustls 0.26.5  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -47912,7 +48065,7 @@ SOFTWARE.
 
 ==============================================================================
 
-toml_parser 1.1.2+spec-1.1.0  (cargo)
+toml_parser 1.1.3+spec-1.1.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -48144,7 +48297,7 @@ SOFTWARE.
 
 ==============================================================================
 
-toml_writer 1.1.1+spec-1.1.0  (cargo)
+toml_writer 1.1.2+spec-1.1.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -48376,7 +48529,7 @@ SOFTWARE.
 
 ==============================================================================
 
-toml 1.1.2+spec-1.1.0  (cargo)
+toml 1.1.6+spec-1.1.0  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -48608,7 +48761,7 @@ SOFTWARE.
 
 ==============================================================================
 
-tower-http 0.6.8  (cargo)
+tower-http 0.6.11  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -48806,7 +48959,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-tray-icon 0.24.1  (cargo)
+tray-icon 0.24.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -49038,6 +49191,27 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+--- LICENSE.spdx ---
+
+SPDXVersion: SPDX-2.1
+DataLicense: CC0-1.0
+PackageName: tray-icon
+DataFormat: SPDXRef-1
+PackageSupplier: Organization: The Tauri Programme in the Commons Conservancy
+PackageHomePage: https://tauri.app
+PackageLicenseDeclared: Apache-2.0
+PackageLicenseDeclared: MIT
+PackageCopyrightText: 2020-2022, The Tauri Programme in the Commons Conservancy
+PackageSummary: <text>Create tray icons for desktop applications.
+                </text>
+PackageComment: <text>The package includes the following libraries; see
+Relationship information.
+                </text>
+Created: 2022-12-05T09:00:00Z
+PackageDownloadLocation: git://github.com/tauri-apps/tray-icon
+PackageDownloadLocation: git+https://github.com/tauri-apps/tray-icon.git
+PackageDownloadLocation: git+ssh://github.com/tauri-apps/tray-icon.git
+Creator: Person: Daniel Thompson-Yvetot
 ==============================================================================
 
 try-lock 0.2.5  (cargo)
@@ -49279,7 +49453,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-typenum 1.20.0  (cargo)
+typenum 1.20.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -51080,7 +51254,7 @@ authorization of the copyright holder.
 
 ==============================================================================
 
-unicode-segmentation 1.13.2  (cargo)
+unicode-segmentation 1.13.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -51315,6 +51489,16 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+--- COPYRIGHT ---
+
+Licensed under the Apache License, Version 2.0
+<LICENSE-APACHE or
+http://www.apache.org/licenses/LICENSE-2.0> or the MIT
+license <LICENSE-MIT or http://opensource.org/licenses/MIT>,
+at your option. All files in the project carrying such
+notice may not be copied, modified, or distributed except
+according to those terms.
 
 ==============================================================================
 
@@ -51605,6 +51789,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
+
+Registro historico preservado: esta versao nao consta do Cargo.lock revisado
+no commit 78185cb51ea64f91c523fb9cb8a01aad37295302.
 
 utf-8 0.7.6  (cargo)
 Licenca declarada: MIT OR Apache-2.0
@@ -52055,7 +52242,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-uuid 1.23.1  (cargo)
+uuid 1.26.1  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -52384,7 +52571,7 @@ THE SOFTWARE.
 
 ==============================================================================
 
-web_atoms 0.2.4  (cargo)
+web_atoms 0.2.6  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -52622,7 +52809,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-webpki-roots 1.0.7  (cargo)
+webpki-roots 1.0.9  (cargo)
 Licenca declarada: CDLA-Permissive-2.0
 
 --- LICENSE ---
@@ -53582,6 +53769,9 @@ MIT License
     SOFTWARE
 
 ==============================================================================
+
+Registro historico preservado: esta versao nao consta do Cargo.lock revisado
+no commit 78185cb51ea64f91c523fb9cb8a01aad37295302.
 
 windows_x86_64_msvc 0.53.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0
@@ -56391,6 +56581,9 @@ MIT License
 
 ==============================================================================
 
+Registro historico preservado: esta versao nao consta do Cargo.lock revisado
+no commit 78185cb51ea64f91c523fb9cb8a01aad37295302.
+
 windows-sys 0.60.2  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
@@ -57092,6 +57285,9 @@ MIT License
     SOFTWARE
 
 ==============================================================================
+
+Registro historico preservado: esta versao nao consta do Cargo.lock revisado
+no commit 78185cb51ea64f91c523fb9cb8a01aad37295302.
 
 windows-targets 0.53.5  (cargo)
 Licenca declarada: MIT OR Apache-2.0
@@ -58029,7 +58225,7 @@ MIT License
 
 ==============================================================================
 
-winnow 1.0.2  (cargo)
+winnow 1.0.4  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE-MIT ---
@@ -58082,7 +58278,7 @@ THE SOFTWARE.
 
 ==============================================================================
 
-writeable 0.6.3  (cargo)
+writeable 0.6.4  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -58136,7 +58332,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-wry 0.55.0  (cargo)
+wry 0.55.1  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -58368,6 +58564,28 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+--- LICENSE.spdx ---
+
+SPDXVersion: SPDX-2.1
+DataLicense: CC0-1.0
+PackageName: wry
+DataFormat: SPDXRef-1
+PackageSupplier: Organization: The Tauri Programme in the Commons Conservancy
+PackageHomePage: https://tauri.app
+PackageLicenseDeclared: Apache-2.0
+PackageLicenseDeclared: MIT
+PackageCopyrightText: 2020-2023, The Tauri Programme in the Commons Conservancy
+PackageSummary: <text>Wry is the official, rust-based webview
+windowing service for Tauri.
+                </text>
+PackageComment: <text>The package includes the following libraries; see
+Relationship information.
+                </text>
+Created: 2020-05-20T09:00:00Z
+PackageDownloadLocation: git://github.com/tauri-apps/wry
+PackageDownloadLocation: git+https://github.com/tauri-apps/wry.git
+PackageDownloadLocation: git+ssh://github.com/tauri-apps/wry.git
+Creator: Person: Daniel Thompson-Yvetot
 ==============================================================================
 
 yoke-derive 0.8.2  (cargo)
@@ -58424,7 +58642,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-yoke 0.8.2  (cargo)
+yoke 0.8.3  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -58477,6 +58695,9 @@ Portions of ICU4X may have been adapted from ICU4C and/or ICU4J.
 ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation and others.
 
 ==============================================================================
+
+Registro historico preservado: esta versao nao consta do Cargo.lock revisado
+no commit 78185cb51ea64f91c523fb9cb8a01aad37295302.
 
 zerocopy 0.8.48  (cargo)
 Licenca declarada: BSD-2-Clause OR Apache-2.0 OR MIT
@@ -58797,7 +59018,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-zerofrom 0.1.7  (cargo)
+zerofrom 0.1.8  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -58851,7 +59072,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-zeroize 1.8.2  (cargo)
+zeroize 1.9.0  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -59061,31 +59282,35 @@ Apache License
 
 --- LICENSE-MIT ---
 
-MIT License
+Copyright (c) 2018-2026 The RustCrypto Project Developers
 
-Copyright (c) 2018-2021 The RustCrypto Project Developers
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-zerotrie 0.2.4  (cargo)
+zerotrie 0.2.5  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -59139,7 +59364,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-zerovec-derive 0.11.3  (cargo)
+zerovec-derive 0.11.6  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -59193,7 +59418,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-zerovec 0.11.6  (cargo)
+zerovec 0.11.8  (cargo)
 Licenca declarada: Unicode-3.0
 
 --- LICENSE ---
@@ -59247,7 +59472,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-zmij 1.0.21  (cargo)
+zmij 1.0.23  (cargo)
 Licenca declarada: MIT
 
 --- LICENSE-MIT ---
