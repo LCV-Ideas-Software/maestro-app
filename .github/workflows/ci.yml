@@ -97,6 +97,12 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
+      - name: Prepare package patch version for lock generation
+        shell: pwsh
+        run: |
+          $manifestPath = Join-Path $PWD 'src-tauri/Cargo.toml'
+          $manifest = [IO.File]::ReadAllText($manifestPath)
+          [IO.File]::WriteAllText($manifestPath, $manifest.Replace('version = "0.5.62"', 'version = "0.5.63"'), [Text.UTF8Encoding]::new($false))
       - name: Regenerate lockfile with official Cargo
         shell: pwsh
         run: cargo update --manifest-path src-tauri/Cargo.toml -p rustls --precise 0.23.45
