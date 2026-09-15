@@ -23,6 +23,13 @@ b149af3ebdaba5e4809a403e6593ad2731e03bbb:
 revisados aparecem junto ao componente correspondente.
 Esta revisao nao recalcula o grafo do alvo Windows, nao certifica a cobertura
 de uma nova distribuicao e nao restaura o gerador aposentado.
+Revisao documental limitada em 15/09/2026: os identificadores de lucide-react
+1.42.0 e marked 18.0.12 foram alinhados ao package-lock.json. Os textos
+completos dos artefatos exatos sao identicos aos ja preservados abaixo.
+O identificador de rustls foi alinhado a 0.23.45 do Cargo.lock gerado por Cargo
+no GitHub Actions; os tres textos completos Apache-2.0, ISC e MIT permanecem
+identicos aos do artefato 0.23.44, conforme os SHA256 verificados.
+Esta revisao nao recalcula o grafo nem certifica uma nova distribuicao.
 Codigo-fonte do produto: https://github.com/LCV-Ideas-Software/maestro-app
 
 ==============================================================================
@@ -4488,7 +4495,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-lucide-react 1.41.0  (npm)
+lucide-react 1.42.0  (npm)
 Licenca declarada: ISC
 
 --- LICENSE ---
@@ -4620,7 +4627,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-marked 18.0.11  (npm)
+marked 18.0.12  (npm)
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -36154,7 +36161,7 @@ third-party/chromium/LICENSE.
 
 ==============================================================================
 
-rustls 0.23.44  (cargo)
+rustls 0.23.45  (cargo)
 Licenca declarada: Apache-2.0 OR ISC OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 

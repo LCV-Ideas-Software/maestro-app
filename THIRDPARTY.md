@@ -59,9 +59,9 @@ declared explicitly in this inventory and the applicable distribution notices.
 | @tiptap/suggestion | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/suggestion |
 | dompurify | 3.4.15 | (MPL-2.0 OR Apache-2.0) | runtime | No | https://www.npmjs.com/package/dompurify |
 | lowlight | 3.3.0 | MIT | runtime | No | https://www.npmjs.com/package/lowlight |
-| lucide-react | 1.41.0 | ISC | runtime | No | https://www.npmjs.com/package/lucide-react |
+| lucide-react | 1.42.0 | ISC AND MIT | runtime | No | https://www.npmjs.com/package/lucide-react |
 | mammoth | 1.12.2 | BSD-2-Clause | runtime | No | https://www.npmjs.com/package/mammoth |
-| marked | 18.0.11 | MIT | runtime | No | https://www.npmjs.com/package/marked |
+| marked | 18.0.12 | MIT AND BSD-3-Clause | runtime | No | https://www.npmjs.com/package/marked |
 | prosemirror-model | 1.25.11 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-model |
 | prosemirror-state | 1.4.4 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-state |
 | prosemirror-view | 1.42.3 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-view |

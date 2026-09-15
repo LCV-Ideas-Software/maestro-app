@@ -4,11 +4,20 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+## [v0.5.63] - 15/09/2026
+
 ### Changed
 
+- Update the official Linear Release action and CLI to v0.18.0.
 - Update the pinned CodeQL Action to 4.38.0 and Zizmor Action to 0.6.4.
 
 ### Fixed
+
+- Update the locked rustls dependency to 0.23.45 using official Cargo on a
+  GitHub-hosted Windows runner, and prepare a new portable patch release.
+- Align the Lucide and Marked bundled notice headers with locked versions
+  1.42.0 and 18.0.12; retain their unchanged complete license texts and record
+  the combined ISC/MIT and MIT/BSD-3-Clause attribution terms.
 
 - Align the DOMPurify inventory entry and bundled notice header with version
   3.4.15 already recorded in the package manifest and lockfile; both full license
