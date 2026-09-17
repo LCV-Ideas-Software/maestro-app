@@ -71,7 +71,7 @@
     "@tiptap/suggestion": "3.31.3",
     "dompurify": "3.4.15",
     "lowlight": "3.3.0",
-    "lucide-react": "1.43.0",
+    "lucide-react": "1.44.0",
     "mammoth": "1.12.2",
     "marked": "18.0.12",
     "prosemirror-model": "1.25.11",
