@@ -2801,8 +2801,8 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 dingbat-to-unicode 1.0.1  (npm)
 Licenca declarada: BSD-2-Clause
-Origem do texto: https://github.com/mwilliamson/dingbat-to-unicode @ 46e2dfb2632019d18bd1fb2478d92494f6eab081
-Motivo do texto vendorizado: Unico caso sem aviso publicado em lugar nenhum: nem o pacote npm nem o repositorio de origem trazem arquivo de licenca, e a busca de codigo do GitHub por copyright no repositorio retorna zero ocorrencias. A BSD-2-Clause exige que a redistribuicao binaria reproduza o aviso de copyright, e o modelo da SPDX com marcadores por preencher nao identificaria titular algum. O aviso foi instanciado a partir do que o proprio upstream declara, com a base registrada em copyrightBasis.
+Origem do texto: https://github.com/mwilliamson/dingbat-to-unicode @ a89b69198c2dd030b097cbf44b4eb7dd8b85722d (js/LICENSE)
+Motivo do texto vendorizado: O tarball 1.0.1 instalado nao traz arquivo de licenca. Em 19/09/2026 o titular publicou js/LICENSE no repositorio e a versao 1.0.2 no npm com o arquivo no tarball, e declarou em https://github.com/mwilliamson/dingbat-to-unicode/issues/1#issuecomment-5740760399 que a licenca se aplica a todas as versoes anteriores. O texto abaixo reproduz esse arquivo sem alteracao e substitui o aviso instanciado a partir do modelo da SPDX que constava aqui desde 30/08/2026.
 
 --- scripts/legal/dingbat-to-unicode-bsd-2-clause.txt ---
 
@@ -2810,41 +2810,52 @@ Aplica-se a: dingbat-to-unicode 1.0.1
 Licenca declarada em package.json: BSD-2-Clause
 Alcance: dependencia transitiva, exigida por mammoth ^1.0.1
 Origem: https://github.com/mwilliamson/dingbat-to-unicode
-Commit inspecionado: 46e2dfb2632019d18bd1fb2478d92494f6eab081 (2021-01-23)
+Commit inspecionado: a89b69198c2dd030b097cbf44b4eb7dd8b85722d (2026-09-19)
 
-O UPSTREAM NAO PUBLICA AVISO DE COPYRIGHT. Verificado em 30/08/2026, no commit
-acima: nao existe arquivo de licenca em lugar nenhum do repositorio, e a busca
-de codigo do GitHub por "copyright" no repositorio retorna zero ocorrencias. O
-pacote npm publicado tampouco inclui um.
+O UPSTREAM PUBLICOU O AVISO DE COPYRIGHT EM 19/09/2026. O commit acima ("Add
+LICENSE") criou js/LICENSE (1.304 bytes) no repositorio, e a versao 1.0.2,
+publicada no npm no mesmo dia, traz o arquivo no tarball (package/LICENSE;
+SHA-256 do tarball
+3ff52fb8c0586a748aa11cbbac2f16524cf9971767f06077ff344729a69321c1). O tarball
+1.0.1, que e a versao instalada, continua sem arquivo de licenca; por isso o
+texto segue vendorizado aqui.
 
-A BSD-2-Clause exige que a redistribuicao binaria reproduza o aviso de
-copyright. Reproduzir o modelo da SPDX com os marcadores por preencher nao
-cumpriria essa exigencia, porque nao identificaria titular algum. O aviso
-abaixo foi portanto instanciado a partir do que o proprio upstream declara:
+O titular declarou em
+https://github.com/mwilliamson/dingbat-to-unicode/issues/1#issuecomment-5740760399
+que a licenca "also applies to any previous versions", o que cobre a 1.0.1.
 
-  Titular: campo "author" do package.json publicado, que e tambem o unico
-  autor dos commits do repositorio.
-  Ano: 2021. Todo o historico do repositorio esta em janeiro de 2021, com 22
-  commits entre 16 e 23 de janeiro de 2021. Nao foi arbitrado.
-
-Texto: modelo canonico da BSD-2-Clause obtido de
-https://spdx.org/licenses/BSD-2-Clause.json, com os dois marcadores do modelo,
-o de ano e o de titular, substituidos pelos valores acima. Nenhuma outra
-alteracao foi feita, e nenhum marcador restou por preencher.
+Texto: reproducao integral e sem alteracao de js/LICENSE no commit acima
+(SHA-256 do arquivo
+1013cef4b629a3c7eaf737c110fb5bebbf3abbc16e154d769468d71c3653fa37). Substitui
+o aviso instanciado a partir do modelo da SPDX que este arquivo trazia desde
+30/08/2026; titular e ano coincidem com o que o upstream publicou.
 
 Este e um registro tecnico de compliance; nao constitui parecer juridico.
 
 ------------------------------------------------------------------------
 
-Copyright (c) 2021 Michael Williamson <mike@zwobble.org> 
+Copyright (c) 2021, Michael Williamson
+All rights reserved.
 
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
 
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
 
-2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
 
