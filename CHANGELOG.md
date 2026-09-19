@@ -4,6 +4,14 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Replace the instantiated `dingbat-to-unicode` 1.0.1 notice in `scripts/legal/`
+  and `THIRD-PARTY-NOTICES.txt` with the `js/LICENSE` text the upstream
+  maintainer published on 19/09/2026 (BSD-2-Clause, "Copyright (c) 2021,
+  Michael Williamson"), which the maintainer stated also covers previous
+  versions.
+
 ## [v0.5.63] - 15/09/2026
 
 ### Changed
