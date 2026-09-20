@@ -250,8 +250,28 @@ jobs:
           fi
           # Native immutable-release verification also covers a retry after the
           # publication succeeded but its previous job did not finish.
-          gh release verify-asset "$RELEASE_TAG" "$zip" --repo "$GITHUB_REPOSITORY"
-          gh release verify-asset "$RELEASE_TAG" release/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY"
+          #
+          # The attestation is signed by Sigstore and only then indexed by the
+          # GitHub API, so verify-asset can run before the index is queryable.
+          # Measured on v00.05.64: the attestation was signed at 21:41:44 and
+          # the verification 16 s later reported "no attestations found", while
+          # the identical command succeeded minutes afterwards against the same
+          # artifact and tag, with nothing changed. Retry the read; never relax
+          # the check, because a missing attestation must still fail the job.
+          verify_asset() {
+            local asset="$1" attempt
+            for attempt in $(seq 1 6); do
+              if gh release verify-asset "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY"; then
+                return 0
+              fi
+              echo "Attestation for $asset not queryable yet (attempt $attempt/6); waiting 20s." >&2
+              sleep 20
+            done
+            echo "::error::Attestation for $asset is still not queryable after 6 attempts over two minutes."
+            return 1
+          }
+          verify_asset "$zip"
+          verify_asset release/SHA256SUMS.txt
 
   mirror:
     name: Publish GitHub Package

@@ -4,6 +4,19 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Retry the release attestation check instead of failing the publication on
+  the first miss. `gh release verify-asset` runs seconds after
+  `actions/attest-build-provenance` signs the artifact, but the GitHub API
+  indexes the attestation asynchronously. On v00.05.64 the attestation was
+  signed at 21:41:44 and the verification 16 s later reported "no attestations
+  found", failing the job and skipping the GHCR mirror and the Linear release;
+  the identical command succeeded minutes later against the same artifact and
+  tag with nothing changed. The check now retries six times over two minutes
+  and still fails the job if the attestation never appears — the verification
+  is not relaxed, only given time to become queryable (LCV-207).
+
 ## [v0.5.64] - 20/09/2026
 
 ### Added
