@@ -68,27 +68,27 @@ declared explicitly in this inventory and the applicable distribution notices.
 | @tiptap/suggestion | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/suggestion |
 | dompurify | 3.4.15 | (MPL-2.0 OR Apache-2.0) | runtime | No | https://www.npmjs.com/package/dompurify |
 | lowlight | 3.3.0 | MIT | runtime | No | https://www.npmjs.com/package/lowlight |
-| lucide-react | 1.42.0 | ISC AND MIT | runtime | No | https://www.npmjs.com/package/lucide-react |
-| mammoth | 1.12.2 | BSD-2-Clause | runtime | No | https://www.npmjs.com/package/mammoth |
-| marked | 18.0.12 | MIT AND BSD-3-Clause | runtime | No | https://www.npmjs.com/package/marked |
+| lucide-react | 1.45.0 | ISC AND MIT | runtime | No | https://www.npmjs.com/package/lucide-react |
+| mammoth | 1.12.3 | BSD-2-Clause | runtime | No | https://www.npmjs.com/package/mammoth |
+| marked | 18.0.13 | MIT AND BSD-3-Clause | runtime | No | https://www.npmjs.com/package/marked |
 | prosemirror-model | 1.25.11 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-model |
 | prosemirror-state | 1.4.4 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-state |
 | prosemirror-view | 1.42.3 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-view |
-| react | 19.2.8 | MIT | runtime | No | https://www.npmjs.com/package/react |
-| react-dom | 19.2.8 | MIT | runtime | No | https://www.npmjs.com/package/react-dom |
+| react | 19.3.0 | MIT | runtime | No | https://www.npmjs.com/package/react |
+| react-dom | 19.3.0 | MIT | runtime | No | https://www.npmjs.com/package/react-dom |
 | tiptap-markdown | 0.9.0 | MIT | runtime | No | https://www.npmjs.com/package/tiptap-markdown |
-| @biomejs/biome | 2.5.12 | MIT OR Apache-2.0 | development | No | https://www.npmjs.com/package/@biomejs/biome |
+| @biomejs/biome | 2.5.13 | MIT OR Apache-2.0 | development | No | https://www.npmjs.com/package/@biomejs/biome |
 | @tauri-apps/cli | 2.11.4 | Apache-2.0 OR MIT | development | No | https://www.npmjs.com/package/@tauri-apps/cli |
 | @testing-library/jest-dom | 7.0.1 | MIT | development | No | https://www.npmjs.com/package/@testing-library/jest-dom |
 | @testing-library/react | 16.3.3 | MIT | development | No | https://www.npmjs.com/package/@testing-library/react |
-| @types/react | 19.2.18 | MIT | development | No | https://www.npmjs.com/package/@types/react |
-| @types/react-dom | 19.2.7 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
+| @types/react | 19.3.0 | MIT | development | No | https://www.npmjs.com/package/@types/react |
+| @types/react-dom | 19.3.0 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
 | @vitejs/plugin-react | 6.1.1 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
 | jsdom | 30.0.1 | MIT | development | No | https://www.npmjs.com/package/jsdom |
 | prettier | 3.9.6 | MIT | development | No | https://www.npmjs.com/package/prettier |
 | typescript | 7.0.2 | Apache-2.0 | development | No | https://www.npmjs.com/package/typescript |
-| vite | 8.2.2 | MIT | development | No | https://www.npmjs.com/package/vite |
-| vitest | 5.0.0 | MIT | development | No | https://www.npmjs.com/package/vitest |
+| vite | 8.3.0 | MIT | development | No | https://www.npmjs.com/package/vite |
+| vitest | 5.0.1 | MIT | development | No | https://www.npmjs.com/package/vitest |
 
 ## Rust components — preserved review
 
@@ -110,6 +110,17 @@ This historical fingerprint was computed after normalizing CRLF to LF. It is
 not recalculated by a repository-owned CI verifier. Direct or transitive
 dependency changes require review of the inventory and distribution obligations;
 the preserved fingerprint must not be presented as evidence for a changed graph.
+
+**The transitive graph was recalculated on 20/09/2026**, the first recalculation
+since the generator was retired, using the same criteria the original selection
+declares: `cargo metadata --filter-platform x86_64-pc-windows-msvc`, normal
+dependencies only, no build and no dev. The linked graph moved from 297 to 301
+crates — 18 entered and 14 left — and `THIRD-PARTY-NOTICES.txt` now carries the
+license texts of the ones that entered, read from the sources cargo extracted
+rather than from manifest metadata. The direct-dependency table above was
+checked against that recalculation and needed no change. One crate,
+`defmt-parser 1.0.0`, publishes no license text and is recorded as a named
+exception, tracked in LCV-207.
 
 | Component | Version | License | Scope | Modified? | Source |
 | --- | --- | --- | --- | --- | --- |
