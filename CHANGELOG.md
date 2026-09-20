@@ -4,16 +4,19 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+## [v0.5.64] - 20/09/2026
+
 ### Added
 
 - Enable Vite's official `build.license`, which emits
   `legal/BUNDLED-LICENSES.md` from the dependency graph the bundler actually
-  packages, and a bundle banner pointing at it. Tauri embeds the built frontend
-  in the distributed binary, so the report ships with the artifact and is
-  regenerated on every build instead of being maintained by hand. It covers the
-  npm side only: the crates under `src-tauri/` stay in the preserved
-  `THIRD-PARTY-NOTICES.txt` snapshot and still need manual review before a new
-  distribution (LCV-207).
+  packages, and a bundle banner pointing at it, replacing a hand-maintained
+  table of 78 pinned versions. `tauri.conf.json` declares `frontendDist:
+  "../dist"` with no resource filter, so the report is embedded in the binary
+  by the same mechanism as the rest of the built frontend; this release is the
+  first build that carries it. It covers the npm side only: the crates under
+  `src-tauri/` stay in the preserved `THIRD-PARTY-NOTICES.txt` snapshot and
+  still need manual review before a new distribution (LCV-207).
 
 ### Changed
 
