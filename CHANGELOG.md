@@ -4,6 +4,26 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Recalculate the transitive Rust graph and refresh the notices it feeds. This
+  is the first recalculation since `scripts/generate-notices.mjs` was retired;
+  the documentary revisions of 13/09 and 15/09 state that they do not recompute
+  the graph, and it had drifted. Using the criteria the snapshot itself
+  declares — `cargo metadata --filter-platform x86_64-pc-windows-msvc`, normal
+  dependencies only, no build and no dev — the linked graph is 301 crates, not
+  the 297 on record: 18 entered and 14 left. `THIRD-PARTY-NOTICES.txt` now
+  carries the license texts of the ones that entered, read from the sources
+  cargo extracted rather than inferred from manifest metadata, and the 424
+  unchanged blocks are preserved byte for byte. `defmt-parser 1.0.0` publishes
+  no license text in any form and is recorded as a named exception instead of
+  being given a neighbour's text (LCV-207).
+
+- Align ten stale versions in the npm dependency table of `THIRDPARTY.md` with
+  the lockfile, including `react` 19.2.8 to 19.3.0 and `vite` 8.2.2 to 8.3.0.
+  Same defect as above in the other half of the inventory: a hand-maintained
+  table that dependency updates do not touch (LCV-207).
+
 ### Fixed
 
 - Retry the release attestation check instead of failing the publication on
