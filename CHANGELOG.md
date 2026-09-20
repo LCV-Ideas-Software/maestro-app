@@ -4,6 +4,17 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Enable Vite's official `build.license`, which emits
+  `legal/BUNDLED-LICENSES.md` from the dependency graph the bundler actually
+  packages, and a bundle banner pointing at it. Tauri embeds the built frontend
+  in the distributed binary, so the report ships with the artifact and is
+  regenerated on every build instead of being maintained by hand. It covers the
+  npm side only: the crates under `src-tauri/` stay in the preserved
+  `THIRD-PARTY-NOTICES.txt` snapshot and still need manual review before a new
+  distribution (LCV-207).
+
 ### Changed
 
 - Replace the instantiated `dingbat-to-unicode` 1.0.1 notice in `scripts/legal/`
