@@ -1437,6 +1437,19 @@ mod tests {
     }
 
     #[test]
+    fn growth_with_two_edited_blocks_cannot_borrow_one_blocks_permission() {
+        let before = "A\n\nB\n\nC";
+        let after = "A\n\nB2\n\nC2\n\nN";
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0002","change_type":"addition","protocol_basis":"required context"},
+            {"block_id":"B0003","protocol_basis":"correction"}
+        ]}"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+        assert!(error.contains("ambiguous"), "{error}");
+    }
+
+    #[test]
     fn stable_separator_identifies_edited_duplicate_received_block() {
         let before = "Início.\n\nRepetido.\n\nMeio.\n\nRepetido.\n\nFim.";
         let after = "Início.\n\nRepetido.\n\nMeio.\n\nRevisado.\n\nFim.";
