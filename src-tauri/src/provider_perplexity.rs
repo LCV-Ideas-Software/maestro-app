@@ -348,18 +348,22 @@ fn perplexity_response_cost(
     if let Some(cost) = reported {
         return (Some(cost), Some(false));
     }
-    let estimated = rates.and_then(|rates| {
-        usage_input_tokens
-            .zip(usage_output_tokens)
-            .map(|(input, output)| {
-                provider_cost(input, output, rates)
-                    + if perplexity_search_executed(value) {
-                        PERPLEXITY_WEB_SEARCH_COST_USD
-                    } else {
-                        0.0
-                    }
-            })
+    let token_estimate = rates.and_then(|rates| {
+        (usage_input_tokens.is_some() || usage_output_tokens.is_some()).then(|| {
+            provider_cost(
+                usage_input_tokens.unwrap_or(0),
+                usage_output_tokens.unwrap_or(0),
+                rates,
+            )
+        })
     });
+    let search_fee = perplexity_search_executed(value).then_some(PERPLEXITY_WEB_SEARCH_COST_USD);
+    let estimated = match (token_estimate, search_fee) {
+        (Some(tokens), Some(fee)) => Some(tokens + fee),
+        (Some(tokens), None) => Some(tokens),
+        (None, Some(fee)) => Some(fee),
+        (None, None) => None,
+    };
     (estimated, estimated.map(|_| true))
 }
 
@@ -551,6 +555,13 @@ mod tests {
         let (cost, estimated) =
             perplexity_response_cost(&empty_search, Some(100), Some(20), Some(rates));
         assert!((cost.unwrap() - 0.00264).abs() < 1e-9);
+        assert_eq!(estimated, Some(true));
+
+        let (cost, estimated) = perplexity_response_cost(&empty_search, None, None, Some(rates));
+        assert_eq!((cost, estimated), (Some(0.0025), Some(true)));
+        let (cost, estimated) =
+            perplexity_response_cost(&empty_search, Some(100), None, Some(rates));
+        assert!((cost.unwrap() - 0.0026).abs() < 1e-9);
         assert_eq!(estimated, Some(true));
 
         let without_search = json!({"status":"failed","output":[]});
