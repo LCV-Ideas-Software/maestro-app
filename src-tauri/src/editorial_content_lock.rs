@@ -293,22 +293,6 @@ pub(crate) fn validate_revision_content_lock(
         ));
     }
 
-    let added_blocks = after_blocks.len().saturating_sub(before_blocks.len());
-    let allowed_growth = declarations.values().fold(0usize, |total, declaration| {
-        total.saturating_add(if declaration.has_protocol_basis {
-            declaration.allowed_block_count_growth
-        } else {
-            0
-        })
-    });
-    if added_blocks > allowed_growth {
-        return Err(
-            "approved-content lock violation: revised custody added new blocks beyond per-block change_type split/addition permissions in changed_blocks"
-                .to_string(),
-        );
-    }
-    validate_growth_anchors(&before_blocks, &after_blocks, &changed_ids, &declarations)?;
-
     if reordered
         && !reordered_ids.iter().all(|id| {
             declarations
@@ -332,6 +316,22 @@ pub(crate) fn validate_revision_content_lock(
             missing_reorder.join(", ")
         ));
     }
+
+    let added_blocks = after_blocks.len().saturating_sub(before_blocks.len());
+    let allowed_growth = declarations.values().fold(0usize, |total, declaration| {
+        total.saturating_add(if declaration.has_protocol_basis {
+            declaration.allowed_block_count_growth
+        } else {
+            0
+        })
+    });
+    if added_blocks > allowed_growth {
+        return Err(
+            "approved-content lock violation: revised custody added new blocks beyond per-block change_type split/addition permissions in changed_blocks"
+                .to_string(),
+        );
+    }
+    validate_growth_anchors(&before_blocks, &after_blocks, &changed_ids, &declarations)?;
 
     Ok(())
 }
@@ -574,6 +574,7 @@ fn validate_growth_anchors(
         .filter_map(|(index, block)| changed_id_set.contains(block.id.as_str()).then_some(index))
         .collect::<Vec<_>>();
     let mut consumed_changed_indices = BTreeSet::new();
+    let mut saw_growth = false;
     let mut remaining_growth = declarations
         .iter()
         .map(|(id, declaration)| (id.as_str(), declaration.allowed_block_count_growth))
@@ -614,6 +615,7 @@ fn validate_growth_anchors(
         if growth == 0 {
             continue;
         }
+        saw_growth = true;
 
         let source_index = if changed_in_gap.is_empty() {
             let anchor = preceding.or(following).ok_or_else(|| {
@@ -658,6 +660,16 @@ fn validate_growth_anchors(
             ));
         }
         *allowance -= growth;
+    }
+    if saw_growth
+        && changed_indices
+            .iter()
+            .any(|index| !consumed_changed_indices.contains(index))
+    {
+        return Err(
+            "approved-content lock violation: growth has changed received blocks with ambiguous insertion attribution"
+                .to_string(),
+        );
     }
     Ok(())
 }
@@ -1268,6 +1280,19 @@ mod tests {
 
         let error = validate_revision_content_lock("Original.", "Original.", report).unwrap_err();
         assert!(error.contains("duplicate field `note`"), "{error}");
+    }
+
+    #[test]
+    fn moved_edit_cannot_be_disguised_as_addition_on_distant_anchor() {
+        let before = "# Titulo\n\nPrimeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "# Titulo\n\nPrimeiro.\n\nTerceiro.\n\nNovo.\n\nSegundo editado.";
+        let report = r#"{"custody":"revised","changed_blocks":[
+            {"block_id":"B0003","protocol_basis":"editorial correction"},
+            {"block_id":"B0004","change_type":"addition","new_block_count":2,"protocol_basis":"required context"}
+        ]}"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+        assert!(error.contains("ambiguous insertion attribution"), "{error}");
     }
 
     #[test]
