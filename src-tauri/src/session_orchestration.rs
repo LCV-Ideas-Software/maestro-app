@@ -3164,12 +3164,13 @@ fn reclassify_agent_artifact_result(
         rewritten.insert(tone_index, format!("- Tone: `{}`", result.tone));
     }
     let mut text = rewritten.join("\n");
-    let note_prefix = format!("Reclassificado para {}", result.status);
-    if !text.contains(&note_prefix) {
-        text.push_str(&format!(
-            "\n> {note_prefix}: {}.\n",
-            sanitize_text(reason, 300)
-        ));
+    let note = format!(
+        "> Reclassificado para {}: {}.",
+        result.status,
+        sanitize_text(reason, 300)
+    );
+    if !text.trim_end().ends_with(&note) {
+        text.push_str(&format!("\n{note}\n"));
     }
     let _ = write_text_file(output_path, &text);
 }
@@ -3394,7 +3395,7 @@ mod tests {
             ),
             (
                 "round-001-perplexity-review-attempt-002.md",
-                "# Perplexity - review\n\n- Status: `READY`\n",
+                "# Perplexity - review\n\n- Status: `READY`\n\n## Stdout\n\n```text\n- Status: `READY`\n- Tone: `ok`\nReclassificado para CONTRACT_VIOLATION\n```\n",
                 "CONTRACT_VIOLATION",
                 "error",
             ),
@@ -3407,6 +3408,10 @@ mod tests {
             let resumed = parse_agent_artifact_result(&artifact).unwrap();
             assert_eq!(resumed.status, status);
             assert_eq!(resumed.tone, tone);
+            let updated = std::fs::read_to_string(&path).unwrap();
+            assert!(updated.trim_end().ends_with(&format!(
+                "> Reclassificado para {status}: failed final gate."
+            )));
         }
 
         std::fs::remove_dir_all(&session_dir).unwrap();

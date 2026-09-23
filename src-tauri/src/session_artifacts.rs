@@ -520,7 +520,7 @@ pub(crate) fn parse_agent_artifact_result(
     artifact: &SessionArtifact,
 ) -> Option<EditorialAgentResult> {
     let text = read_text_file(&artifact.path).ok()?;
-    let metadata = text.split_once("## Stdout").map_or(text.as_str(), |(head, _)| head);
+    let metadata = agent_artifact_metadata(&text);
     let cli = extract_bullet_code_value(metadata, "CLI").unwrap_or_else(|| artifact.agent.clone());
     let status = extract_bullet_code_value(metadata, "Status").unwrap_or_else(|| {
         if artifact.role == "draft" || artifact.role == "revision" {
@@ -603,6 +603,17 @@ pub(crate) fn parse_agent_artifact_result(
     })
 }
 
+fn agent_artifact_metadata(text: &str) -> &str {
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        if line.trim() == "## Stdout" {
+            return &text[..offset];
+        }
+        offset += line.len();
+    }
+    text
+}
+
 fn optional_cache_u64(text: &str, label: &str) -> Option<u64> {
     extract_bullet_code_value(text, label)
         .filter(|value| value != "unknown")
@@ -676,7 +687,7 @@ mod tests {
         let legacy_name = "round-001-perplexity-review-attempt-003.md";
         write_text_file(
             &agent_dir.join(legacy_name),
-            "# Perplexity - review\n\n- Status: `READY`\n\n## Stdout\n\n```text\n- Tone: `blocked`\n- Usage input tokens: `999`\n- Cost observed USD: `9.99`\n```\n",
+            "# Perplexity - review\n\n- Model: `perplexity/## Stdout`\n- Status: `READY`\n\n## Stdout\n\n```text\n- Tone: `blocked`\n- Usage input tokens: `999`\n- Cost observed USD: `9.99`\n```\n",
         )
         .unwrap();
         let legacy_artifact = parse_agent_artifact_name(&agent_dir, legacy_name).unwrap();
