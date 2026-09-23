@@ -1651,7 +1651,7 @@ pub(crate) fn run_editorial_session_core(
                     last.status = result.status.clone();
                     last.tone = result.tone.clone();
                 }
-                reclassify_agent_artifact_status(&output_path, "CONTRACT_VIOLATION", &reason);
+                reclassify_agent_artifact_result(&output_path, &result, &reason);
                 apply_stable_approval_transition(
                     &mut stable_serial_approval_agents,
                     StableApprovalTransition::RejectedAttempt,
@@ -1780,7 +1780,7 @@ pub(crate) fn run_editorial_session_core(
                         }
                         let note =
                             format!("READY unchanged rejected by final release audit: {reason}");
-                        reclassify_agent_artifact_status(&output_path, "NOT_READY", &note);
+                        reclassify_agent_artifact_result(&output_path, &result, &note);
                         let _ = write_log_record(
                             log_session,
                             LogEventInput {
@@ -1812,7 +1812,7 @@ pub(crate) fn run_editorial_session_core(
                         let note = format!(
                             "NOT_READY unchanged rejected: the reviewer must either approve the current version as READY unchanged or return a revised complete text that resolves the blocker: {reason}"
                         );
-                        reclassify_agent_artifact_status(&output_path, "CONTRACT_VIOLATION", &note);
+                        reclassify_agent_artifact_result(&output_path, &result, &note);
                         apply_stable_approval_transition(
                             &mut stable_serial_approval_agents,
                             StableApprovalTransition::RejectedAttempt,
@@ -1969,7 +1969,7 @@ pub(crate) fn run_editorial_session_core(
                 last.status = result.status.clone();
                 last.tone = result.tone.clone();
             }
-            reclassify_agent_artifact_status(&output_path, "CONTRACT_VIOLATION", &reason);
+            reclassify_agent_artifact_result(&output_path, &result, &reason);
             apply_stable_approval_transition(
                 &mut stable_serial_approval_agents,
                 StableApprovalTransition::RejectedAttempt,
@@ -2074,7 +2074,7 @@ pub(crate) fn run_editorial_session_core(
                 last.status = result.status.clone();
                 last.tone = result.tone.clone();
             }
-            reclassify_agent_artifact_status(&output_path, "CONTRACT_VIOLATION", &reason);
+            reclassify_agent_artifact_result(&output_path, &result, &reason);
             apply_stable_approval_transition(
                 &mut stable_serial_approval_agents,
                 StableApprovalTransition::RejectedAttempt,
@@ -3127,29 +3127,50 @@ fn contains_prompt_or_protocol_echo(stdout: &str) -> bool {
     .any(|marker| normalized.contains(marker))
 }
 
-fn reclassify_agent_artifact_status(output_path: &Path, status: &str, reason: &str) {
+fn reclassify_agent_artifact_result(
+    output_path: &Path,
+    result: &EditorialAgentResult,
+    reason: &str,
+) {
     let Ok(contents) = read_text_file(output_path) else {
         return;
     };
-    let mut replaced = false;
+    let mut status_replaced = false;
+    let mut tone_replaced = false;
+    let mut in_metadata = true;
     let mut rewritten = Vec::new();
     for line in contents.lines() {
-        if !replaced && line.trim_start().starts_with("- Status: `") {
-            rewritten.push(format!("- Status: `{status}`"));
-            replaced = true;
+        if line.trim() == "## Stdout" {
+            in_metadata = false;
+        }
+        if in_metadata && !status_replaced && line.trim_start().starts_with("- Status: `") {
+            rewritten.push(format!("- Status: `{}`", result.status));
+            status_replaced = true;
+        } else if in_metadata && !tone_replaced && line.trim_start().starts_with("- Tone: `") {
+            rewritten.push(format!("- Tone: `{}`", result.tone));
+            tone_replaced = true;
         } else {
             rewritten.push(line.to_string());
         }
     }
-    if !replaced {
-        rewritten.insert(0, format!("- Status: `{status}`"));
+    if !status_replaced {
+        rewritten.insert(0, format!("- Status: `{}`", result.status));
+    }
+    if !tone_replaced {
+        let tone_index = rewritten
+            .iter()
+            .position(|line| line.trim_start().starts_with("- Status: `"))
+            .map_or(1, |index| index + 1);
+        rewritten.insert(tone_index, format!("- Tone: `{}`", result.tone));
     }
     let mut text = rewritten.join("\n");
-    if !text.contains("Reclassificado para CONTRACT_VIOLATION") {
-        text.push_str(&format!(
-            "\n> Reclassificado para CONTRACT_VIOLATION: {}.\n",
-            sanitize_text(reason, 300)
-        ));
+    let note = format!(
+        "> Reclassificado para {}: {}.",
+        result.status,
+        sanitize_text(reason, 300)
+    );
+    if !text.trim_end().ends_with(&note) {
+        text.push_str(&format!("\n{note}\n"));
     }
     let _ = write_text_file(output_path, &text);
 }
@@ -3317,6 +3338,7 @@ mod tests {
         is_substantive_editorial_change, not_ready_unchanged_release_audit_failure,
         paid_corrective_retry_admission,
         quality_guard_blocks_revision, ready_unchanged_release_audit_failure,
+        reclassify_agent_artifact_result,
         restore_circular_resume_progress, restore_persisted_circular_progress,
         select_serial_reviewer_index,
         serial_turn_counts_as_valid_round_agent, serial_turn_retry_key,
@@ -3327,7 +3349,10 @@ mod tests {
         UnrevisedSerialTurnAuditDecision, UnrevisedSerialTurnRuntimeAction,
         MAX_CORRECTIVE_CONTRACT_RETRIES_PER_TURN, MAX_PAID_CORRECTIVE_RETRIES_PER_ROUND,
     };
-    use crate::session_artifacts::{CircularReviewState, CIRCULAR_REVIEW_STATE_SCHEMA_VERSION};
+    use crate::session_artifacts::{
+        parse_agent_artifact_name, parse_agent_artifact_result, CircularReviewState,
+        CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+    };
     use crate::EditorialAgentResult;
 
     fn review_result(name: &str, status: &str, tone: &str) -> EditorialAgentResult {
@@ -3349,6 +3374,47 @@ mod tests {
             cost_estimated: None,
             cache: None,
         }
+    }
+
+    #[test]
+    fn reclassification_persists_status_and_tone_for_resume() {
+        let session_dir = crate::sessions_dir().join(format!(
+            "maestro-tone-reclassify-test-{}",
+            std::process::id()
+        ));
+        let agent_dir = session_dir.join("agent-runs");
+        let _ = std::fs::remove_dir_all(&session_dir);
+        std::fs::create_dir_all(&agent_dir).unwrap();
+
+        for (name, initial, status, tone) in [
+            (
+                "round-001-perplexity-review.md",
+                "# Perplexity - review\n\n- Status: `READY`\n- Tone: `ok`\n",
+                "NOT_READY",
+                "warn",
+            ),
+            (
+                "round-001-perplexity-review-attempt-002.md",
+                "# Perplexity - review\n\n- Status: `READY`\n\n## Stdout\n\n```text\n- Status: `READY`\n- Tone: `ok`\nReclassificado para CONTRACT_VIOLATION\n```\n",
+                "CONTRACT_VIOLATION",
+                "error",
+            ),
+        ] {
+            let path = agent_dir.join(name);
+            std::fs::write(&path, initial).unwrap();
+            let result = review_result("Perplexity", status, tone);
+            reclassify_agent_artifact_result(&path, &result, "failed final gate");
+            let artifact = parse_agent_artifact_name(&agent_dir, name).unwrap();
+            let resumed = parse_agent_artifact_result(&artifact).unwrap();
+            assert_eq!(resumed.status, status);
+            assert_eq!(resumed.tone, tone);
+            let updated = std::fs::read_to_string(&path).unwrap();
+            assert!(updated.trim_end().ends_with(&format!(
+                "> Reclassificado para {status}: failed final gate."
+            )));
+        }
+
+        std::fs::remove_dir_all(&session_dir).unwrap();
     }
 
     #[test]
