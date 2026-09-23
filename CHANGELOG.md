@@ -9,6 +9,7 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 - **MAESTRO-33:** Move the Perplexity desktop peer to the Agent API with a documented `provider/model` pin, typed response parsing, and source metadata. Preserve model override separators, require search evidence before accepting a response, reserve the web-search fee in cost guards, and account for incomplete responses using provider-reported totals or estimated token usage. Reject legacy Sonar model IDs before dispatch.
 
 - **MAESTRO-33 follow-up:** Charge searches that return zero results when estimating an unreported provider total. Update the in-app Perplexity labels and `LEIAME.md` to identify the Agent API and its default model.
+- **MAESTRO-33 resume accounting:** Persist token usage and the observed versus estimated cost label for billed provider failures; restore those fields when resuming a session while retaining compatibility with older `Cost USD` artifacts.
 
 ### Changed
 
