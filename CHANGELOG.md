@@ -26,6 +26,15 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Fixed
 
+- **MAESTRO-30 follow-up — ambiguous growth attribution.** Reject added blocks
+  when two or more received blocks are edited in the same unmatched region.
+  An addition declaration on one of those blocks cannot prove which revised
+  block produced the extra text without the separately deferred provenance
+  contract. The revision prompt and workflow now direct agents to revise the
+  existing blocks first and add new text in a separate serial turn. A
+  GitHub-hosted Windows regression reproduced the v0.5.65 false accept before
+  the fix. Bump the synchronized source version to 0.5.66.
+
 - **MAESTRO-30 — approved-content lock.** Parse the isolated revision report as
   strict JSON with typed `changed_blocks` entries instead of scanning
   free-text substrings. Validate received block IDs and per-entry protocol
