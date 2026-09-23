@@ -533,6 +533,15 @@ mod tests {
         assert!((cost.unwrap() - 0.00264).abs() < 1e-9);
         assert_eq!(estimated, Some(true));
 
+        let empty_search = json!({
+            "status": "incomplete",
+            "output": [{"type":"search_results","results":[]}]
+        });
+        let (cost, estimated) =
+            perplexity_response_cost(&empty_search, Some(100), Some(20), Some(rates));
+        assert!((cost.unwrap() - 0.00264).abs() < 1e-9);
+        assert_eq!(estimated, Some(true));
+
         let without_search = json!({"status":"failed","output":[]});
         let (cost, estimated) =
             perplexity_response_cost(&without_search, Some(100), Some(20), Some(rates));
