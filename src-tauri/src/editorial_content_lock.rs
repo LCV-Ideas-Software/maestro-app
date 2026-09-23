@@ -1,6 +1,10 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 
 use regex::Regex;
+use serde::de::{self, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,14 +19,137 @@ pub(crate) struct EditorialContentBlock {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ChangedBlockDeclaration {
     has_protocol_basis: bool,
-    allows_block_count_growth: bool,
+    allowed_block_count_growth: usize,
+    allows_addition: bool,
+    allows_split: bool,
     allows_reorder: bool,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct RevisionReport {
+    #[serde(default)]
+    changed_blocks: Vec<ChangedBlockEntry>,
+    #[serde(default)]
+    pub(crate) custody: Option<String>,
+    #[serde(default)]
+    pub(crate) changes: Vec<Value>,
+    #[serde(default)]
+    pub(crate) operator_evidence_required: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+struct ChangedBlockEntry {
+    block_id: String,
+    #[serde(default)]
+    protocol_basis: Option<Value>,
+    #[serde(default)]
+    change_type: Option<ChangeType>,
+    #[serde(default)]
+    new_block_count: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ChangeType {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+struct NoDuplicateJson(Value);
+
+impl<'de> Deserialize<'de> for NoDuplicateJson {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct NoDuplicateVisitor;
+
+        impl<'de> Visitor<'de> for NoDuplicateVisitor {
+            type Value = NoDuplicateJson;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a JSON value without duplicate object fields")
+            }
+
+            fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson(Value::Bool(value)))
+            }
+
+            fn visit_i64<E: de::Error>(self, value: i64) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson(Value::from(value)))
+            }
+
+            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson(Value::from(value)))
+            }
+
+            fn visit_f64<E: de::Error>(self, value: f64) -> Result<Self::Value, E> {
+                let number = serde_json::Number::from_f64(value)
+                    .ok_or_else(|| E::custom("non-finite JSON number"))?;
+                Ok(NoDuplicateJson(Value::Number(number)))
+            }
+
+            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson(Value::String(value.to_owned())))
+            }
+
+            fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson(Value::String(value)))
+            }
+
+            fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson(Value::Null))
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
+                let mut values = Vec::new();
+                while let Some(NoDuplicateJson(value)) = sequence.next_element()? {
+                    values.push(value);
+                }
+                Ok(NoDuplicateJson(Value::Array(values)))
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut values = serde_json::Map::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if values.contains_key(&key) {
+                        return Err(de::Error::custom(format!("duplicate field `{key}`")));
+                    }
+                    let NoDuplicateJson(value) = map.next_value()?;
+                    values.insert(key, value);
+                }
+                Ok(NoDuplicateJson(Value::Object(values)))
+            }
+        }
+
+        deserializer.deserialize_any(NoDuplicateVisitor)
+    }
+}
+
+pub(crate) fn parse_revision_report(report: &str) -> Result<RevisionReport, String> {
+    let NoDuplicateJson(root) = serde_json::from_str(report).map_err(|error| {
+        format!(
+            "approved-content lock violation: maestro_revision_report must be one strict JSON object: {error}"
+        )
+    })?;
+    if !root.is_object() {
+        return Err(
+            "approved-content lock violation: maestro_revision_report must be one strict JSON object"
+                .to_string(),
+        );
+    }
+    serde_json::from_value(root).map_err(|error| {
+        format!(
+            "approved-content lock violation: maestro_revision_report must be one strict JSON object: {error}"
+        )
+    })
+}
+
 pub(crate) fn segment_editorial_blocks(text: &str) -> Vec<EditorialContentBlock> {
-    text.replace("\r\n", "\n")
-        .replace('\r', "\n")
-        .split("\n\n")
+    let normalized_newlines = text.replace("\r\n", "\n").replace('\r', "\n");
+    let blank_line = Regex::new(r"\n[\t ]*\n").expect("valid blank-line regex");
+    blank_line
+        .split(&normalized_newlines)
         .filter_map(|raw_block| {
             let trimmed = raw_block.trim();
             if trimmed.is_empty() {
@@ -72,12 +199,13 @@ pub(crate) fn validate_revision_content_lock(
     after: &str,
     report: &str,
 ) -> Result<(), String> {
+    let parsed = parse_revision_report(report)?;
     let before_blocks = segment_editorial_blocks(before);
     let after_blocks = segment_editorial_blocks(after);
     let changed_ids = changed_received_block_ids(&before_blocks, &after_blocks);
     let reordered_ids = reordered_received_block_ids(&before_blocks, &after_blocks);
     let reordered = !reordered_ids.is_empty();
-    let Some(changed_section) = extract_changed_blocks_section(report) else {
+    if parsed.changed_blocks.is_empty() {
         if changed_ids.is_empty() && after_blocks.len() <= before_blocks.len() && !reordered {
             return Ok(());
         }
@@ -91,8 +219,74 @@ pub(crate) fn validate_revision_content_lock(
             "approved-content lock violation: revised custody changed received blocks {} but maestro_revision_report has no changed_blocks section with block IDs",
             changed_ids.join(", ")
         ));
-    };
-    let declarations = extract_changed_block_declarations(changed_section);
+    }
+    let declarations = parse_changed_block_declarations(parsed.changed_blocks, &before_blocks)?;
+
+    let mut before_hash_counts = BTreeMap::<&str, usize>::new();
+    let mut after_hash_counts = BTreeMap::<&str, usize>::new();
+    for block in &before_blocks {
+        *before_hash_counts
+            .entry(block.normalized_hash.as_str())
+            .or_insert(0) += 1;
+    }
+    for block in &after_blocks {
+        *after_hash_counts
+            .entry(block.normalized_hash.as_str())
+            .or_insert(0) += 1;
+    }
+    let before_hash_by_id = before_blocks
+        .iter()
+        .map(|block| (block.id.as_str(), block.normalized_hash.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    let matched_before = matched_received_indices(&before_blocks, &after_blocks)
+        .into_iter()
+        .flatten()
+        .collect::<BTreeSet<_>>();
+    let ambiguous_duplicate_ids = changed_ids
+        .iter()
+        .filter(|id| {
+            let Some(hash) = before_hash_by_id.get(id.as_str()) else {
+                return false;
+            };
+            let original_count = before_hash_counts.get(*hash).copied().unwrap_or(0);
+            let after_count = after_hash_counts.get(*hash).copied().unwrap_or(0);
+            if original_count <= 1
+                || after_count == 0
+                || after_count >= original_count
+            {
+                return false;
+            }
+            let Some(changed_index) = before_blocks.iter().position(|block| block.id == id.as_str())
+            else {
+                return true;
+            };
+            !before_blocks
+                .iter()
+                .enumerate()
+                .filter(|(index, block)| {
+                    *index != changed_index && block.normalized_hash.as_str() == *hash
+                })
+                .all(|(other_index, _)| {
+                    let other_is_matched = matched_before.contains(&other_index);
+                    let (start, end) = if changed_index < other_index {
+                        (changed_index, other_index)
+                    } else {
+                        (other_index, changed_index)
+                    };
+                    other_is_matched
+                        && (start + 1..end).any(|between| {
+                            before_blocks[between].normalized_hash.as_str() != *hash
+                        })
+                })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if !ambiguous_duplicate_ids.is_empty() {
+        return Err(format!(
+            "approved-content lock violation: changed duplicate received blocks {} have ambiguous attribution",
+            ambiguous_duplicate_ids.join(", ")
+        ));
+    }
 
     let undeclared = changed_ids
         .iter()
@@ -130,17 +324,6 @@ pub(crate) fn validate_revision_content_lock(
         ));
     }
 
-    if after_blocks.len() > before_blocks.len()
-        && !declarations
-            .values()
-            .any(|declaration| declaration.allows_block_count_growth)
-    {
-        return Err(
-            "approved-content lock violation: revised custody added new blocks without declaring change_type split/addition in changed_blocks"
-                .to_string(),
-        );
-    }
-
     if reordered
         && !reordered_ids.iter().all(|id| {
             declarations
@@ -164,6 +347,22 @@ pub(crate) fn validate_revision_content_lock(
             missing_reorder.join(", ")
         ));
     }
+
+    let added_blocks = after_blocks.len().saturating_sub(before_blocks.len());
+    let allowed_growth = declarations.values().fold(0usize, |total, declaration| {
+        total.saturating_add(if declaration.has_protocol_basis {
+            declaration.allowed_block_count_growth
+        } else {
+            0
+        })
+    });
+    if added_blocks > allowed_growth {
+        return Err(
+            "approved-content lock violation: revised custody added new blocks beyond per-block change_type split/addition permissions in changed_blocks"
+                .to_string(),
+        );
+    }
+    validate_growth_anchors(&before_blocks, &after_blocks, &changed_ids, &declarations)?;
 
     Ok(())
 }
@@ -221,40 +420,56 @@ fn changed_received_block_ids(
     before_blocks: &[EditorialContentBlock],
     after_blocks: &[EditorialContentBlock],
 ) -> Vec<String> {
-    let mut after_hash_counts = BTreeMap::<&str, usize>::new();
-    for after in after_blocks {
-        *after_hash_counts
-            .entry(after.normalized_hash.as_str())
-            .or_insert(0) += 1;
-    }
-
+    let matched_before = matched_received_indices(before_blocks, after_blocks)
+        .into_iter()
+        .flatten()
+        .collect::<BTreeSet<_>>();
     before_blocks
         .iter()
-        .filter_map(|before| {
-            let count = after_hash_counts
-                .entry(before.normalized_hash.as_str())
-                .or_insert(0);
-            if *count == 0 {
-                Some(before.id.clone())
-            } else {
-                *count -= 1;
-                None
-            }
-        })
+        .enumerate()
+        .filter_map(|(index, block)| (!matched_before.contains(&index)).then(|| block.id.clone()))
         .collect()
+}
+
+fn matching_edge_bounds(
+    before_blocks: &[EditorialContentBlock],
+    after_blocks: &[EditorialContentBlock],
+) -> (usize, usize, usize) {
+    let mut start = 0;
+    while start < before_blocks.len()
+        && start < after_blocks.len()
+        && before_blocks[start].normalized_hash == after_blocks[start].normalized_hash
+    {
+        start += 1;
+    }
+    let mut before_end = before_blocks.len();
+    let mut after_end = after_blocks.len();
+    while before_end > start
+        && after_end > start
+        && before_blocks[before_end - 1].normalized_hash
+            == after_blocks[after_end - 1].normalized_hash
+    {
+        before_end -= 1;
+        after_end -= 1;
+    }
+    (start, before_end, after_end)
 }
 
 fn reordered_received_block_ids(
     before_blocks: &[EditorialContentBlock],
     after_blocks: &[EditorialContentBlock],
 ) -> Vec<String> {
-    let common_counts = common_normalized_hash_counts(before_blocks, after_blocks);
-    if common_counts.values().sum::<usize>() <= 1 {
+    let after_sequence = matched_received_indices(before_blocks, after_blocks)
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    if after_sequence.len() <= 1 {
         return Vec::new();
     }
-
-    let before_sequence = common_block_id_sequence(before_blocks, before_blocks, &common_counts);
-    let after_sequence = common_block_id_sequence(before_blocks, after_blocks, &common_counts);
+    let matched_before = after_sequence.iter().copied().collect::<BTreeSet<_>>();
+    let before_sequence = (0..before_blocks.len())
+        .filter(|index| matched_before.contains(index))
+        .collect::<Vec<_>>();
     if before_sequence == after_sequence {
         return Vec::new();
     }
@@ -262,349 +477,372 @@ fn reordered_received_block_ids(
     let before_positions = before_sequence
         .iter()
         .enumerate()
-        .map(|(index, id)| (id.clone(), index))
+        .map(|(index, id)| (*id, index))
         .collect::<BTreeMap<_, _>>();
     let after_positions = after_sequence
         .iter()
         .enumerate()
-        .map(|(index, id)| (id.clone(), index))
+        .map(|(index, id)| (*id, index))
         .collect::<BTreeMap<_, _>>();
 
     before_sequence
         .into_iter()
         .filter(|id| before_positions.get(id) != after_positions.get(id))
+        .map(|index| before_blocks[index].id.clone())
         .collect()
 }
 
-fn common_normalized_hash_counts(
+fn matched_received_indices(
     before_blocks: &[EditorialContentBlock],
     after_blocks: &[EditorialContentBlock],
-) -> BTreeMap<String, usize> {
-    let mut before_counts = BTreeMap::<String, usize>::new();
-    let mut after_counts = BTreeMap::<String, usize>::new();
-    for block in before_blocks {
-        *before_counts
-            .entry(block.normalized_hash.clone())
-            .or_insert(0) += 1;
+) -> Vec<Option<usize>> {
+    let mut before_by_hash = BTreeMap::<&str, Vec<usize>>::new();
+    let mut after_by_hash = BTreeMap::<&str, Vec<usize>>::new();
+    for (index, block) in before_blocks.iter().enumerate() {
+        before_by_hash
+            .entry(block.normalized_hash.as_str())
+            .or_default()
+            .push(index);
     }
-    for block in after_blocks {
-        *after_counts
-            .entry(block.normalized_hash.clone())
-            .or_insert(0) += 1;
+    for (index, block) in after_blocks.iter().enumerate() {
+        after_by_hash
+            .entry(block.normalized_hash.as_str())
+            .or_default()
+            .push(index);
+    }
+    let stable_hashes = before_by_hash
+        .iter()
+        .filter_map(|(hash, positions)| {
+            (positions.len() == 1 && after_by_hash.get(hash).is_some_and(|other| other.len() == 1))
+                .then_some(*hash)
+        })
+        .collect::<BTreeSet<_>>();
+    let before_context = stable_neighbor_context(before_blocks, &stable_hashes);
+    let after_context = stable_neighbor_context(after_blocks, &stable_hashes);
+    let mut matched = vec![None; after_blocks.len()];
+    let mut used_before = vec![false; before_blocks.len()];
+
+    // Exact edges take precedence when equal text occurs more than once.
+    let (prefix_end, before_end, after_end) = matching_edge_bounds(before_blocks, after_blocks);
+    for index in 0..prefix_end {
+        matched[index] = Some(index);
+        used_before[index] = true;
+    }
+    for offset in 0..before_blocks.len() - before_end {
+        matched[after_end + offset] = Some(before_end + offset);
+        used_before[before_end + offset] = true;
     }
 
-    let mut common_counts = BTreeMap::<String, usize>::new();
-    for (hash, before_count) in before_counts {
-        if let Some(after_count) = after_counts.get(&hash) {
-            common_counts.insert(hash, before_count.min(*after_count));
+    // Unique unchanged blocks remain identifiable even after a reorder.
+    for (hash, positions) in &before_by_hash {
+        if positions.len() != 1 || used_before[positions[0]] {
+            continue;
+        }
+        if let Some(after_index) = after_by_hash
+            .get(hash)
+            .and_then(|indices| indices.iter().find(|index| matched[**index].is_none()))
+        {
+            matched[*after_index] = Some(positions[0]);
+            used_before[positions[0]] = true;
         }
     }
-    common_counts
+
+    // For repeated text, first use stable unique neighbors to identify the
+    // occurrence. A trailing addition must not turn an earlier edited copy
+    // into a different received ID merely because the suffix stopped matching.
+    for (hash, positions) in &before_by_hash {
+        if positions.len() <= 1 {
+            continue;
+        }
+        let Some(after_indices) = after_by_hash.get(hash) else {
+            continue;
+        };
+        for after_index in after_indices {
+            if matched[*after_index].is_some() {
+                continue;
+            }
+            let candidates = positions
+                .iter()
+                .copied()
+                .filter(|before_index| {
+                    !used_before[*before_index]
+                        && before_context[*before_index] == after_context[*after_index]
+                })
+                .collect::<Vec<_>>();
+            if candidates.len() == 1 {
+                matched[*after_index] = Some(candidates[0]);
+                used_before[candidates[0]] = true;
+            }
+        }
+        for after_index in after_indices {
+            if matched[*after_index].is_some() {
+                continue;
+            }
+            if let Some(before_index) = positions.iter().copied().find(|index| !used_before[*index]) {
+                matched[*after_index] = Some(before_index);
+                used_before[before_index] = true;
+            }
+        }
+    }
+    matched
 }
 
-fn common_block_id_sequence(
+fn stable_neighbor_context(
+    blocks: &[EditorialContentBlock],
+    stable_hashes: &BTreeSet<&str>,
+) -> Vec<(Option<String>, Option<String>)> {
+    let mut context = vec![(None, None); blocks.len()];
+    let mut preceding = None::<String>;
+    for (index, block) in blocks.iter().enumerate() {
+        context[index].0 = preceding.clone();
+        if stable_hashes.contains(block.normalized_hash.as_str()) {
+            preceding = Some(block.normalized_hash.clone());
+        }
+    }
+    let mut following = None::<String>;
+    for (index, block) in blocks.iter().enumerate().rev() {
+        context[index].1 = following.clone();
+        if stable_hashes.contains(block.normalized_hash.as_str()) {
+            following = Some(block.normalized_hash.clone());
+        }
+    }
+    context
+}
+
+fn validate_growth_anchors(
     before_blocks: &[EditorialContentBlock],
-    ordered_blocks: &[EditorialContentBlock],
-    common_counts: &BTreeMap<String, usize>,
-) -> Vec<String> {
-    let mut ids_by_hash = BTreeMap::<String, VecDeque<String>>::new();
-    let mut remaining = common_counts.clone();
-    for block in before_blocks {
-        if let Some(count) = remaining.get_mut(&block.normalized_hash) {
-            if *count > 0 {
-                ids_by_hash
-                    .entry(block.normalized_hash.clone())
-                    .or_default()
-                    .push_back(block.id.clone());
-                *count -= 1;
-            }
-        }
-    }
-
-    let mut remaining = common_counts.clone();
-    let mut sequence = Vec::new();
-    for block in ordered_blocks {
-        if let Some(count) = remaining.get_mut(&block.normalized_hash) {
-            if *count > 0 {
-                if let Some(ids) = ids_by_hash.get_mut(&block.normalized_hash) {
-                    if let Some(id) = ids.pop_front() {
-                        sequence.push(id);
-                    }
-                }
-                *count -= 1;
-            }
-        }
-    }
-    sequence
-}
-
-fn extract_changed_blocks_section(report: &str) -> Option<&str> {
-    let lower = report.to_ascii_lowercase();
-    let start = find_first_report_field_key(&lower, &["changed_blocks", "changes"])?;
-    let relative_end = find_first_report_field_key(
-        &lower[start + 1..],
-        &[
-            "operator_evidence_required",
-            "out_of_scope",
-            "quality_preservation",
-            "unchanged_approved_blocks",
-            "custody",
-        ],
-    );
-    let end = relative_end
-        .map(|offset| start + 1 + offset)
-        .unwrap_or(report.len());
-    report.get(start..end)
-}
-
-fn find_first_report_field_key(haystack: &str, keys: &[&str]) -> Option<usize> {
-    let bytes = haystack.as_bytes();
-    let mut index = 0usize;
-    let mut in_quote: Option<u8> = None;
-    let mut escaped = false;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if let Some(quote) = in_quote {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == quote {
-                in_quote = None;
-            }
+    after_blocks: &[EditorialContentBlock],
+    changed_ids: &[String],
+    declarations: &BTreeMap<String, ChangedBlockDeclaration>,
+) -> Result<(), String> {
+    let matched = matched_received_indices(before_blocks, after_blocks);
+    let unmatched_gap_count = matched
+        .iter()
+        .enumerate()
+        .filter(|(index, received)| {
+            received.is_none() && (*index == 0 || matched[*index - 1].is_some())
+        })
+        .count();
+    let changed_id_set = changed_ids.iter().map(String::as_str).collect::<BTreeSet<_>>();
+    let changed_indices = before_blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, block)| changed_id_set.contains(block.id.as_str()).then_some(index))
+        .collect::<Vec<_>>();
+    let mut consumed_changed_indices = BTreeSet::new();
+    let mut saw_growth = false;
+    let mut remaining_growth = declarations
+        .iter()
+        .map(|(id, declaration)| (id.as_str(), declaration.allowed_block_count_growth))
+        .collect::<BTreeMap<_, _>>();
+    let mut preceding = None;
+    let mut index = 0;
+    while index < matched.len() {
+        if let Some(received_index) = matched[index] {
+            preceding = Some(received_index);
             index += 1;
             continue;
         }
-        if byte == b'"' || byte == b'\'' {
-            let field_start = index;
-            if let Some(end_quote) = haystack[index + 1..].find(byte as char) {
-                let key_start = index + 1;
-                let key_end = key_start + end_quote;
-                let candidate = &haystack[key_start..key_end];
-                let after = key_end + 1;
-                if keys.contains(&candidate)
-                    && field_key_is_delimited_before(bytes, field_start)
-                    && field_key_has_assignment_after(bytes, after)
-                {
-                    return Some(field_start);
-                }
-            }
-            in_quote = Some(byte);
+        let start = index;
+        while index < matched.len() && matched[index].is_none() {
             index += 1;
-            continue;
         }
-        if field_key_is_delimited_before(bytes, index) {
-            for key in keys {
-                if haystack[index..].starts_with(key) {
-                    let after = index + key.len();
-                    if field_key_has_assignment_after(bytes, after) {
-                        return Some(index);
-                    }
+        let following = matched.get(index).copied().flatten();
+        let changed_in_gap = changed_indices
+            .iter()
+            .copied()
+            .filter(|received_index| {
+                if consumed_changed_indices.contains(received_index) {
+                    return false;
                 }
-            }
-        }
-        index += 1;
-    }
-    None
-}
-
-fn field_key_is_delimited_before(bytes: &[u8], index: usize) -> bool {
-    if index == 0 {
-        return true;
-    }
-    bytes[..index]
-        .iter()
-        .rev()
-        .find(|byte| !byte.is_ascii_whitespace())
-        .map(|byte| matches!(byte, b'{' | b'[' | b',' | b'\n' | b'\r'))
-        .unwrap_or(true)
-}
-
-fn field_key_has_assignment_after(bytes: &[u8], index: usize) -> bool {
-    bytes[index..]
-        .iter()
-        .find(|byte| !byte.is_ascii_whitespace())
-        .map(|byte| matches!(byte, b':' | b'='))
-        .unwrap_or(false)
-}
-
-fn extract_changed_block_declarations(section: &str) -> BTreeMap<String, ChangedBlockDeclaration> {
-    let mut declarations = BTreeMap::new();
-    for fragment in changed_block_entry_fragments(section) {
-        let Some(block_id) = extract_block_id_field(&fragment) else {
-            continue;
-        };
-        let declaration = ChangedBlockDeclaration {
-            has_protocol_basis: fragment_has_nonempty_protocol_basis(&fragment),
-            allows_block_count_growth: fragment_declares_block_count_growth(&fragment),
-            allows_reorder: fragment_declares_reorder(&fragment),
-        };
-        declarations
-            .entry(block_id)
-            .and_modify(|existing: &mut ChangedBlockDeclaration| {
-                existing.has_protocol_basis |= declaration.has_protocol_basis;
-                existing.allows_block_count_growth |= declaration.allows_block_count_growth;
-                existing.allows_reorder |= declaration.allows_reorder;
+                match (preceding, following) {
+                    (Some(left), Some(right)) if left < right => {
+                        left < *received_index && *received_index < right
+                    }
+                    (Some(left), None) => {
+                        *received_index > left
+                            || (unmatched_gap_count == 1
+                                && changed_indices.len() == index - start)
+                    }
+                    (None, Some(right)) => {
+                        *received_index < right
+                            || (unmatched_gap_count == 1
+                                && changed_indices.len() == index - start)
+                    }
+                    (None, None) => true,
+                    (Some(left), Some(right)) if left > right => {
+                        unmatched_gap_count == 1
+                            && changed_indices.len() <= index - start
+                    }
+                    _ => false,
+                }
             })
-            .or_insert(declaration);
-    }
-    declarations
-}
+            .collect::<Vec<_>>();
+        consumed_changed_indices.extend(changed_in_gap.iter().copied());
+        let growth = (index - start).saturating_sub(changed_in_gap.len());
+        if growth == 0 {
+            continue;
+        }
+        saw_growth = true;
 
-fn changed_block_entry_fragments(section: &str) -> Vec<String> {
-    let mut fragments = Vec::new();
-    let mut depth = 0usize;
-    let mut start = None;
-    for (index, character) in section.char_indices() {
-        if character == '{' {
-            if depth == 0 {
-                start = Some(index);
+        // A pure insertion can belong to either adjacent received block. A
+        // split/addition of an edited block can also own growth in its gap.
+        // Require one local source: a distant declaration must never lend its
+        // allowance to an unrelated insertion.
+        let mut sources = BTreeSet::new();
+        for changed_index in &changed_in_gap {
+            let id = &before_blocks[*changed_index].id;
+            if declarations.get(id).is_some_and(|declaration| {
+                declaration.has_protocol_basis
+                    && (declaration.allows_split || declaration.allows_addition)
+            }) {
+                sources.insert(*changed_index);
             }
-            depth += 1;
-        } else if character == '}' && depth > 0 {
-            depth -= 1;
-            if depth == 0 {
-                if let Some(start_index) = start.take() {
-                    fragments.push(section[start_index..=index].to_string());
+        }
+        if changed_in_gap.is_empty() {
+            for neighbor in [preceding, following].into_iter().flatten() {
+                let id = &before_blocks[neighbor].id;
+                if declarations.get(id).is_some_and(|declaration| {
+                    declaration.has_protocol_basis && declaration.allows_addition
+                }) {
+                    sources.insert(neighbor);
                 }
             }
         }
+        if sources.len() != 1 {
+            let adjacent = [preceding, following]
+                .into_iter()
+                .flatten()
+                .map(|neighbor| before_blocks[neighbor].id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!(
+                "approved-content lock violation: added blocks require one unambiguous local split/addition source beside received anchors {adjacent}"
+            ));
+        }
+        let source_index = *sources.iter().next().expect("one local growth source");
+        let source_id = before_blocks[source_index].id.as_str();
+        let allowance = remaining_growth.get_mut(source_id).expect("declared growth source");
+        if growth > *allowance {
+            return Err(format!(
+                "approved-content lock violation: added blocks exceed new_block_count for insertion anchor {source_id}"
+            ));
+        }
+        *allowance -= growth;
     }
-
-    if fragments.is_empty() {
-        fragments.extend(
-            section
-                .lines()
-                .filter(|line| line.to_ascii_lowercase().contains("block_id"))
-                .map(|line| line.to_string()),
+    if saw_growth
+        && changed_indices
+            .iter()
+            .any(|index| !consumed_changed_indices.contains(index))
+    {
+        return Err(
+            "approved-content lock violation: growth has changed received blocks with ambiguous insertion attribution"
+                .to_string(),
         );
     }
-    fragments
+    Ok(())
 }
 
-fn extract_block_id_field(fragment: &str) -> Option<String> {
-    Regex::new(r#"(?is)["']?block_id["']?\s*[:=]\s*["']?(B\d{4})\b"#)
-        .expect("valid block_id field regex")
-        .captures(fragment)
-        .and_then(|captures| captures.get(1))
-        .map(|matched| matched.as_str().to_string())
-}
-
-fn fragment_has_nonempty_protocol_basis(fragment: &str) -> bool {
-    let Some(matched) = Regex::new(r#"(?is)["']?protocol_basis["']?\s*[:=]\s*"#)
-        .expect("valid protocol_basis key regex")
-        .find(fragment)
-    else {
-        return false;
-    };
-    protocol_basis_value_is_nonempty(&fragment[matched.end()..])
-}
-
-fn protocol_basis_value_is_nonempty(value: &str) -> bool {
-    let value = value.trim_start();
-    if value.is_empty() {
-        return false;
-    }
-    if let Some(rest) = value.strip_prefix('"') {
-        return quoted_value_is_nonempty(rest, '"');
-    }
-    if let Some(rest) = value.strip_prefix('\'') {
-        return quoted_value_is_nonempty(rest, '\'');
-    }
-    if let Some(rest) = value.strip_prefix('[') {
-        return bracketed_value_is_nonempty(rest, '[', ']');
-    }
-    if let Some(rest) = value.strip_prefix('{') {
-        return bracketed_value_is_nonempty(rest, '{', '}');
-    }
-    let token = value
-        .split(|character: char| character.is_whitespace() || matches!(character, ',' | '}' | ']'))
-        .next()
-        .unwrap_or("")
-        .trim();
-    !token.is_empty() && !token.eq_ignore_ascii_case("null") && token != "[]" && token != "{}"
-}
-
-fn quoted_value_is_nonempty(rest: &str, quote: char) -> bool {
-    let mut escaped = false;
-    let mut value = String::new();
-    for character in rest.chars() {
-        if escaped {
-            value.push(character);
-            escaped = false;
-            continue;
+fn parse_changed_block_declarations(
+    entries: Vec<ChangedBlockEntry>,
+    before_blocks: &[EditorialContentBlock],
+) -> Result<BTreeMap<String, ChangedBlockDeclaration>, String> {
+    let mut declarations = BTreeMap::new();
+    for entry in entries {
+        let digits = entry.block_id.strip_prefix('B').unwrap_or("");
+        if digits.len() < 4 || !digits.bytes().all(|digit| digit.is_ascii_digit()) {
+            return Err(format!(
+                "approved-content lock violation: invalid changed_blocks block_id {}",
+                entry.block_id
+            ));
         }
-        if character == '\\' {
-            escaped = true;
-            continue;
+        if !before_blocks.iter().any(|block| block.id == entry.block_id) {
+            return Err(format!(
+                "approved-content lock violation: changed_blocks block_id {} is absent from the received manifest",
+                entry.block_id
+            ));
         }
-        if character == quote {
-            return !value.trim().is_empty();
+        if declarations.contains_key(&entry.block_id) {
+            return Err(format!(
+                "approved-content lock violation: duplicate changed_blocks declaration for {}",
+                entry.block_id
+            ));
         }
-        value.push(character);
-    }
-    false
-}
 
-fn bracketed_value_is_nonempty(rest: &str, open: char, close: char) -> bool {
-    let mut depth = 1usize;
-    let mut body = String::new();
-    let mut in_quote: Option<char> = None;
-    let mut escaped = false;
-    for character in rest.chars() {
-        if let Some(quote) = in_quote {
-            body.push(character);
-            if escaped {
-                escaped = false;
-            } else if character == '\\' {
-                escaped = true;
-            } else if character == quote {
-                in_quote = None;
+        let has_protocol_basis = entry
+            .protocol_basis
+            .as_ref()
+            .is_some_and(has_substantive_protocol_basis);
+        let change_types = match entry.change_type {
+            Some(ChangeType::Single(value)) => vec![value],
+            Some(ChangeType::Multiple(values)) if !values.is_empty() => values,
+            Some(ChangeType::Multiple(_)) => {
+                return Err(format!(
+                    "approved-content lock violation: empty change_type for {}",
+                    entry.block_id
+                ));
             }
-            continue;
-        }
-        if character == '"' || character == '\'' {
-            in_quote = Some(character);
-            body.push(character);
-            continue;
-        }
-        if character == open {
-            depth += 1;
-            body.push(character);
-            continue;
-        }
-        if character == close {
-            depth = depth.saturating_sub(1);
-            if depth == 0 {
-                return !body.trim().is_empty();
+            None => Vec::new(),
+        };
+        let mut unique_change_types = BTreeSet::new();
+        for change_type in change_types {
+            if !unique_change_types.insert(change_type) {
+                return Err(format!(
+                    "approved-content lock violation: duplicate change_type for {}",
+                    entry.block_id
+                ));
             }
-            body.push(character);
-            continue;
         }
-        body.push(character);
+        let allows_addition = unique_change_types.contains("addition");
+        let allows_split = unique_change_types.contains("split");
+        let allows_reorder = unique_change_types.contains("reorder");
+        let allowed_block_count_growth = if allows_addition || allows_split {
+            match entry.new_block_count {
+                Some(count) if count > 0 => usize::try_from(count).map_err(|_| {
+                    format!(
+                        "approved-content lock violation: invalid new_block_count for {}",
+                        entry.block_id
+                    )
+                })?,
+                Some(_) => {
+                    return Err(format!(
+                        "approved-content lock violation: new_block_count must be positive for {}",
+                        entry.block_id
+                    ));
+                }
+                None => 1,
+            }
+        } else {
+            if entry.new_block_count.is_some() {
+                return Err(format!(
+                    "approved-content lock violation: new_block_count requires split or addition for {}",
+                    entry.block_id
+                ));
+            }
+            0
+        };
+        declarations.insert(
+            entry.block_id,
+            ChangedBlockDeclaration {
+                has_protocol_basis,
+                allowed_block_count_growth,
+                allows_addition,
+                allows_split,
+                allows_reorder,
+            },
+        );
     }
-    false
+    Ok(declarations)
 }
 
-fn fragment_declares_block_count_growth(fragment: &str) -> bool {
-    let lower = fragment.to_ascii_lowercase();
-    lower.contains("change_type")
-        && (lower.contains("split")
-            || lower.contains("addition")
-            || lower.contains("added")
-            || lower.contains("new_block")
-            || lower.contains("new block"))
+fn has_substantive_protocol_basis(value: &Value) -> bool {
+    match value {
+        Value::String(text) => !text.trim().is_empty(),
+        Value::Array(values) => values.iter().any(has_substantive_protocol_basis),
+        Value::Object(values) => values.values().any(has_substantive_protocol_basis),
+        _ => false,
+    }
 }
-
-fn fragment_declares_reorder(fragment: &str) -> bool {
-    let lower = fragment.to_ascii_lowercase();
-    lower.contains("change_type")
-        && (lower.contains("reorder")
-            || lower.contains("reordered")
-            || lower.contains("move")
-            || lower.contains("moved"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -761,6 +999,30 @@ mod tests {
     }
 
     #[test]
+    fn addition_declared_on_unrelated_block_cannot_authorize_insertion() {
+        let before = "Primeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "Primeiro.\n\nNovo.\n\nSegundo.\n\nTerceiro.";
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0003","change_type":"addition","protocol_basis":"required context"}
+        ],"custody":"revised"}"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+        assert!(error.contains("B0001") || error.contains("B0002"), "{error}");
+    }
+
+    #[test]
+    fn split_declared_on_unrelated_block_cannot_authorize_insertion() {
+        let before = "Primeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "Primeiro.\n\nNovo.\n\nSegundo.\n\nTerceiro.";
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0003","change_type":"split","protocol_basis":"required context"}
+        ],"custody":"revised"}"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+        assert!(error.contains("B0001") && error.contains("B0002"), "{error}");
+    }
+
+    #[test]
     fn silent_reorder_of_received_blocks_is_rejected() {
         let before = "# Titulo\n\nPrimeiro bloco aprovado.\n\nSegundo bloco aprovado.";
         let after = "# Titulo\n\nSegundo bloco aprovado.\n\nPrimeiro bloco aprovado.";
@@ -832,6 +1094,18 @@ mod tests {
           ],
           "custody": "revised"
         }"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
+    fn one_block_can_declare_addition_and_reorder_together() {
+        let before = "Primeiro.\n\nSegundo.";
+        let after = "Novo.\n\nSegundo.\n\nPrimeiro.";
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"reorder","protocol_basis":"structure"},
+            {"block_id":"B0002","change_type":["addition","reorder"],"protocol_basis":"structure and context"}
+        ],"custody":"revised"}"#;
 
         validate_revision_content_lock(before, after, report).unwrap();
     }
@@ -938,6 +1212,361 @@ mod tests {
           "custody": "revised"
         }"#;
 
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
+    fn prose_words_cannot_authorize_reorder() {
+        let before = "Primeiro.\n\nSegundo.";
+        let after = "Segundo.\n\nPrimeiro.";
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"edit","reason":"removed punctuation","protocol_basis":"structure"},
+            {"block_id":"B0002","change_type":"edit","reason":"nothing moved","protocol_basis":"structure"}
+        ]}"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+        assert!(error.contains("reorder"), "{error}");
+    }
+
+    #[test]
+    fn protocol_basis_in_reason_does_not_authorize_an_edit() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","reason":"protocol_basis: not supplied"}
+        ]}"#;
+
+        let error = validate_revision_content_lock("Original.", "Revisado.", report).unwrap_err();
+        assert!(error.contains("protocol_basis"), "{error}");
+    }
+
+    #[test]
+    fn one_declared_addition_cannot_authorize_two_new_blocks() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"addition","protocol_basis":"required context"}
+        ]}"#;
+
+        let error = validate_revision_content_lock(
+            "Original.",
+            "Original.\n\nNovo um.\n\nNovo dois.",
+            report,
+        )
+        .unwrap_err();
+        assert!(error.contains("added new blocks"), "{error}");
+    }
+
+    #[test]
+    fn negated_addition_in_reason_cannot_grant_growth() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"edit","reason":"no addition was made","protocol_basis":"style"}
+        ]}"#;
+
+        let error =
+            validate_revision_content_lock("Original.", "Original.\n\nNovo.", report)
+                .unwrap_err();
+        assert!(error.contains("added new blocks"), "{error}");
+    }
+
+    #[test]
+    fn explicit_positive_count_can_authorize_two_new_blocks() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"addition","new_block_count":2,"protocol_basis":"required context"}
+        ]}"#;
+
+        validate_revision_content_lock(
+            "Original.",
+            "Original.\n\nNovo um.\n\nNovo dois.",
+            report,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn duplicate_received_text_with_an_edit_is_ambiguous() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0002","protocol_basis":"correction"}
+        ]}"#;
+
+        let error =
+            validate_revision_content_lock("Alpha\n\nAlpha", "Novo\n\nAlpha", report)
+                .unwrap_err();
+        assert!(error.contains("ambiguous"), "{error}");
+    }
+
+    #[test]
+    fn report_requires_one_strict_json_object_even_without_changes() {
+        for report in [
+            "Resumo das mudanças: {\"changed_blocks\":[]}",
+            "changed_blocks:\n  - block_id: B0001",
+            "{\"changed_blocks\":[]} trailing",
+            "[[]]",
+        ] {
+            let error = validate_revision_content_lock("Original.", "Original.", report)
+                .unwrap_err();
+            assert!(error.contains("strict JSON object"), "{error}");
+        }
+    }
+
+    #[test]
+    fn received_block_b10000_can_be_declared() {
+        let before = (1..=10_000)
+            .map(|index| format!("Bloco {index}."))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let after = format!(
+            "{}\n\nBloco 10000 revisado.",
+            before.rsplit_once("\n\n").unwrap().0
+        );
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B10000","protocol_basis":"editorial correction"}
+        ]}"#;
+
+        validate_revision_content_lock(&before, &after, report).unwrap();
+    }
+
+    #[test]
+    fn braces_and_escaped_quotes_inside_reason_do_not_break_json_fields() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","reason":"literal { and \"quoted } text\"","protocol_basis":"correction"}
+        ]}"#;
+
+        validate_revision_content_lock("Original.", "Revisado.", report).unwrap();
+    }
+
+    #[test]
+    fn duplicate_block_declarations_and_duplicate_json_fields_fail_closed() {
+        let duplicate_entries = r#"{"changed_blocks":[
+            {"block_id":"B0001","protocol_basis":"correction"},
+            {"block_id":"B0001","change_type":"addition","protocol_basis":"correction"}
+        ]}"#;
+        let duplicate_field = r#"{"changed_blocks":[
+            {"block_id":"B0001","block_id":"B0002","protocol_basis":"correction"}
+        ]}"#;
+
+        let error =
+            validate_revision_content_lock("Original.", "Revisado.", duplicate_entries)
+                .unwrap_err();
+        assert!(error.contains("duplicate changed_blocks"), "{error}");
+        let error = validate_revision_content_lock("Original.", "Revisado.", duplicate_field)
+            .unwrap_err();
+        assert!(error.contains("strict JSON object"), "{error}");
+    }
+
+    #[test]
+    fn duplicate_field_inside_non_authorization_metadata_fails_closed() {
+        let report = r#"{"changed_blocks":[],"metadata":{"note":"first","note":"second"}}"#;
+
+        let error = validate_revision_content_lock("Original.", "Original.", report).unwrap_err();
+        assert!(error.contains("duplicate field `note`"), "{error}");
+    }
+
+    #[test]
+    fn moved_edit_cannot_be_disguised_as_addition_on_distant_anchor() {
+        let before = "# Titulo\n\nPrimeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "# Titulo\n\nPrimeiro.\n\nTerceiro.\n\nNovo.\n\nSegundo editado.";
+        let report = r#"{"custody":"revised","changed_blocks":[
+            {"block_id":"B0003","protocol_basis":"editorial correction"},
+            {"block_id":"B0004","change_type":"addition","new_block_count":2,"protocol_basis":"required context"}
+        ]}"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+        assert!(error.contains("ambiguous insertion attribution"), "{error}");
+    }
+
+    #[test]
+    fn split_can_grow_between_reordered_received_neighbors() {
+        let before = "Primeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "Terceiro.\n\nPrimeiro revisado.\n\nComplemento do primeiro.\n\nSegundo.";
+        let report = r#"{"custody":"revised","changed_blocks":[
+            {"block_id":"B0001","change_type":"split","new_block_count":1,"protocol_basis":"required split"},
+            {"block_id":"B0002","change_type":"reorder","protocol_basis":"required order"},
+            {"block_id":"B0003","change_type":"reorder","protocol_basis":"required order"}
+        ]}"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
+    fn unique_edit_can_stay_between_reordered_received_neighbors() {
+        let before = "Primeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "Terceiro.\n\nPrimeiro revisado.\n\nSegundo.";
+        let report = r#"{"custody":"revised","changed_blocks":[
+            {"block_id":"B0001","protocol_basis":"editorial correction"},
+            {"block_id":"B0002","change_type":"reorder","protocol_basis":"required order"},
+            {"block_id":"B0003","change_type":"reorder","protocol_basis":"required order"}
+        ]}"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
+    fn addition_beside_edited_block_requires_the_edited_source() {
+        let before = "Primeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "Primeiro.\n\nNovo.\n\nSegundo revisado.\n\nTerceiro.";
+        let report = r#"{"custody":"revised","changed_blocks":[
+            {"block_id":"B0001","change_type":"addition","new_block_count":1,"protocol_basis":"required context"},
+            {"block_id":"B0002","protocol_basis":"editorial correction"}
+        ]}"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+        assert!(error.contains("unambiguous local"), "{error}");
+    }
+
+    #[test]
+    fn preceding_anchor_cannot_claim_growth_after_an_edited_block() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"addition","protocol_basis":"context"},
+            {"block_id":"B0002","protocol_basis":"correction"}
+        ]}"#;
+        let error = validate_revision_content_lock(
+            "Primeiro.\n\nSegundo.\n\nTerceiro.",
+            "Primeiro.\n\nSegundo editado.\n\nNovo.\n\nTerceiro.",
+            report,
+        )
+        .unwrap_err();
+        assert!(error.contains("unambiguous local"), "{error}");
+    }
+
+    #[test]
+    fn addition_after_edited_block_uses_that_received_anchor() {
+        let before = "Primeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "Primeiro.\n\nSegundo revisado.\n\nNovo.\n\nTerceiro.";
+        let report = r#"{"custody":"revised","changed_blocks":[
+            {"block_id":"B0002","change_type":"addition","new_block_count":1,"protocol_basis":"required context"}
+        ]}"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
+    fn stable_separator_identifies_edited_duplicate_received_block() {
+        let before = "Início.\n\nRepetido.\n\nMeio.\n\nRepetido.\n\nFim.";
+        let after = "Início.\n\nRepetido.\n\nMeio.\n\nRevisado.\n\nFim.";
+        let report = r#"{"custody":"revised","changed_blocks":[
+            {"block_id":"B0004","protocol_basis":"editorial correction"}
+        ]}"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
+    fn structured_protocol_basis_needs_a_substantive_leaf() {
+        for basis in ["[null]", "[null, {\"note\": \"  \"}]", "{\"note\": false}"] {
+            let report = format!(
+                "{{\"changed_blocks\":[{{\"block_id\":\"B0001\",\"protocol_basis\":{basis}}}]}}"
+            );
+            let error = validate_revision_content_lock("Original.", "Revisado.", &report)
+                .unwrap_err();
+            assert!(error.contains("protocol_basis"), "{error}");
+        }
+    }
+
+    #[test]
+    fn two_adjacent_addition_sources_are_ambiguous() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"addition","protocol_basis":"context"},
+            {"block_id":"B0002","change_type":"addition","protocol_basis":"context"}
+        ]}"#;
+        let error = validate_revision_content_lock("Primeiro.\n\nSegundo.", "Primeiro.\n\nNovo.\n\nSegundo.", report)
+            .unwrap_err();
+        assert!(error.contains("unambiguous local"), "{error}");
+    }
+
+    #[test]
+    fn growth_limit_is_local_even_when_total_allowance_is_sufficient() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"addition","protocol_basis":"context"},
+            {"block_id":"B0003","change_type":"addition","protocol_basis":"context"}
+        ]}"#;
+        let error = validate_revision_content_lock(
+            "Primeiro.\n\nSegundo.\n\nTerceiro.",
+            "Primeiro.\n\nNovo um.\n\nNovo dois.\n\nSegundo.\n\nTerceiro.",
+            report,
+        )
+        .unwrap_err();
+        assert!(error.contains("new_block_count for insertion anchor B0001"), "{error}");
+    }
+
+    #[test]
+    fn separated_duplicate_deletion_keeps_the_received_id() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0002","protocol_basis":"remove unsupported passage"},
+            {"block_id":"B0003","protocol_basis":"remove repeated passage"}
+        ]}"#;
+        validate_revision_content_lock(
+            "Alpha\n\nBravo\n\nAlpha\n\nCharlie",
+            "Alpha\n\nCharlie",
+            report,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn two_declared_edits_between_reordered_neighbors_are_not_growth() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"reorder","protocol_basis":"required order"},
+            {"block_id":"B0002","protocol_basis":"correction"},
+            {"block_id":"B0003","protocol_basis":"correction"},
+            {"block_id":"B0004","change_type":"reorder","protocol_basis":"required order"}
+        ]}"#;
+        validate_revision_content_lock(
+            "A\n\nB\n\nC\n\nD",
+            "D\n\nB2\n\nC2\n\nA",
+            report,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn sole_declared_edit_can_move_before_unchanged_prefix() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0002","protocol_basis":"correction"}
+        ]}"#;
+        validate_revision_content_lock("A\n\nB\n\nC", "B2\n\nA\n\nC", report).unwrap();
+    }
+
+    #[test]
+    fn trailing_addition_does_not_reassign_an_earlier_duplicate_edit() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","protocol_basis":"correction"},
+            {"block_id":"B0004","change_type":"addition","protocol_basis":"new closing context"}
+        ]}"#;
+        validate_revision_content_lock(
+            "A\n\nX\n\nA\n\nY",
+            "N\n\nX\n\nA\n\nY\n\nZ",
+            report,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn every_duplicate_can_be_removed_when_each_is_declared() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","protocol_basis":"remove unsupported text"},
+            {"block_id":"B0002","protocol_basis":"remove unsupported text"}
+        ]}"#;
+        validate_revision_content_lock("A\n\nA", "", report).unwrap();
+    }
+
+    #[test]
+    fn nonexistent_received_block_cannot_grant_growth() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B9999","change_type":"addition","protocol_basis":"required context"}
+        ]}"#;
+
+        let error =
+            validate_revision_content_lock("Original.", "Original.\n\nNovo.", report)
+                .unwrap_err();
+        assert!(error.contains("received manifest"), "{error}");
+    }
+
+    #[test]
+    fn whitespace_only_separator_line_creates_distinct_blocks() {
+        let before = "Primeiro.\n   \nSegundo.";
+        let after = "Primeiro.\n   \nSegundo revisado.";
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0002","protocol_basis":"correction"}
+        ]}"#;
+
+        assert_eq!(segment_editorial_blocks(before).len(), 2);
         validate_revision_content_lock(before, after, report).unwrap();
     }
 
