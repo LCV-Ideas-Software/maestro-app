@@ -409,13 +409,14 @@ fn write_provider_failure_result_accounted(
     let _ = write_text_file(
         invocation.output_path,
         &format!(
-            "# {} - {}\n\n- CLI: `{}`\n- Provider: `{}`\n- Model: `{}`\n- Status: `{}`\n- Exit code: `unknown`\n- Duration ms: `{duration_ms}`\n{}{}{}{}\n## Stdout\n\n```text\n\n```\n\n## Stderr\n\n```text\n{}\n```\n",
+            "# {} - {}\n\n- CLI: `{}`\n- Provider: `{}`\n- Model: `{}`\n- Status: `{}`\n- Tone: `{}`\n- Exit code: `unknown`\n- Duration ms: `{duration_ms}`\n{}{}{}{}\n## Stdout\n\n```text\n\n```\n\n## Stderr\n\n```text\n{}\n```\n",
             invocation.name,
             invocation.role,
             invocation.cli,
             invocation.provider,
             sanitize_text(model, 120),
             safe_status,
+            tone,
             usage_lines,
             projected_line,
             billed_line,
@@ -496,7 +497,7 @@ pub(crate) fn write_provider_success_result(
         None => "Cost USD",
     };
     let artifact = format!(
-        "# {name} - {role}\n\n- CLI: `{cli}`\n- Provider: `{provider}`\n- Model: `{}`\n- Model reported: `{}`\n- Key source: `{}`\n- Status: `{status}`\n- Exit code: `0`\n- Duration ms: `{duration_ms}`\n- Prompt chars: `{prompt_chars}`\n- Stdout chars: `{}`\n- Usage input tokens: `{}`\n- Usage output tokens: `{}`\n{}- {cost_label}: `{}`\n- Stderr chars: `0`\n\n## Stdout\n\n```text\n{}\n```\n\n## Stderr\n\n```text\n\n```\n",
+        "# {name} - {role}\n\n- CLI: `{cli}`\n- Provider: `{provider}`\n- Model: `{}`\n- Model reported: `{}`\n- Key source: `{}`\n- Status: `{status}`\n- Tone: `{tone}`\n- Exit code: `0`\n- Duration ms: `{duration_ms}`\n- Prompt chars: `{prompt_chars}`\n- Stdout chars: `{}`\n- Usage input tokens: `{}`\n- Usage output tokens: `{}`\n{}- {cost_label}: `{}`\n- Stderr chars: `0`\n\n## Stdout\n\n```text\n{}\n```\n\n## Stderr\n\n```text\n\n```\n",
         sanitize_text(model, 120),
         sanitize_text(model_reported, 120),
         sanitize_text(key_source, 120),

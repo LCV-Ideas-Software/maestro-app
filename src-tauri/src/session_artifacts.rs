@@ -551,11 +551,12 @@ pub(crate) fn parse_agent_artifact_result(
         (legacy_cost, legacy_cost.map(|_| true))
     };
     let cache = parse_cache_telemetry_from_artifact(&text);
-    let tone = if status == "READY" || status == "DRAFT_CREATED" {
+    let inferred_tone = if status == "READY" || status == "DRAFT_CREATED" {
         "ok"
     } else if status == "CLI_NOT_FOUND"
         || status == "API_KEY_NOT_AVAILABLE"
         || status == "REMOTE_SECRET_NOT_READABLE"
+        || status == "PERPLEXITY_AGENT_MODEL_REQUIRED"
     {
         "blocked"
     } else if status.starts_with("EXEC_ERROR")
@@ -575,6 +576,13 @@ pub(crate) fn parse_agent_artifact_result(
         "error"
     } else {
         "warn"
+    };
+    let tone = match extract_bullet_code_value(&text, "Tone").as_deref() {
+        Some("ok") => "ok",
+        Some("warn") => "warn",
+        Some("error") => "error",
+        Some("blocked") => "blocked",
+        _ => inferred_tone,
     };
 
     Some(EditorialAgentResult {
@@ -653,6 +661,16 @@ mod tests {
         let artifact = parse_agent_artifact_name(&agent_dir, name).unwrap();
         let resumed = parse_agent_artifact_result(&artifact).unwrap();
         assert_eq!(resumed.tone, "blocked");
+
+        let explicit_name = "round-001-perplexity-review-attempt-002.md";
+        write_text_file(
+            &agent_dir.join(explicit_name),
+            "# Perplexity - review\n\n- CLI: `perplexity-api`\n- Status: `FUTURE_PROVIDER_CONFIGURATION_ERROR`\n- Tone: `blocked`\n",
+        )
+        .unwrap();
+        let explicit_artifact = parse_agent_artifact_name(&agent_dir, explicit_name).unwrap();
+        let explicit_result = parse_agent_artifact_result(&explicit_artifact).unwrap();
+        assert_eq!(explicit_result.tone, "blocked");
 
         std::fs::remove_dir_all(&session_dir).unwrap();
     }
