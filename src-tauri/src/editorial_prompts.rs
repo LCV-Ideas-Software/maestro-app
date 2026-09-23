@@ -484,11 +484,11 @@ If you are unsure, preserve the passage and report the concern instead of rewrit
 The answer MUST contain exactly these parts:
 
 1. First line: `MAESTRO_STATUS: READY` or `MAESTRO_STATUS: NOT_READY`.
-2. `<maestro_revision_report>` containing en_US JSON-like audit data:
+2. `<maestro_revision_report>` containing exactly one valid en_US JSON object (no prose, Markdown fence, YAML, duplicate fields, or trailing text):
    - `reviewer`
    - `current_author`
    - `status`
-   - `changed_blocks`: list every changed received block using `block_id`, `change_type`, `reason`, `protocol_basis`, and `required: true|false`. Use `change_type: "split"` or `"addition"` whenever the revised article creates extra blocks, and `change_type: "reorder"` whenever approved blocks move.
+   - `changed_blocks`: list every changed received block using `block_id`, `change_type`, `reason`, `protocol_basis`, and `required: true|false`. Each entry names one received block exactly once. For a pure addition in a region with no edit, name either immediately adjacent existing received block; never invent a new `block_id`. For growth in a region with an edited received block, declare `"split"` or `"addition"` on that block; an unchanged neighbor cannot establish which revised text came from the edit. Exactly one local source must authorize each insertion. Each entry permits one extra block unless `new_block_count` explicitly gives a larger positive integer of EXTRA blocks. Use `"reorder"` whenever approved blocks move. When one block requires multiple operations, use a JSON array of distinct exact tokens, for example `"change_type": ["addition", "reorder"]`.
    - `unchanged_approved_blocks`: list approved block IDs that you intentionally preserved.
    - `changes`: list of changed passages, received line/passage reference, reason, protocol citation, and whether the change was required.
    - `operator_evidence_required`: list of blockers that cannot be corrected from supplied materials and require external evidence or operator decision.
@@ -500,13 +500,13 @@ The answer MUST contain exactly these parts:
 5. `MAESTRO_STATUS: NOT_READY` with `custody: "unchanged"` is a contract violation: either fix the blocker and transfer revised custody, or approve the current version as READY unchanged.
 
 Anything outside those tags may be discarded by the app.
-An incomplete tag, missing closing tag, reproduced protocol text, or truncated JSON/report is a contract violation and will not count as READY.
+An incomplete tag, missing closing tag, reproduced protocol text, or malformed/truncated JSON report is a contract violation and will not count as READY.
 
 {provider_contract_guard}
 
 ## Current Text Block Manifest
 
-Every received block is locked by default. If `<maestro_final_text>` changes, deletes, compresses, splits, moves, or replaces a received block, the corresponding received `block_id` MUST appear in `changed_blocks` with a concrete `protocol_basis`. Silent changes to approved blocks are contract violations. Extra blocks require `change_type: "split"` or `"addition"`; moved approved blocks require `change_type: "reorder"`.
+Every received block is locked by default. If `<maestro_final_text>` changes, deletes, compresses, splits, moves, or replaces a received block, the corresponding received `block_id` MUST appear in `changed_blocks` with a concrete `protocol_basis`. Silent changes to approved blocks are contract violations. Extra blocks require `change_type: "split"` or `"addition"` at their received block anchor; moved approved blocks require `"reorder"`. A block needing both permissions must declare both in one `change_type` array.
 
 {}
 
@@ -745,6 +745,8 @@ mod tests {
         assert!(prompt.contains("changed_blocks"));
         assert!(prompt.contains("block_id"));
         assert!(prompt.contains("protocol_basis"));
+        assert!(prompt.contains("one valid en_US JSON object"));
+        assert!(prompt.contains("new_block_count"));
         assert!(prompt.contains("Gemini Output Reliability Guard"));
         assert!(prompt.contains("Verify all required closing tags"));
 

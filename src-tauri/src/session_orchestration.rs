@@ -38,7 +38,7 @@ use crate::abnt_citation::{
     empty_citation_manifest, maestro_peer_blocks_release, AbntAuditRequest, CitationManifest,
 };
 use crate::editorial_agent_runners::run_editorial_agent_for_spec;
-use crate::editorial_content_lock::validate_revision_content_lock;
+use crate::editorial_content_lock::{parse_revision_report, validate_revision_content_lock};
 use crate::editorial_helpers::{
     filter_existing_agents_to_active_set, resolve_effective_active_agents,
     FinalizeRunningArtifactsGuard,
@@ -2549,13 +2549,11 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
     if report.trim().is_empty() {
         return Err("empty maestro_revision_report block".to_string());
     }
+    let parsed_report = parse_revision_report(&report)?;
     let final_text = extract_tagged_block(stdout, "maestro_final_text");
-    let has_revised_custody = report_declares_custody_value(&report, "revised");
-    let has_unchanged_custody = report_declares_custody_value(&report, "unchanged");
-    let operator_evidence_required = report_declares_nonempty_operator_evidence_required(&report);
-    if has_revised_custody && has_unchanged_custody {
-        return Err("ambiguous custody declaration in maestro_revision_report".to_string());
-    }
+    let has_revised_custody = parsed_report.custody.as_deref() == Some("revised");
+    let has_unchanged_custody = parsed_report.custody.as_deref() == Some("unchanged");
+    let operator_evidence_required = !parsed_report.operator_evidence_required.is_empty();
     if let Some(text) = final_text.as_ref() {
         if text.trim().is_empty() {
             return Err("empty maestro_final_text block".to_string());
@@ -2574,7 +2572,7 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
         )
         .to_string());
     }
-    if final_text.is_none() && has_unchanged_custody && report_declares_nonempty_changes(&report) {
+    if final_text.is_none() && has_unchanged_custody && !parsed_report.changes.is_empty() {
         return Err(
             "correctable changes require custody revised and a complete maestro_final_text block"
                 .to_string(),
@@ -3109,216 +3107,6 @@ fn require_balanced_optional_tag(stdout: &str, tag: &str) -> Result<(), String> 
     }
 }
 
-fn report_declares_custody_value(report: &str, value: &str) -> bool {
-    if let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(report) {
-        return matches!(
-            map.get("custody").and_then(serde_json::Value::as_str),
-            Some(actual) if actual.trim().eq_ignore_ascii_case(value)
-        );
-    }
-
-    report_declares_scalar_field_value(report, "custody", value)
-}
-
-fn report_declares_nonempty_changes(report: &str) -> bool {
-    report_declares_nonempty_array_field(report, "changes")
-}
-
-fn report_declares_nonempty_operator_evidence_required(report: &str) -> bool {
-    report_declares_nonempty_array_field(report, "operator_evidence_required")
-}
-
-fn report_declares_nonempty_array_field(report: &str, field: &str) -> bool {
-    if let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(report) {
-        return matches!(map.get(field), Some(serde_json::Value::Array(items)) if !items.is_empty());
-    }
-
-    let normalized_field = field.to_ascii_lowercase();
-    let mut offset = 0;
-    while offset < report.len() {
-        let Some((character, next_offset)) = char_at(report, offset) else {
-            break;
-        };
-        if character == '"' || character == '\'' || character == '`' {
-            let Some((quoted, after_quote)) = parse_quoted_token(report, offset, character) else {
-                offset = advance_past_unclosed_quote_line(report, next_offset);
-                continue;
-            };
-            if is_field_key_start(report, offset)
-                && quoted.eq_ignore_ascii_case(&normalized_field)
-                && array_field_has_content(&report[after_quote..])
-            {
-                return true;
-            }
-            offset = after_quote;
-            continue;
-        }
-        if report[offset..]
-            .to_ascii_lowercase()
-            .starts_with(&normalized_field)
-            && is_field_key_start(report, offset)
-            && is_bare_field_boundary(report, offset, field.len())
-            && array_field_has_content(&report[offset + field.len()..])
-        {
-            return true;
-        }
-        offset = next_offset;
-    }
-    false
-}
-
-fn report_declares_scalar_field_value(report: &str, field: &str, expected: &str) -> bool {
-    let normalized_field = field.to_ascii_lowercase();
-    let mut offset = 0;
-    while offset < report.len() {
-        let Some((character, next_offset)) = char_at(report, offset) else {
-            break;
-        };
-        if character == '"' || character == '\'' || character == '`' {
-            let Some((quoted, after_quote)) = parse_quoted_token(report, offset, character) else {
-                offset = advance_past_unclosed_quote_line(report, next_offset);
-                continue;
-            };
-            if is_field_key_start(report, offset)
-                && quoted.eq_ignore_ascii_case(&normalized_field)
-                && scalar_field_matches_value(&report[after_quote..], expected)
-            {
-                return true;
-            }
-            offset = after_quote;
-            continue;
-        }
-        if report[offset..]
-            .to_ascii_lowercase()
-            .starts_with(&normalized_field)
-            && is_field_key_start(report, offset)
-            && is_bare_field_boundary(report, offset, field.len())
-            && scalar_field_matches_value(&report[offset + field.len()..], expected)
-        {
-            return true;
-        }
-        offset = next_offset;
-    }
-    false
-}
-
-fn char_at(value: &str, offset: usize) -> Option<(char, usize)> {
-    value[offset..]
-        .chars()
-        .next()
-        .map(|character| (character, offset + character.len_utf8()))
-}
-
-fn advance_past_unclosed_quote_line(value: &str, offset: usize) -> usize {
-    value[offset..]
-        .find('\n')
-        .map_or(value.len(), |newline_offset| offset + newline_offset + 1)
-}
-
-fn is_field_key_start(value: &str, offset: usize) -> bool {
-    let before = &value[..offset];
-    if before.trim().is_empty() {
-        return true;
-    }
-    if let Some(last_newline) = before.rfind('\n') {
-        let line_prefix = &before[last_newline + 1..];
-        if line_prefix.trim().is_empty() {
-            return true;
-        }
-    }
-    if let Some(brace_offset) = before.rfind('{') {
-        return before[brace_offset + 1..].trim().is_empty()
-            && is_structure_start(value, brace_offset);
-    }
-    false
-}
-
-fn is_structure_start(value: &str, offset: usize) -> bool {
-    let before = &value[..offset];
-    if before.trim().is_empty() {
-        return true;
-    }
-    if let Some(last_newline) = before.rfind('\n') {
-        return before[last_newline + 1..].trim().is_empty();
-    }
-    false
-}
-
-fn parse_quoted_token(value: &str, start: usize, quote: char) -> Option<(String, usize)> {
-    let mut token = String::new();
-    let mut offset = start + quote.len_utf8();
-    let mut escaped = false;
-    while offset < value.len() {
-        let (character, next_offset) = char_at(value, offset)?;
-        if escaped {
-            token.push(character);
-            escaped = false;
-        } else if character == '\\' {
-            escaped = true;
-        } else if character == quote {
-            return Some((token, next_offset));
-        } else {
-            token.push(character);
-        }
-        offset = next_offset;
-    }
-    None
-}
-
-fn is_bare_field_boundary(value: &str, offset: usize, field_len: usize) -> bool {
-    let before_ok = offset == 0
-        || value[..offset]
-            .chars()
-            .next_back()
-            .is_none_or(|character| !is_field_name_character(character));
-    let after_offset = offset + field_len;
-    let after_ok = after_offset >= value.len()
-        || value[after_offset..]
-            .chars()
-            .next()
-            .is_none_or(|character| !is_field_name_character(character));
-    before_ok && after_ok
-}
-
-fn is_field_name_character(character: char) -> bool {
-    character.is_ascii_alphanumeric() || character == '_'
-}
-
-fn array_field_has_content(after_field: &str) -> bool {
-    let after_separator = after_field.trim_start();
-    let Some(after_colon) = after_separator.strip_prefix(':') else {
-        return false;
-    };
-    let after_colon = after_colon.trim_start();
-    let Some(after_open) = after_colon.strip_prefix('[') else {
-        return false;
-    };
-    !after_open.trim_start().starts_with(']')
-}
-
-fn scalar_field_matches_value(after_field: &str, expected: &str) -> bool {
-    let after_separator = after_field.trim_start();
-    let Some(after_colon) = after_separator.strip_prefix(':') else {
-        return false;
-    };
-    let after_colon = after_colon.trim_start();
-    if let Some((quote, _)) = char_at(after_colon, 0) {
-        if quote == '"' || quote == '\'' || quote == '`' {
-            return parse_quoted_token(after_colon, 0, quote)
-                .is_some_and(|(actual, _)| actual.trim().eq_ignore_ascii_case(expected));
-        }
-    }
-    let actual: String = after_colon
-        .chars()
-        .take_while(|character| is_scalar_value_character(*character))
-        .collect();
-    !actual.is_empty() && actual.eq_ignore_ascii_case(expected)
-}
-
-fn is_scalar_value_character(character: char) -> bool {
-    character.is_ascii_alphanumeric() || character == '_' || character == '-'
-}
-
 fn contains_prompt_or_protocol_echo(stdout: &str) -> bool {
     let normalized = stdout.to_ascii_lowercase();
     [
@@ -3524,9 +3312,8 @@ mod tests {
         is_substantive_editorial_change, not_ready_unchanged_release_audit_failure,
         paid_corrective_retry_admission,
         quality_guard_blocks_revision, ready_unchanged_release_audit_failure,
-        report_declares_custody_value, report_declares_nonempty_changes,
-        report_declares_nonempty_operator_evidence_required, restore_circular_resume_progress,
-        restore_persisted_circular_progress, select_serial_reviewer_index,
+        restore_circular_resume_progress, restore_persisted_circular_progress,
+        select_serial_reviewer_index,
         serial_turn_counts_as_valid_round_agent, serial_turn_retry_key,
         should_pause_legacy_paid_retry_resume,
         unrevised_serial_turn_audit_decision, unrevised_serial_turn_runtime_action,
@@ -4168,6 +3955,26 @@ Texto revisado.
     }
 
     #[test]
+    fn serial_contract_rejects_unchanged_legacy_yaml_report() {
+        let stdout = "MAESTRO_STATUS: READY\n<maestro_revision_report>\ncustody: unchanged\nchanges: []\n</maestro_revision_report>";
+
+        let error = validate_serial_turn_output(stdout, "READY").unwrap_err();
+        assert!(error.contains("JSON"), "{error}");
+    }
+
+    #[test]
+    fn serial_contract_rejects_duplicate_custody_fields_before_transfer() {
+        let stdout = r#"MAESTRO_STATUS: READY
+<maestro_revision_report>
+{"custody":"unchanged","custody":"revised","changes":[]}
+</maestro_revision_report>
+<maestro_final_text>Revisado.</maestro_final_text>"#;
+
+        let error = validate_serial_turn_output(stdout, "READY").unwrap_err();
+        assert!(error.contains("duplicate") || error.contains("duplicad"), "{error}");
+    }
+
+    #[test]
     fn serial_content_lock_rejects_undeclared_changed_received_block() {
         let stdout = r#"MAESTRO_STATUS: READY
 <maestro_revision_report>
@@ -4613,156 +4420,6 @@ Referencia removida.
         let error = validate_serial_turn_output(stdout, "NOT_READY").unwrap_err();
 
         assert!(error.contains("custody unchanged"));
-    }
-
-    #[test]
-    fn report_declares_custody_value_ignores_summary_prose_mentions() {
-        assert!(!report_declares_custody_value(
-            r#"{ "summary": "custody: unchanged", "status": "NOT_READY", "operator_evidence_required": [{ "issue": "missing source" }] }"#,
-            "unchanged",
-        ));
-        assert!(!report_declares_custody_value(
-            r#"summary: custody: unchanged
-operator_evidence_required: [{ "issue": "missing source" }]"#,
-            "unchanged",
-        ));
-        assert!(!report_declares_custody_value(
-            r#"summary: reviewer wrote, custody: unchanged
-operator_evidence_required: [{ "issue": "missing source" }]"#,
-            "unchanged",
-        ));
-        assert!(report_declares_custody_value(
-            r#"{ "custody": "unchanged" }"#,
-            "unchanged",
-        ));
-        assert!(report_declares_custody_value(
-            r#"custody: unchanged"#,
-            "unchanged",
-        ));
-        assert!(report_declares_custody_value(
-            r#"summary: legacy format
-custody: `revised`"#,
-            "revised",
-        ));
-    }
-
-    #[test]
-    fn report_declares_custody_value_rejects_comma_preceded_prose_with_braces() {
-        assert!(!report_declares_custody_value(
-            r#"summary: reviewer wrote, {quoted context}, custody: unchanged"#,
-            "unchanged",
-        ));
-        assert!(report_declares_custody_value(
-            r#"custody: unchanged"#,
-            "unchanged",
-        ));
-        assert!(report_declares_custody_value(
-            r#"{ "custody": "unchanged" }"#,
-            "unchanged",
-        ));
-    }
-
-    #[test]
-    fn report_declares_custody_value_rejects_inline_brace_prose_field() {
-        assert!(!report_declares_custody_value(
-            r#"summary: reviewer noted {custody: unchanged}"#,
-            "unchanged",
-        ));
-        assert!(report_declares_custody_value(
-            r#"{ custody: unchanged }"#,
-            "unchanged",
-        ));
-        assert!(report_declares_custody_value(
-            r#"summary: legacy format
-{ custody: unchanged }"#,
-            "unchanged",
-        ));
-    }
-
-    #[test]
-    fn report_field_scanner_survives_unclosed_quote_prose_before_fields() {
-        assert!(report_declares_custody_value(
-            r#"don't trust this prose
-custody: unchanged"#,
-            "unchanged",
-        ));
-        assert!(report_declares_custody_value(
-            r#""unterminated quote prose
-custody: unchanged"#,
-            "unchanged",
-        ));
-        assert!(report_declares_custody_value(
-            r#"`unterminated backtick prose
-custody: unchanged"#,
-            "unchanged",
-        ));
-        assert!(!report_declares_custody_value(
-            r#""summary: custody: unchanged"#,
-            "unchanged",
-        ));
-        assert!(report_declares_nonempty_changes(
-            r#"don't trust this prose
-changes: [{ "issue": "correctable" }]"#
-        ));
-        assert!(report_declares_nonempty_operator_evidence_required(
-            r#"`unterminated backtick prose
-operator_evidence_required: [{ "issue": "missing source" }]"#
-        ));
-    }
-
-    #[test]
-    fn report_declares_nonempty_changes_ignores_empty_changes_and_prose_mentions() {
-        assert!(!report_declares_nonempty_changes(
-            r#"{ "summary": "the word changes appears in prose only", "changes": [] }"#
-        ));
-        assert!(!report_declares_nonempty_changes(
-            r#"summary: changes [already described]
-changes: []"#
-        ));
-        assert!(!report_declares_nonempty_changes(
-            r#"summary: reviewer wrote, changes: [{ "issue": "not a field" }]
-changes: []"#
-        ));
-        assert!(!report_declares_nonempty_changes(
-            r#"summary: reviewer wrote {changes: [{ "issue": "not a field" }] }
-changes: []"#
-        ));
-        assert!(report_declares_nonempty_changes(
-            r#"summary: legacy format
-changes: [{ "issue": "correctable" }]"#
-        ));
-        assert!(report_declares_nonempty_changes(
-            r#"{ "changes": [{ "issue": "correctable" }] }"#
-        ));
-    }
-
-    #[test]
-    fn report_declares_nonempty_operator_evidence_required_ignores_empty_and_prose_mentions() {
-        assert!(!report_declares_nonempty_operator_evidence_required(
-            r#"{ "summary": "operator_evidence_required appears in prose only", "operator_evidence_required": [] }"#
-        ));
-        assert!(!report_declares_nonempty_operator_evidence_required(
-            r#"{ "summary": "operator_evidence_required [not needed]", "operator_evidence_required": [] }"#
-        ));
-        assert!(!report_declares_nonempty_operator_evidence_required(
-            r#"summary: operator_evidence_required [not needed]
-operator_evidence_required: []"#
-        ));
-        assert!(!report_declares_nonempty_operator_evidence_required(
-            r#"summary: reviewer wrote, operator_evidence_required: [{ "issue": "not a field" }]
-operator_evidence_required: []"#
-        ));
-        assert!(!report_declares_nonempty_operator_evidence_required(
-            r#"summary: reviewer wrote {operator_evidence_required: [{ "issue": "not a field" }] }
-operator_evidence_required: []"#
-        ));
-        assert!(report_declares_nonempty_operator_evidence_required(
-            r#"summary: legacy format
-operator_evidence_required: [{ "issue": "missing source" }]"#
-        ));
-        assert!(report_declares_nonempty_operator_evidence_required(
-            r#"{ "operator_evidence_required": [{ "issue": "missing source" }] }"#
-        ));
     }
 
     #[test]
