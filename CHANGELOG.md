@@ -26,6 +26,17 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Fixed
 
+- **MAESTRO-30 — approved-content lock.** Parse the isolated revision report as
+  strict JSON with typed `changed_blocks` entries instead of scanning
+  free-text substrings. Validate received block IDs and per-entry protocol
+  basis, require exact reorder/split/addition values, bound added blocks per
+  declaration, and reject duplicate or ambiguous declarations. Preserve
+  separate blocks across whitespace-only blank lines and accept `B10000`
+  when it exists in the received manifest. Keep the 19 original Rust fixtures
+  and add measured regressions for the nine reported failure classes. Bump the
+  synchronized source version to 0.5.65; Windows Rust gates remain pending
+  on the GitHub-hosted CI runner.
+
 - Retry the release attestation check instead of failing the publication on
   the first miss. `gh release verify-asset` runs seconds after
   `actions/attest-build-provenance` signs the artifact, but the GitHub API

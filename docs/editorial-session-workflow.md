@@ -65,6 +65,28 @@ If any peer remains `NOT_READY` or `NEEDS_EVIDENCE`, the session continues, paus
 - If the operator has imported a new protocol before resuming, that protocol is passed to the selected active agents; the previous `protocolo.md` is preserved as a local `protocolo-anterior-*.md` artifact before the new protocol becomes active.
 - If no new protocol is loaded, Maestro uses the `protocolo.md` saved inside the session folder.
 
+## Approved Content Lock
+
+The revision report body is extracted from its balanced
+`<maestro_revision_report>` tag before content-lock validation. Since
+`v0.5.65`, the body must be exactly one JSON object. Prose, Markdown fences,
+YAML, trailing text and duplicate authorization fields fail closed.
+`changed_blocks` is a JSON array; each entry names one existing ID from the
+received block manifest. A changed received block requires its own nonempty
+`protocol_basis`. Only exact `change_type: "reorder"` authorizes movement,
+and only `"split"` or `"addition"` permits growth. Each such entry permits
+one extra block by default, or a positive `new_block_count` of extra blocks
+when more are required. For a pure addition, the entry names the received
+block immediately before the insertion, or the first following received
+block if the insertion starts the article. Free-text `reason` never grants
+permission.
+
+Whitespace-only separator lines delimit blocks; received IDs start at
+`B0001` and continue through `B10000` and beyond. Ambiguous edits to
+identical received blocks and duplicate declarations are rejected. The
+provenance of revised blocks that cannot be matched to received text remains
+a separate repository decision.
+
 `v0.3.7` adds an explicit trace for the "apparently stopped" state:
 
 - Before each CLI child process is launched, Maestro writes the target Markdown artifact with `Status: RUNNING` and empty stdout/stderr blocks.

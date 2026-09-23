@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use regex::Regex;
+use serde::Deserialize;
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,14 +17,32 @@ pub(crate) struct EditorialContentBlock {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ChangedBlockDeclaration {
     has_protocol_basis: bool,
-    allows_block_count_growth: bool,
+    allowed_block_count_growth: usize,
     allows_reorder: bool,
 }
 
+#[derive(Deserialize)]
+struct RevisionReport {
+    #[serde(default)]
+    changed_blocks: Vec<ChangedBlockEntry>,
+}
+
+#[derive(Deserialize)]
+struct ChangedBlockEntry {
+    block_id: String,
+    #[serde(default)]
+    protocol_basis: Option<Value>,
+    #[serde(default)]
+    change_type: Option<String>,
+    #[serde(default)]
+    new_block_count: Option<u64>,
+}
+
 pub(crate) fn segment_editorial_blocks(text: &str) -> Vec<EditorialContentBlock> {
-    text.replace("\r\n", "\n")
-        .replace('\r', "\n")
-        .split("\n\n")
+    let normalized_newlines = text.replace("\r\n", "\n").replace('\r', "\n");
+    let blank_line = Regex::new(r"\n[\t ]*\n").expect("valid blank-line regex");
+    blank_line
+        .split(&normalized_newlines)
         .filter_map(|raw_block| {
             let trimmed = raw_block.trim();
             if trimmed.is_empty() {
@@ -72,12 +92,30 @@ pub(crate) fn validate_revision_content_lock(
     after: &str,
     report: &str,
 ) -> Result<(), String> {
+    // Serde can deserialize a struct from a positional JSON array. The report
+    // contract requires an object, so check the root before typed decoding.
+    let root: Value = serde_json::from_str(report).map_err(|error| {
+        format!(
+            "approved-content lock violation: maestro_revision_report must be one strict JSON object: {error}"
+        )
+    })?;
+    if !root.is_object() {
+        return Err(
+            "approved-content lock violation: maestro_revision_report must be one strict JSON object"
+                .to_string(),
+        );
+    }
+    let parsed: RevisionReport = serde_json::from_str(report).map_err(|error| {
+        format!(
+            "approved-content lock violation: maestro_revision_report must be one strict JSON object: {error}"
+        )
+    })?;
     let before_blocks = segment_editorial_blocks(before);
     let after_blocks = segment_editorial_blocks(after);
     let changed_ids = changed_received_block_ids(&before_blocks, &after_blocks);
     let reordered_ids = reordered_received_block_ids(&before_blocks, &after_blocks);
     let reordered = !reordered_ids.is_empty();
-    let Some(changed_section) = extract_changed_blocks_section(report) else {
+    if parsed.changed_blocks.is_empty() {
         if changed_ids.is_empty() && after_blocks.len() <= before_blocks.len() && !reordered {
             return Ok(());
         }
@@ -91,8 +129,43 @@ pub(crate) fn validate_revision_content_lock(
             "approved-content lock violation: revised custody changed received blocks {} but maestro_revision_report has no changed_blocks section with block IDs",
             changed_ids.join(", ")
         ));
-    };
-    let declarations = extract_changed_block_declarations(changed_section);
+    }
+    let declarations = parse_changed_block_declarations(parsed.changed_blocks, &before_blocks)?;
+
+    let mut before_hash_counts = BTreeMap::<&str, usize>::new();
+    let mut after_hash_counts = BTreeMap::<&str, usize>::new();
+    for block in &before_blocks {
+        *before_hash_counts
+            .entry(block.normalized_hash.as_str())
+            .or_insert(0) += 1;
+    }
+    for block in &after_blocks {
+        *after_hash_counts
+            .entry(block.normalized_hash.as_str())
+            .or_insert(0) += 1;
+    }
+    let before_hash_by_id = before_blocks
+        .iter()
+        .map(|block| (block.id.as_str(), block.normalized_hash.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    let ambiguous_duplicate_ids = changed_ids
+        .iter()
+        .filter(|id| {
+            let Some(hash) = before_hash_by_id.get(id.as_str()) else {
+                return false;
+            };
+            let original_count = before_hash_counts.get(*hash).copied().unwrap_or(0);
+            original_count > 1
+                && after_hash_counts.get(*hash).copied().unwrap_or(0) < original_count
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if !ambiguous_duplicate_ids.is_empty() {
+        return Err(format!(
+            "approved-content lock violation: changed duplicate received blocks {} have ambiguous attribution",
+            ambiguous_duplicate_ids.join(", ")
+        ));
+    }
 
     let undeclared = changed_ids
         .iter()
@@ -130,13 +203,17 @@ pub(crate) fn validate_revision_content_lock(
         ));
     }
 
-    if after_blocks.len() > before_blocks.len()
-        && !declarations
-            .values()
-            .any(|declaration| declaration.allows_block_count_growth)
-    {
+    let added_blocks = after_blocks.len().saturating_sub(before_blocks.len());
+    let allowed_growth = declarations.values().fold(0usize, |total, declaration| {
+        total.saturating_add(if declaration.has_protocol_basis {
+            declaration.allowed_block_count_growth
+        } else {
+            0
+        })
+    });
+    if added_blocks > allowed_growth {
         return Err(
-            "approved-content lock violation: revised custody added new blocks without declaring change_type split/addition in changed_blocks"
+            "approved-content lock violation: revised custody added new blocks beyond per-block change_type split/addition permissions in changed_blocks"
                 .to_string(),
         );
     }
@@ -221,14 +298,33 @@ fn changed_received_block_ids(
     before_blocks: &[EditorialContentBlock],
     after_blocks: &[EditorialContentBlock],
 ) -> Vec<String> {
+    // Bind equal blocks at both edges before matching the interior. This keeps
+    // repeated text at the other edge from consuming an edited block's ID.
+    let mut start = 0;
+    while start < before_blocks.len()
+        && start < after_blocks.len()
+        && before_blocks[start].normalized_hash == after_blocks[start].normalized_hash
+    {
+        start += 1;
+    }
+    let mut before_end = before_blocks.len();
+    let mut after_end = after_blocks.len();
+    while before_end > start
+        && after_end > start
+        && before_blocks[before_end - 1].normalized_hash
+            == after_blocks[after_end - 1].normalized_hash
+    {
+        before_end -= 1;
+        after_end -= 1;
+    }
     let mut after_hash_counts = BTreeMap::<&str, usize>::new();
-    for after in after_blocks {
+    for after in &after_blocks[start..after_end] {
         *after_hash_counts
             .entry(after.normalized_hash.as_str())
             .or_insert(0) += 1;
     }
 
-    before_blocks
+    before_blocks[start..before_end]
         .iter()
         .filter_map(|before| {
             let count = after_hash_counts
@@ -338,273 +434,60 @@ fn common_block_id_sequence(
     sequence
 }
 
-fn extract_changed_blocks_section(report: &str) -> Option<&str> {
-    let lower = report.to_ascii_lowercase();
-    let start = find_first_report_field_key(&lower, &["changed_blocks", "changes"])?;
-    let relative_end = find_first_report_field_key(
-        &lower[start + 1..],
-        &[
-            "operator_evidence_required",
-            "out_of_scope",
-            "quality_preservation",
-            "unchanged_approved_blocks",
-            "custody",
-        ],
-    );
-    let end = relative_end
-        .map(|offset| start + 1 + offset)
-        .unwrap_or(report.len());
-    report.get(start..end)
-}
-
-fn find_first_report_field_key(haystack: &str, keys: &[&str]) -> Option<usize> {
-    let bytes = haystack.as_bytes();
-    let mut index = 0usize;
-    let mut in_quote: Option<u8> = None;
-    let mut escaped = false;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if let Some(quote) = in_quote {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == quote {
-                in_quote = None;
-            }
-            index += 1;
-            continue;
-        }
-        if byte == b'"' || byte == b'\'' {
-            let field_start = index;
-            if let Some(end_quote) = haystack[index + 1..].find(byte as char) {
-                let key_start = index + 1;
-                let key_end = key_start + end_quote;
-                let candidate = &haystack[key_start..key_end];
-                let after = key_end + 1;
-                if keys.contains(&candidate)
-                    && field_key_is_delimited_before(bytes, field_start)
-                    && field_key_has_assignment_after(bytes, after)
-                {
-                    return Some(field_start);
-                }
-            }
-            in_quote = Some(byte);
-            index += 1;
-            continue;
-        }
-        if field_key_is_delimited_before(bytes, index) {
-            for key in keys {
-                if haystack[index..].starts_with(key) {
-                    let after = index + key.len();
-                    if field_key_has_assignment_after(bytes, after) {
-                        return Some(index);
-                    }
-                }
-            }
-        }
-        index += 1;
-    }
-    None
-}
-
-fn field_key_is_delimited_before(bytes: &[u8], index: usize) -> bool {
-    if index == 0 {
-        return true;
-    }
-    bytes[..index]
-        .iter()
-        .rev()
-        .find(|byte| !byte.is_ascii_whitespace())
-        .map(|byte| matches!(byte, b'{' | b'[' | b',' | b'\n' | b'\r'))
-        .unwrap_or(true)
-}
-
-fn field_key_has_assignment_after(bytes: &[u8], index: usize) -> bool {
-    bytes[index..]
-        .iter()
-        .find(|byte| !byte.is_ascii_whitespace())
-        .map(|byte| matches!(byte, b':' | b'='))
-        .unwrap_or(false)
-}
-
-fn extract_changed_block_declarations(section: &str) -> BTreeMap<String, ChangedBlockDeclaration> {
+fn parse_changed_block_declarations(
+    entries: Vec<ChangedBlockEntry>,
+    before_blocks: &[EditorialContentBlock],
+) -> Result<BTreeMap<String, ChangedBlockDeclaration>, String> {
     let mut declarations = BTreeMap::new();
-    for fragment in changed_block_entry_fragments(section) {
-        let Some(block_id) = extract_block_id_field(&fragment) else {
-            continue;
-        };
-        let declaration = ChangedBlockDeclaration {
-            has_protocol_basis: fragment_has_nonempty_protocol_basis(&fragment),
-            allows_block_count_growth: fragment_declares_block_count_growth(&fragment),
-            allows_reorder: fragment_declares_reorder(&fragment),
-        };
-        declarations
-            .entry(block_id)
-            .and_modify(|existing: &mut ChangedBlockDeclaration| {
-                existing.has_protocol_basis |= declaration.has_protocol_basis;
-                existing.allows_block_count_growth |= declaration.allows_block_count_growth;
-                existing.allows_reorder |= declaration.allows_reorder;
-            })
-            .or_insert(declaration);
-    }
-    declarations
-}
-
-fn changed_block_entry_fragments(section: &str) -> Vec<String> {
-    let mut fragments = Vec::new();
-    let mut depth = 0usize;
-    let mut start = None;
-    for (index, character) in section.char_indices() {
-        if character == '{' {
-            if depth == 0 {
-                start = Some(index);
-            }
-            depth += 1;
-        } else if character == '}' && depth > 0 {
-            depth -= 1;
-            if depth == 0 {
-                if let Some(start_index) = start.take() {
-                    fragments.push(section[start_index..=index].to_string());
-                }
-            }
+    for entry in entries {
+        let digits = entry.block_id.strip_prefix('B').unwrap_or("");
+        if digits.len() < 4 || !digits.bytes().all(|digit| digit.is_ascii_digit()) {
+            return Err(format!(
+                "approved-content lock violation: invalid changed_blocks block_id {}",
+                entry.block_id
+            ));
         }
-    }
+        if !before_blocks.iter().any(|block| block.id == entry.block_id) {
+            return Err(format!(
+                "approved-content lock violation: changed_blocks block_id {} is absent from the received manifest",
+                entry.block_id
+            ));
+        }
+        if declarations.contains_key(&entry.block_id) {
+            return Err(format!(
+                "approved-content lock violation: duplicate changed_blocks declaration for {}",
+                entry.block_id
+            ));
+        }
 
-    if fragments.is_empty() {
-        fragments.extend(
-            section
-                .lines()
-                .filter(|line| line.to_ascii_lowercase().contains("block_id"))
-                .map(|line| line.to_string()),
+        let has_protocol_basis = match entry.protocol_basis {
+            Some(Value::String(value)) => !value.trim().is_empty(),
+            Some(Value::Array(values)) => !values.is_empty(),
+            Some(Value::Object(values)) => !values.is_empty(),
+            _ => false,
+        };
+        let allowed_block_count_growth = if matches!(
+            entry.change_type.as_deref(),
+            Some("split" | "addition")
+        ) {
+            match entry.new_block_count {
+                Some(count) => usize::try_from(count).unwrap_or(0),
+                None => 1,
+            }
+        } else {
+            0
+        };
+        declarations.insert(
+            entry.block_id,
+            ChangedBlockDeclaration {
+                has_protocol_basis,
+                allowed_block_count_growth,
+                allows_reorder: entry.change_type.as_deref() == Some("reorder"),
+            },
         );
     }
-    fragments
+    Ok(declarations)
 }
-
-fn extract_block_id_field(fragment: &str) -> Option<String> {
-    Regex::new(r#"(?is)["']?block_id["']?\s*[:=]\s*["']?(B\d{4})\b"#)
-        .expect("valid block_id field regex")
-        .captures(fragment)
-        .and_then(|captures| captures.get(1))
-        .map(|matched| matched.as_str().to_string())
-}
-
-fn fragment_has_nonempty_protocol_basis(fragment: &str) -> bool {
-    let Some(matched) = Regex::new(r#"(?is)["']?protocol_basis["']?\s*[:=]\s*"#)
-        .expect("valid protocol_basis key regex")
-        .find(fragment)
-    else {
-        return false;
-    };
-    protocol_basis_value_is_nonempty(&fragment[matched.end()..])
-}
-
-fn protocol_basis_value_is_nonempty(value: &str) -> bool {
-    let value = value.trim_start();
-    if value.is_empty() {
-        return false;
-    }
-    if let Some(rest) = value.strip_prefix('"') {
-        return quoted_value_is_nonempty(rest, '"');
-    }
-    if let Some(rest) = value.strip_prefix('\'') {
-        return quoted_value_is_nonempty(rest, '\'');
-    }
-    if let Some(rest) = value.strip_prefix('[') {
-        return bracketed_value_is_nonempty(rest, '[', ']');
-    }
-    if let Some(rest) = value.strip_prefix('{') {
-        return bracketed_value_is_nonempty(rest, '{', '}');
-    }
-    let token = value
-        .split(|character: char| character.is_whitespace() || matches!(character, ',' | '}' | ']'))
-        .next()
-        .unwrap_or("")
-        .trim();
-    !token.is_empty() && !token.eq_ignore_ascii_case("null") && token != "[]" && token != "{}"
-}
-
-fn quoted_value_is_nonempty(rest: &str, quote: char) -> bool {
-    let mut escaped = false;
-    let mut value = String::new();
-    for character in rest.chars() {
-        if escaped {
-            value.push(character);
-            escaped = false;
-            continue;
-        }
-        if character == '\\' {
-            escaped = true;
-            continue;
-        }
-        if character == quote {
-            return !value.trim().is_empty();
-        }
-        value.push(character);
-    }
-    false
-}
-
-fn bracketed_value_is_nonempty(rest: &str, open: char, close: char) -> bool {
-    let mut depth = 1usize;
-    let mut body = String::new();
-    let mut in_quote: Option<char> = None;
-    let mut escaped = false;
-    for character in rest.chars() {
-        if let Some(quote) = in_quote {
-            body.push(character);
-            if escaped {
-                escaped = false;
-            } else if character == '\\' {
-                escaped = true;
-            } else if character == quote {
-                in_quote = None;
-            }
-            continue;
-        }
-        if character == '"' || character == '\'' {
-            in_quote = Some(character);
-            body.push(character);
-            continue;
-        }
-        if character == open {
-            depth += 1;
-            body.push(character);
-            continue;
-        }
-        if character == close {
-            depth = depth.saturating_sub(1);
-            if depth == 0 {
-                return !body.trim().is_empty();
-            }
-            body.push(character);
-            continue;
-        }
-        body.push(character);
-    }
-    false
-}
-
-fn fragment_declares_block_count_growth(fragment: &str) -> bool {
-    let lower = fragment.to_ascii_lowercase();
-    lower.contains("change_type")
-        && (lower.contains("split")
-            || lower.contains("addition")
-            || lower.contains("added")
-            || lower.contains("new_block")
-            || lower.contains("new block"))
-}
-
-fn fragment_declares_reorder(fragment: &str) -> bool {
-    let lower = fragment.to_ascii_lowercase();
-    lower.contains("change_type")
-        && (lower.contains("reorder")
-            || lower.contains("reordered")
-            || lower.contains("move")
-            || lower.contains("moved"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -938,6 +821,165 @@ mod tests {
           "custody": "revised"
         }"#;
 
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
+    fn prose_words_cannot_authorize_reorder() {
+        let before = "Primeiro.\n\nSegundo.";
+        let after = "Segundo.\n\nPrimeiro.";
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"edit","reason":"removed punctuation","protocol_basis":"structure"},
+            {"block_id":"B0002","change_type":"edit","reason":"nothing moved","protocol_basis":"structure"}
+        ]}"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+        assert!(error.contains("reorder"), "{error}");
+    }
+
+    #[test]
+    fn protocol_basis_in_reason_does_not_authorize_an_edit() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","reason":"protocol_basis: not supplied"}
+        ]}"#;
+
+        let error = validate_revision_content_lock("Original.", "Revisado.", report).unwrap_err();
+        assert!(error.contains("protocol_basis"), "{error}");
+    }
+
+    #[test]
+    fn one_declared_addition_cannot_authorize_two_new_blocks() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"addition","protocol_basis":"required context"}
+        ]}"#;
+
+        let error = validate_revision_content_lock(
+            "Original.",
+            "Original.\n\nNovo um.\n\nNovo dois.",
+            report,
+        )
+        .unwrap_err();
+        assert!(error.contains("added new blocks"), "{error}");
+    }
+
+    #[test]
+    fn negated_addition_in_reason_cannot_grant_growth() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"edit","reason":"no addition was made","protocol_basis":"style"}
+        ]}"#;
+
+        let error =
+            validate_revision_content_lock("Original.", "Original.\n\nNovo.", report)
+                .unwrap_err();
+        assert!(error.contains("added new blocks"), "{error}");
+    }
+
+    #[test]
+    fn explicit_positive_count_can_authorize_two_new_blocks() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"addition","new_block_count":2,"protocol_basis":"required context"}
+        ]}"#;
+
+        validate_revision_content_lock(
+            "Original.",
+            "Original.\n\nNovo um.\n\nNovo dois.",
+            report,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn duplicate_received_text_with_an_edit_is_ambiguous() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0002","protocol_basis":"correction"}
+        ]}"#;
+
+        let error =
+            validate_revision_content_lock("Alpha\n\nAlpha", "Novo\n\nAlpha", report)
+                .unwrap_err();
+        assert!(error.contains("ambiguous"), "{error}");
+    }
+
+    #[test]
+    fn report_requires_one_strict_json_object_even_without_changes() {
+        for report in [
+            "Resumo das mudanças: {\"changed_blocks\":[]}",
+            "changed_blocks:\n  - block_id: B0001",
+            "{\"changed_blocks\":[]} trailing",
+            "[[]]",
+        ] {
+            let error = validate_revision_content_lock("Original.", "Original.", report)
+                .unwrap_err();
+            assert!(error.contains("strict JSON object"), "{error}");
+        }
+    }
+
+    #[test]
+    fn received_block_b10000_can_be_declared() {
+        let before = (1..=10_000)
+            .map(|index| format!("Bloco {index}."))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let after = format!(
+            "{}\n\nBloco 10000 revisado.",
+            before.rsplit_once("\n\n").unwrap().0
+        );
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B10000","protocol_basis":"editorial correction"}
+        ]}"#;
+
+        validate_revision_content_lock(&before, &after, report).unwrap();
+    }
+
+    #[test]
+    fn braces_and_escaped_quotes_inside_reason_do_not_break_json_fields() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","reason":"literal { and \"quoted } text\"","protocol_basis":"correction"}
+        ]}"#;
+
+        validate_revision_content_lock("Original.", "Revisado.", report).unwrap();
+    }
+
+    #[test]
+    fn duplicate_block_declarations_and_duplicate_json_fields_fail_closed() {
+        let duplicate_entries = r#"{"changed_blocks":[
+            {"block_id":"B0001","protocol_basis":"correction"},
+            {"block_id":"B0001","change_type":"addition","protocol_basis":"correction"}
+        ]}"#;
+        let duplicate_field = r#"{"changed_blocks":[
+            {"block_id":"B0001","block_id":"B0002","protocol_basis":"correction"}
+        ]}"#;
+
+        let error =
+            validate_revision_content_lock("Original.", "Revisado.", duplicate_entries)
+                .unwrap_err();
+        assert!(error.contains("duplicate changed_blocks"), "{error}");
+        let error = validate_revision_content_lock("Original.", "Revisado.", duplicate_field)
+            .unwrap_err();
+        assert!(error.contains("strict JSON object"), "{error}");
+    }
+
+    #[test]
+    fn nonexistent_received_block_cannot_grant_growth() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B9999","change_type":"addition","protocol_basis":"required context"}
+        ]}"#;
+
+        let error =
+            validate_revision_content_lock("Original.", "Original.\n\nNovo.", report)
+                .unwrap_err();
+        assert!(error.contains("received manifest"), "{error}");
+    }
+
+    #[test]
+    fn whitespace_only_separator_line_creates_distinct_blocks() {
+        let before = "Primeiro.\n   \nSegundo.";
+        let after = "Primeiro.\n   \nSegundo revisado.";
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0002","protocol_basis":"correction"}
+        ]}"#;
+
+        assert_eq!(segment_editorial_blocks(before).len(), 2);
         validate_revision_content_lock(before, after, report).unwrap();
     }
 
