@@ -353,7 +353,7 @@ fn perplexity_response_cost(
             .zip(usage_output_tokens)
             .map(|(input, output)| {
                 provider_cost(input, output, rates)
-                    + if perplexity_has_search_evidence(value) {
+                    + if perplexity_search_executed(value) {
                         PERPLEXITY_WEB_SEARCH_COST_USD
                     } else {
                         0.0
@@ -374,6 +374,17 @@ fn perplexity_has_search_evidence(value: &Value) -> bool {
                         .get("results")
                         .and_then(Value::as_array)
                         .is_some_and(|results| !results.is_empty())
+            })
+        })
+}
+
+fn perplexity_search_executed(value: &Value) -> bool {
+    value
+        .get("output")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some("search_results")
             })
         })
 }
