@@ -685,6 +685,16 @@ fn validate_growth_anchors(
         }
         saw_growth = true;
 
+        // Revised blocks have no source IDs. When several received blocks
+        // change in one unmatched region, their positions cannot prove which
+        // one produced the extra text, even if only one declares addition.
+        if changed_in_gap.len() > 1 {
+            return Err(
+                "approved-content lock violation: ambiguous insertion attribution across multiple changed received blocks; revise them before adding blocks in a separate serial turn"
+                    .to_string(),
+            );
+        }
+
         // A pure insertion can belong to either adjacent received block. A
         // split/addition of an edited block can also own growth in its gap.
         // Require one local source: a distant declaration must never lend its
@@ -1446,6 +1456,18 @@ mod tests {
         ]}"#;
 
         let error = validate_revision_content_lock(before, after, report).unwrap_err();
+        assert!(error.contains("ambiguous"), "{error}");
+    }
+
+    #[test]
+    fn growth_after_two_edited_blocks_still_requires_separate_custody_turn() {
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0002","protocol_basis":"correction"},
+            {"block_id":"B0003","change_type":"addition","protocol_basis":"required context"}
+        ]}"#;
+
+        let error = validate_revision_content_lock("A\n\nB\n\nC", "A\n\nB2\n\nC2\n\nN", report)
+            .unwrap_err();
         assert!(error.contains("ambiguous"), "{error}");
     }
 

@@ -82,12 +82,15 @@ Each such entry permits
 one extra block by default, or a positive `new_block_count` of extra blocks
 when more are required. For a pure addition, the entry names either
 immediately adjacent received block when the intervening region has no edit.
-Growth in a region with an edited received block must use that block's
+Growth in a region with one edited received block must use that block's
 `"split"` or `"addition"` permission; an unchanged neighbor cannot identify
 which revised text came from the edited block. Exactly one local source must
-authorize each insertion, and its own limit applies. If the source cannot be attributed
-unambiguously, the edit fails closed until the separate provenance protocol
-decision is adopted. Free-text `reason` never grants permission.
+authorize each insertion, and its own limit applies. If two or more received
+blocks change in the same unmatched region, additional blocks are rejected:
+the report cannot prove which revised block produced them. Revise those blocks
+first and add new blocks in a separate serial turn. If the source cannot be
+attributed unambiguously, the edit fails closed until the separate provenance
+protocol decision is adopted. Free-text `reason` never grants permission.
 When unchanged received neighbors have been reordered, one changed received
 block in a single unmatched region may be attributed to that region; any
 additional growth still requires a local `split` or `addition` declaration and limit.
