@@ -177,7 +177,7 @@ pub(crate) fn provider_cost_rates_from_config(
             config.grok_output_usd_per_million,
         ),
         "perplexity" => (
-            "Perplexity / Sonar",
+            "Perplexity / Agent API",
             config.perplexity_input_usd_per_million,
             config.perplexity_output_usd_per_million,
         ),

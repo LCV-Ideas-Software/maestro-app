@@ -537,8 +537,19 @@ pub(crate) fn parse_agent_artifact_result(
         .and_then(|value| value.parse::<u64>().ok());
     let usage_output_tokens = extract_bullet_code_value(&text, "Usage output tokens")
         .and_then(|value| value.parse::<u64>().ok());
-    let cost_usd =
+    let observed_cost = extract_bullet_code_value(&text, "Cost observed USD")
+        .and_then(|value| value.parse::<f64>().ok());
+    let estimated_cost = extract_bullet_code_value(&text, "Cost estimated USD")
+        .and_then(|value| value.parse::<f64>().ok());
+    let legacy_cost =
         extract_bullet_code_value(&text, "Cost USD").and_then(|value| value.parse::<f64>().ok());
+    let (cost_usd, cost_estimated) = if let Some(cost) = observed_cost {
+        (Some(cost), Some(false))
+    } else if let Some(cost) = estimated_cost {
+        (Some(cost), Some(true))
+    } else {
+        (legacy_cost, legacy_cost.map(|_| true))
+    };
     let cache = parse_cache_telemetry_from_artifact(&text);
     let tone = if status == "READY" || status == "DRAFT_CREATED" {
         "ok"
@@ -578,7 +589,7 @@ pub(crate) fn parse_agent_artifact_result(
         usage_input_tokens,
         usage_output_tokens,
         cost_usd,
-        cost_estimated: cost_usd.map(|_| true),
+        cost_estimated,
         cache,
     })
 }
@@ -614,6 +625,7 @@ fn parse_cache_telemetry_from_artifact(text: &str) -> Option<ProviderCacheTeleme
 mod tests {
     use super::{
         circular_draft_sha256, load_resume_session_state, parse_agent_artifact_name,
+        parse_agent_artifact_result,
         write_circular_review_state, CircularReviewState, CIRCULAR_REVIEW_STATE_FILE,
         CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
     };
@@ -621,6 +633,40 @@ mod tests {
     use std::path::PathBuf;
     use std::thread;
     use std::time::Duration;
+
+    #[test]
+    fn resume_preserves_billed_failure_cost_and_token_usage() {
+        let session_dir = sessions_dir().join(format!(
+            "maestro-perplexity-cost-resume-test-{}",
+            std::process::id()
+        ));
+        let agent_dir = session_dir.join("agent-runs");
+        let _ = std::fs::remove_dir_all(&session_dir);
+        std::fs::create_dir_all(&agent_dir).unwrap();
+
+        for (attempt, label, estimated) in [
+            (2, "Cost observed USD", false),
+            (3, "Cost estimated USD", true),
+            (4, "Cost USD", true),
+        ] {
+            let name = format!("round-001-perplexity-review-attempt-{attempt:03}.md");
+            write_text_file(
+                &agent_dir.join(&name),
+                &format!(
+                    "# Perplexity - review\n\n- CLI: `perplexity-api`\n- Status: `PROVIDER_INCOMPLETE`\n- Usage input tokens: `100`\n- Usage output tokens: `5`\n- {label}: `0.00300000`\n"
+                ),
+            )
+            .unwrap();
+            let artifact = parse_agent_artifact_name(&agent_dir, &name).unwrap();
+            let resumed = parse_agent_artifact_result(&artifact).unwrap();
+            assert_eq!(resumed.cost_usd, Some(0.003));
+            assert_eq!(resumed.cost_estimated, Some(estimated));
+            assert_eq!(resumed.usage_input_tokens, Some(100));
+            assert_eq!(resumed.usage_output_tokens, Some(5));
+        }
+
+        std::fs::remove_dir_all(&session_dir).unwrap();
+    }
 
     #[test]
     fn circular_state_defaults_missing_paid_retry_accounting_for_legacy_v2() {

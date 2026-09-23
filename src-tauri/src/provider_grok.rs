@@ -244,6 +244,7 @@ pub(crate) async fn run_grok_api_agent(
         usage_input_tokens,
         usage_output_tokens,
         cost_usd,
+        cost_usd.map(|_| true),
         cache,
         started.elapsed().as_millis(),
         prompt.chars().count(),

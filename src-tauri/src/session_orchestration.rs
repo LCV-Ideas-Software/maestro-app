@@ -1290,11 +1290,16 @@ pub(crate) fn run_editorial_session_core(
                             &evidence.attachments,
                             provider,
                         );
-                        Some(estimate_provider_cost_from_input_chars(
+                        let token_cost = estimate_provider_cost_from_input_chars(
                             input_estimate_chars,
                             api_role_max_tokens("review"),
                             rates,
-                        ))
+                        );
+                        Some(token_cost + if provider == "perplexity" {
+                            crate::provider_perplexity::PERPLEXITY_WEB_SEARCH_COST_USD
+                        } else {
+                            0.0
+                        })
                     })
                     .unwrap_or(0.0)
             } else {

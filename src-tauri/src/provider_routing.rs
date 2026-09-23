@@ -68,7 +68,7 @@ pub(crate) fn provider_label_for_agent(agent_key: &str) -> &'static str {
         "gemini" => "Google / Gemini",
         "deepseek" => "DeepSeek",
         "grok" => "Grok / xAI",
-        "perplexity" => "Perplexity / Sonar",
+        "perplexity" => "Perplexity / Agent API",
         _ => "Provedor API",
     }
 }

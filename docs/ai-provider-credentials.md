@@ -24,7 +24,7 @@ The settings screen provides secure credential fields and UI-owned tariff rows f
 - Google / Gemini: Gemini Developer API key and input/output USD per 1M tokens.
 - DeepSeek: API key and input/output USD per 1M tokens.
 - Grok / xAI: API key and input/output USD per 1M tokens.
-- Perplexity / Sonar: API key and input/output USD per 1M tokens.
+- Perplexity / Agent API: API key and input/output USD per 1M tokens.
 
 Per-provider model pins and organization/project routing are future configuration fields; current execution resolves models dynamically from authenticated provider model-list endpoints.
 
@@ -58,7 +58,7 @@ Implemented through v0.3.13:
 - Verification calls official model-list endpoints for OpenAI, Anthropic, Gemini, DeepSeek, Grok, and Perplexity and reports provider-level status without logging raw keys.
 - Network-error rendering strips request URLs before messages reach the UI/logs, so query-string API keys are not echoed when a provider request fails before a response is received.
 - DeepSeek, OpenAI/Codex, Anthropic/Claude, and Google/Gemini can generate drafts, review drafts, and produce revisions through direct provider APIs. At runtime, Maestro asks each authenticated model-list endpoint which models are available and selects the strongest supported entry for that provider. DeepSeek still honors `MAESTRO_DEEPSEEK_MODEL` or `CROSS_REVIEW_DEEPSEEK_MODEL` when set.
-- Grok/xAI and Perplexity/Sonar run API-only in API and hybrid modes. CLI mode disables them instead of pretending local CLI transports exist.
+- Grok/xAI and Perplexity Agent API run API-only in API and hybrid modes. CLI mode disables them instead of pretending local CLI transports exist.
 - Optional per-session USD budgets are enforced against observed direct API usage. The limit remains one session-level value; Maestro never creates per-model budgets or silently drops a selected peer to stay under budget.
 - Provider tariffs are UI-owned configuration. The operator maintains input/output USD per 1M tokens in `Configuracoes > Agentes via API > Tabela de tarifas`; there is no env-var fallback for cost rates. Any peer that will run through a direct provider API is blocked with a friendly message until both tariff fields for that provider are configured.
 - CLI-backed peers expose no reliable per-call token usage to Maestro yet. Their cost is displayed as unknown/subscription and does not decrement the optional USD budget.
@@ -82,7 +82,7 @@ Implemented through `v0.5.19`:
 - Anthropic/Claude direct Messages calls send the stable `system` prompt as a text block marked with `cache_control: { "type": "ephemeral" }`, which enables prompt caching with the provider's default short retention when the stable prefix is long enough. Maestro reads `cache_creation_input_tokens` and `cache_read_input_tokens` from the response usage object.
 - DeepSeek uses the provider's automatic disk cache. Maestro does not add non-standard request fields; it records `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens` when DeepSeek returns them.
 - Grok/xAI direct Responses calls send a deterministic `prompt_cache_key` and parse cached-token usage fields when present.
-- Perplexity/Sonar currently has no documented prompt-cache control comparable to the other direct editorial flows, so Maestro does not add invented cache fields. It logs the provider cache plan as provider-automatic/unsupported metadata only.
+- The Perplexity Agent API currently has no documented prompt-cache control comparable to the other direct editorial flows, so Maestro does not add invented cache fields. It logs the provider cache plan as provider-automatic/unsupported metadata only.
 - Gemini keeps the GenerateContent payload thinking-preserving. Explicit Gemini cached-content resources are not forced from the desktop runner because the current quality requirement is to preserve thinking mode; Maestro records provider cache usage if `usageMetadata.cachedContentTokenCount` is returned.
 - Each API peer writes non-secret cache policy metadata to NDJSON and to `data/sessions/<run>/cache-manifest.ndjson`: provider, model, role, cache mode, cache key hash, retention label, stable-prefix character count, and prompt character count.
 - Each successful API artifact includes cache mode, key hash, control status, retention, cached input tokens, hit tokens, miss tokens, read tokens, and creation tokens where known.
@@ -138,7 +138,7 @@ Current planning references:
 - Anthropic direct calls use Messages API at `/v1/messages` with `x-api-key`, `anthropic-version`, `model`, `max_tokens`, `system`, and `messages`; response `usage.input_tokens`/`usage.output_tokens` feeds the cost ledger.
 - Gemini direct calls use `models/{model}:generateContent` with API-key auth, `contents`, `systemInstruction`, and `generationConfig.maxOutputTokens`; response `usageMetadata.promptTokenCount`/`candidatesTokenCount` feeds the cost ledger.
 - Grok/xAI direct calls use the OpenAI-compatible Responses API at `https://api.x.ai/v1/responses`, bearer auth, `input`, `max_output_tokens`, `store: false`, and `prompt_cache_key`.
-- Perplexity/Sonar direct calls use `POST https://api.perplexity.ai/v1/sonar`, bearer auth, `model`, `messages`, `max_tokens`, `stream: false`, `reasoning_effort`, `search_mode`, and `web_search_options.search_context_size`. Successful responses can include `citations`, `search_results`, `usage`, and `choices[0].message.content`.
+- Perplexity direct calls use the Agent API at `POST https://api.perplexity.ai/v1/agent`, bearer auth, a `provider/model` ID, `input`, `instructions`, `max_output_tokens`, `reasoning.effort`, and an explicit `web_search` tool. Only `completed` assistant `message` items with `output_text` content become editorial text; typed search results and annotation URLs are logged as source metadata. The provider-reported `usage.cost.total_cost` includes tool fees when available.
 - Direct API attachments are provider-shaped instead of text-only: OpenAI receives supported images as `input_image` and supported documents as `input_file` with base64 data URLs; Anthropic receives supported images and PDFs as base64 content blocks; Gemini receives supported media/documents as `inline_data` parts.
 - Attachment types that are not natively supported by the selected provider, or that exceed the native API inline size cap, remain available through the session manifest and bounded text previews. Native attachment payload size is included in the conservative pre-call cost projection.
 - The session UI mirrors this as a pre-run per-provider prediction, so mixed support is visible before invocation instead of collapsed into a single native/manifest label.
@@ -156,8 +156,8 @@ Official documentation:
 - DeepSeek API quick start: https://api-docs.deepseek.com/
 - DeepSeek model list endpoint: https://api-docs.deepseek.com/api/list-models
 - xAI Responses API / prompt caching: https://docs.x.ai/docs/guides/prompt-caching
-- Perplexity Sonar API: https://docs.perplexity.ai/api-reference/sonar-post
-- Perplexity Sonar models: https://docs.perplexity.ai/docs/sonar/models
+- Perplexity Agent API: https://docs.perplexity.ai/api-reference/agent-post
+- Perplexity Agent API models: https://docs.perplexity.ai/docs/agent-api/models
 - Perplexity model list endpoint: https://docs.perplexity.ai/api-reference/models-get
 
 ## Cross-Review Use

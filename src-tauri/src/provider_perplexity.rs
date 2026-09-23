@@ -1,9 +1,8 @@
 // Modulo: src-tauri/src/provider_perplexity.rs
-// Descricao: Perplexity Sonar API peer runner for Maestro Editorial AI.
+// Descricao: Perplexity Agent API peer runner for Maestro Editorial AI.
 //
-// Perplexity is API-only in maestro-app. The integration uses the Sonar
-// endpoint directly because Sonar adds web search/citation behavior that is
-// materially different from the OpenAI-compatible peers.
+// Perplexity is API-only in maestro-app. Web search is an explicit Agent API
+// tool, and assistant text is carried by typed output items.
 
 use std::time::Instant;
 
@@ -17,20 +16,54 @@ use crate::provider_retry::{
 };
 use crate::provider_runners::{
     api_cost_preflight_result, editorial_api_system_prompt, log_provider_api_started,
-    log_provider_cache_configured, write_provider_error_result, write_provider_failure_result,
+    log_provider_cache_configured, write_provider_error_result,
+    write_provider_error_result_with_accounting, write_provider_failure_result,
     write_provider_missing_key_result, write_provider_success_result, EditorialAgentRequest,
     ProviderInvocation,
 };
 use crate::session_controls::{
-    api_role_max_tokens, provider_cache_plan, provider_cache_telemetry_with_plan, provider_cost,
-    usage_tokens,
+    api_role_max_tokens, estimate_provider_cost_from_input_chars, provider_cache_plan,
+    provider_cache_telemetry_with_plan, provider_cost, usage_tokens, ProviderCostRates,
 };
 use crate::{
     api_error_message, api_input_estimate_chars, first_env_value, provider_key_for_agent,
     provider_remote_present, sanitize_short, sanitize_text,
 };
 
-const PERPLEXITY_ENDPOINT: &str = "https://api.perplexity.ai/v1/sonar";
+const PERPLEXITY_ENDPOINT: &str = "https://api.perplexity.ai/v1/agent";
+pub(crate) const PERPLEXITY_WEB_SEARCH_COST_USD: f64 = 0.0025;
+
+fn is_agent_model(model: &str) -> bool {
+    if model.len() > 120 {
+        return false;
+    }
+    let Some((provider, name)) = model.split_once('/') else {
+        return false;
+    };
+    !provider.is_empty()
+        && !name.is_empty()
+        && provider.chars().all(|ch| ch.is_ascii_lowercase() || ch == '-')
+        && name.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.' | '_'))
+}
+
+fn perplexity_agent_request_body(
+    model: &str,
+    system_prompt: &str,
+    prompt: &str,
+    max_output_tokens: u64,
+) -> Value {
+    json!({
+        "model": model,
+        "instructions": system_prompt,
+        "input": prompt,
+        "max_output_tokens": max_output_tokens,
+        "reasoning": { "effort": "high" },
+        "tools": [{ "type": "web_search" }],
+        "max_steps": 1,
+        "stream": false,
+        "store": false
+    })
+}
 
 pub(crate) async fn run_perplexity_api_agent(
     request: EditorialAgentRequest<'_>,
@@ -62,6 +95,18 @@ pub(crate) async fn run_perplexity_api_agent(
         output_path,
     };
 
+    if !is_agent_model(&model) {
+        return write_provider_failure_result(
+            &invocation,
+            &model,
+            "PERPLEXITY_AGENT_MODEL_REQUIRED",
+            "blocked",
+            "Configure um modelo Agent API no formato provider/model; IDs Sonar legados não são aceitos.",
+            started.elapsed().as_millis(),
+            None,
+        );
+    }
+
     let Some((api_key, key_source)) = provider_key_for_agent(config, "perplexity") else {
         return write_provider_missing_key_result(
             &invocation,
@@ -80,6 +125,24 @@ pub(crate) async fn run_perplexity_api_agent(
         started.elapsed().as_millis(),
     ) {
         return result;
+    }
+    if let Some(guard) = cost_guard.as_ref() {
+        if let Some(limit) = guard.max_session_cost_usd {
+            let projected =
+                estimate_provider_cost_from_input_chars(input_estimate_chars, max_tokens, guard.rates)
+                    + PERPLEXITY_WEB_SEARCH_COST_USD;
+            if guard.observed_cost_usd + projected > limit {
+                return write_provider_failure_result(
+                    &invocation,
+                    &model,
+                    "COST_LIMIT_REACHED",
+                    "blocked",
+                    "Perplexity nao foi chamado: custo projetado com busca excede o limite da sessao.",
+                    started.elapsed().as_millis(),
+                    Some(projected),
+                );
+            }
+        }
     }
 
     let async_client = match build_api_client_async(timeout) {
@@ -120,24 +183,7 @@ pub(crate) async fn run_perplexity_api_agent(
         &cache_plan,
     );
 
-    let body = json!({
-        "model": model,
-        "messages": [
-            { "role": "system", "content": system_prompt },
-            { "role": "user", "content": prompt }
-        ],
-        "stream": false,
-        "max_tokens": max_tokens,
-        "temperature": 0.2,
-        "top_p": 0.9,
-        "search_mode": "web",
-        "reasoning_effort": "high",
-        "web_search_options": {
-            "search_context_size": "high"
-        },
-        "return_images": false,
-        "return_related_questions": false
-    });
+    let body = perplexity_agent_request_body(&model, &system_prompt, &prompt, max_tokens);
     let request_builder = async_client
         .post(PERPLEXITY_ENDPOINT)
         .bearer_auth(&api_key)
@@ -203,25 +249,54 @@ pub(crate) async fn run_perplexity_api_agent(
     }
 
     let parsed: Value = serde_json::from_str(&body_text).unwrap_or_else(|_| json!({}));
+    let (usage_input_tokens, usage_output_tokens) = usage_tokens(&parsed);
+    let (cost_usd, cost_estimated) = perplexity_response_cost(
+        &parsed,
+        usage_input_tokens,
+        usage_output_tokens,
+        cost_guard.as_ref().map(|guard| guard.rates),
+    );
+    if parsed.get("status").and_then(Value::as_str) != Some("completed") {
+        return write_provider_error_result_with_accounting(
+            &invocation,
+            &model,
+            "PROVIDER_INCOMPLETE_RESPONSE",
+            started.elapsed().as_millis(),
+            usage_input_tokens,
+            usage_output_tokens,
+            cost_usd,
+            cost_estimated,
+        );
+    }
     let stdout = perplexity_response_text(&parsed)
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_default();
     if stdout.trim().is_empty() {
-        return write_provider_error_result(
+        return write_provider_error_result_with_accounting(
             &invocation,
             &model,
             "PROVIDER_EMPTY_CONTENT",
             started.elapsed().as_millis(),
+            usage_input_tokens,
+            usage_output_tokens,
+            cost_usd,
+            cost_estimated,
+        );
+    }
+    if !perplexity_has_search_evidence(&parsed) {
+        return write_provider_error_result_with_accounting(
+            &invocation,
+            &model,
+            "PROVIDER_UNGROUNDED_RESPONSE",
+            started.elapsed().as_millis(),
+            usage_input_tokens,
+            usage_output_tokens,
+            cost_usd,
+            cost_estimated,
         );
     }
     log_perplexity_sources(log_session, run_id, &parsed, output_path);
-    let (usage_input_tokens, usage_output_tokens) = usage_tokens(&parsed);
     let cache = Some(provider_cache_telemetry_with_plan(&cache_plan, None));
-    let cost_usd = cost_guard.as_ref().and_then(|guard| {
-        usage_input_tokens
-            .zip(usage_output_tokens)
-            .map(|(input, output)| provider_cost(input, output, guard.rates))
-    });
     let model_reported = parsed
         .get("model")
         .and_then(Value::as_str)
@@ -241,6 +316,7 @@ pub(crate) async fn run_perplexity_api_agent(
         usage_input_tokens,
         usage_output_tokens,
         cost_usd,
+        cost_estimated,
         cache,
         started.elapsed().as_millis(),
         prompt.chars().count(),
@@ -250,18 +326,93 @@ pub(crate) async fn run_perplexity_api_agent(
 
 pub(crate) fn perplexity_model() -> String {
     first_env_value(&["MAESTRO_PERPLEXITY_MODEL", "PERPLEXITY_MODEL"])
-        .map(|(_, _, value)| sanitize_short(&value, 120))
+        .map(|(_, _, value)| normalize_agent_model_override(&value))
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "sonar-reasoning-pro".to_string())
+        .unwrap_or_else(|| "perplexity/kimi-k3".to_string())
+}
+
+fn normalize_agent_model_override(value: &str) -> String {
+    value.trim().to_string()
+}
+
+fn perplexity_response_cost(
+    value: &Value,
+    usage_input_tokens: Option<u64>,
+    usage_output_tokens: Option<u64>,
+    rates: Option<ProviderCostRates>,
+) -> (Option<f64>, Option<bool>) {
+    let reported = value
+        .pointer("/usage/cost/total_cost")
+        .and_then(Value::as_f64)
+        .filter(|cost| cost.is_finite() && *cost >= 0.0);
+    if let Some(cost) = reported {
+        return (Some(cost), Some(false));
+    }
+    let token_estimate = rates.and_then(|rates| {
+        (usage_input_tokens.is_some() || usage_output_tokens.is_some()).then(|| {
+            provider_cost(
+                usage_input_tokens.unwrap_or(0),
+                usage_output_tokens.unwrap_or(0),
+                rates,
+            )
+        })
+    });
+    let search_fee = perplexity_search_executed(value).then_some(PERPLEXITY_WEB_SEARCH_COST_USD);
+    let estimated = match (token_estimate, search_fee) {
+        (Some(tokens), Some(fee)) => Some(tokens + fee),
+        (Some(tokens), None) => Some(tokens),
+        (None, Some(fee)) => Some(fee),
+        (None, None) => None,
+    };
+    (estimated, estimated.map(|_| true))
+}
+
+fn perplexity_has_search_evidence(value: &Value) -> bool {
+    value
+        .get("output")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some("search_results")
+                    && item
+                        .get("results")
+                        .and_then(Value::as_array)
+                        .is_some_and(|results| !results.is_empty())
+            })
+        })
+}
+
+fn perplexity_search_executed(value: &Value) -> bool {
+    value
+        .get("output")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some("search_results")
+            })
+        })
 }
 
 pub(crate) fn perplexity_response_text(value: &Value) -> Option<String> {
-    value
-        .pointer("/choices/0/message/content")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(str::to_string)
+    if value.get("status").and_then(Value::as_str) != Some("completed") {
+        return None;
+    }
+    let parts = value.get("output")?.as_array()?.iter().filter_map(|item| {
+        if item.get("type").and_then(Value::as_str) != Some("message")
+            || item.get("role").and_then(Value::as_str) != Some("assistant")
+        {
+            return None;
+        }
+        item.get("content")?.as_array().map(|content| {
+            content.iter()
+                .filter(|part| part.get("type").and_then(Value::as_str) == Some("output_text"))
+                .filter_map(|part| part.get("text").and_then(Value::as_str))
+                .collect::<String>()
+        })
+    }).collect::<Vec<_>>();
+    let text = parts.join("\n");
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_string())
 }
 
 fn log_perplexity_sources(
@@ -271,24 +422,29 @@ fn log_perplexity_sources(
     output_path: &std::path::Path,
 ) {
     let citations = parsed
-        .get("citations")
+        .get("output")
         .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(|value| sanitize_text(value, 300))
-                .filter(|value| !value.is_empty())
-                .take(12)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+        .into_iter()
+        .flatten()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("message"))
+        .filter_map(|item| item.get("content").and_then(Value::as_array))
+        .flatten()
+        .filter_map(|part| part.get("annotations").and_then(Value::as_array))
+        .flatten()
+        .filter_map(|annotation| annotation.get("url").and_then(Value::as_str))
+        .map(|url| sanitize_text(url, 300))
+        .filter(|url| !url.is_empty())
+        .take(12)
+        .collect::<Vec<_>>();
     let search_results = parsed
-        .get("search_results")
+        .get("output")
         .and_then(Value::as_array)
         .map(|items| {
             items
                 .iter()
+                .filter(|item| item.get("type").and_then(Value::as_str) == Some("search_results"))
+                .filter_map(|item| item.get("results").and_then(Value::as_array))
+                .flatten()
                 .filter_map(|item| {
                     let title = item.get("title").and_then(Value::as_str).unwrap_or("");
                     let url = item.get("url").and_then(Value::as_str).unwrap_or("");
@@ -329,21 +485,95 @@ mod tests {
     use super::*;
 
     #[test]
-    fn perplexity_response_text_extracts_sonar_message_content() {
+    fn agent_request_uses_documented_fields_and_web_search() {
+        let body = perplexity_agent_request_body("perplexity/kimi-k3", "system", "user", 100);
+        assert_eq!(body["model"], "perplexity/kimi-k3");
+        assert_eq!(body["instructions"], "system");
+        assert_eq!(body["input"], "user");
+        assert_eq!(body["max_output_tokens"], 100);
+        assert_eq!(body["reasoning"]["effort"], "high");
+        assert_eq!(body["tools"][0]["type"], "web_search");
+        assert!(body.get("messages").is_none());
+        assert!(body.get("max_tokens").is_none());
+        assert!(!is_agent_model("sonar-reasoning-pro"));
+        assert_eq!(
+            normalize_agent_model_override(" perplexity/kimi-k3 "),
+            "perplexity/kimi-k3"
+        );
+        assert!(is_agent_model(&normalize_agent_model_override(
+            " perplexity/kimi-k3 "
+        )));
+    }
+
+    #[test]
+    fn perplexity_response_text_extracts_only_completed_assistant_output() {
         let value = json!({
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": "MAESTRO_STATUS: READY\nReview approved."
-                    }
-                }
+            "status": "completed",
+            "output": [
+                { "type": "search_results", "results": [{"title":"Source","url":"https://example.org"}] },
+                { "type": "message", "role": "assistant", "content": [
+                    { "type": "output_text", "text": "MAESTRO_STATUS: READY\nReview approved." }
+                ] }
             ]
         });
 
         assert_eq!(
             perplexity_response_text(&value).unwrap(),
             "MAESTRO_STATUS: READY\nReview approved."
+        );
+        assert!(perplexity_response_text(&json!({"status":"failed","output":value["output"]})).is_none());
+        assert!(perplexity_response_text(&json!({"status":"completed","output":[{"type":"search_results","results":[]}]})).is_none());
+        assert!(perplexity_has_search_evidence(&value));
+        assert!(!perplexity_has_search_evidence(&json!({
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type":"output_text","text":"answer"}]
+            }]
+        })));
+    }
+
+    #[test]
+    fn response_cost_accounts_for_failed_and_ungrounded_attempts() {
+        let rates = ProviderCostRates {
+            input_usd_per_million: 1.0,
+            output_usd_per_million: 2.0,
+        };
+        let with_search = json!({
+            "status": "incomplete",
+            "output": [{"type":"search_results","results":[{"url":"https://example.org"}]}]
+        });
+        let (cost, estimated) =
+            perplexity_response_cost(&with_search, Some(100), Some(20), Some(rates));
+        assert!((cost.unwrap() - 0.00264).abs() < 1e-9);
+        assert_eq!(estimated, Some(true));
+
+        let empty_search = json!({
+            "status": "incomplete",
+            "output": [{"type":"search_results","results":[]}]
+        });
+        let (cost, estimated) =
+            perplexity_response_cost(&empty_search, Some(100), Some(20), Some(rates));
+        assert!((cost.unwrap() - 0.00264).abs() < 1e-9);
+        assert_eq!(estimated, Some(true));
+
+        let (cost, estimated) = perplexity_response_cost(&empty_search, None, None, Some(rates));
+        assert_eq!((cost, estimated), (Some(0.0025), Some(true)));
+        let (cost, estimated) =
+            perplexity_response_cost(&empty_search, Some(100), None, Some(rates));
+        assert!((cost.unwrap() - 0.0026).abs() < 1e-9);
+        assert_eq!(estimated, Some(true));
+
+        let without_search = json!({"status":"failed","output":[]});
+        let (cost, estimated) =
+            perplexity_response_cost(&without_search, Some(100), Some(20), Some(rates));
+        assert!((cost.unwrap() - 0.00014).abs() < 1e-9);
+        assert_eq!(estimated, Some(true));
+
+        let reported = json!({"status":"failed","usage":{"cost":{"total_cost":0.01}}});
+        assert_eq!(
+            perplexity_response_cost(&reported, Some(100), Some(20), Some(rates)),
+            (Some(0.01), Some(false))
         );
     }
 }

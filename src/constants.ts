@@ -121,7 +121,7 @@ export const initialAiProviderChecks: AiProviderProbeRow[] = [
   { label: "Google / Gemini", value: "pendente de verificacao", tone: "pending" },
   { label: "DeepSeek", value: "pendente de verificacao", tone: "pending" },
   { label: "Grok / xAI", value: "pendente de verificacao", tone: "pending" },
-  { label: "Perplexity / Sonar", value: "pendente de verificacao", tone: "pending" },
+  { label: "Perplexity / Agent API", value: "pendente de verificacao", tone: "pending" },
 ];
 
 export const credentialStorageModes = [
@@ -192,10 +192,10 @@ export const aiProviderRows = [
   },
   {
     key: "perplexity",
-    name: "Perplexity / Sonar",
+    name: "Perplexity / Agent API",
     cli: "perplexity-api",
     secretLabel: "Perplexity API key",
-    meta: "API oficial Sonar; modelo reasoning com busca e citacoes",
+    meta: "Agent API oficial; modelo com busca e fontes",
   },
 ] satisfies Array<{
   key: AiCredentialKey;
@@ -233,7 +233,7 @@ export const providerRateRows = [
   },
   {
     key: "perplexity",
-    name: "Perplexity / Sonar",
+    name: "Perplexity / Agent API",
     hint: "Obrigatorio para sessoes com Perplexity via API.",
   },
 ] satisfies Array<{ key: ProviderRateKey; name: string; hint: string }>;
@@ -244,7 +244,7 @@ export const initialAgentOptions = [
   { key: "gemini", label: "Gemini", detail: "primeira versao e revisoes" },
   { key: "deepseek", label: "DeepSeek", detail: "primeira versao e revisoes via API" },
   { key: "grok", label: "Grok", detail: "primeira versao e revisoes via API" },
-  { key: "perplexity", label: "Perplexity", detail: "primeira versao e revisoes via API Sonar" },
+  { key: "perplexity", label: "Perplexity", detail: "primeira versao e revisoes via Agent API" },
 ] satisfies Array<{ key: InitialAgentKey; label: string; detail: string }>;
 
 export const defaultActiveAgents = initialAgentOptions.map((option) => option.key);
