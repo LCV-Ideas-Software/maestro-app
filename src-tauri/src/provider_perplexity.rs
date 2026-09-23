@@ -343,30 +343,11 @@ fn perplexity_has_search_evidence(value: &Value) -> bool {
         .and_then(Value::as_array)
         .is_some_and(|items| {
             items.iter().any(|item| {
-                (item.get("type").and_then(Value::as_str) == Some("search_results")
+                item.get("type").and_then(Value::as_str) == Some("search_results")
                     && item
                         .get("results")
                         .and_then(Value::as_array)
-                        .is_some_and(|results| !results.is_empty()))
-                    || (item.get("type").and_then(Value::as_str) == Some("message")
-                        && item.get("role").and_then(Value::as_str) == Some("assistant")
-                        && item
-                            .get("content")
-                            .and_then(Value::as_array)
-                            .is_some_and(|parts| {
-                                parts.iter().any(|part| {
-                                    part.get("annotations")
-                                        .and_then(Value::as_array)
-                                        .is_some_and(|annotations| {
-                                            annotations.iter().any(|annotation| {
-                                                annotation
-                                                    .get("url")
-                                                    .and_then(Value::as_str)
-                                                    .is_some_and(|url| !url.trim().is_empty())
-                                            })
-                                        })
-                                })
-                            }))
+                        .is_some_and(|results| !results.is_empty())
             })
         })
 }

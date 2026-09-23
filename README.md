@@ -156,7 +156,7 @@ Perplexity configuration:
 - Key: set `MAESTRO_PERPLEXITY_API_KEY` or `PERPLEXITY_API_KEY`, or enter the key in **Ajustes > Agentes via API**.
 - Model override: optional `MAESTRO_PERPLEXITY_MODEL` or `PERPLEXITY_MODEL` in Agent API `provider/model` format; default is `perplexity/kimi-k3`. Legacy unprefixed Sonar IDs are rejected before a paid call.
 - Cost controls: configure both Perplexity input/output USD-per-million-token rates before paid API sessions. Maestro blocks paid API calls without explicit user-provided rate and session-cost ceilings, and reserves the Agent API web-search fee (US$ 0.0025 per call) in its cost projections. Provider-reported totals are recorded as observed costs, including incomplete responses.
-- Grounding: the Agent API response must include search results or source annotations; an answer without search evidence is rejected and any reported charge is still recorded.
+- Grounding: the Agent API response must include a nonempty `search_results` item; an answer without search evidence is rejected and any reported charge is still recorded.
 - Transport: Perplexity is disabled in **CLI** mode, enabled in **Hybrid** and **API** modes, and uses text/manifest attachment fallback rather than native file uploads.
 
 MainSite-bound editing uses a PostEditor parity module, not a generic editor. See `docs/text-editor-decision.md` and `docs/mainsite-compatibility-contract.md`.
