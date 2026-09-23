@@ -1332,6 +1332,40 @@ mod tests {
     }
 
     #[test]
+    fn addition_before_edited_block_uses_preceding_received_anchor() {
+        let before = "Primeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "Primeiro.\n\nNovo.\n\nSegundo revisado.\n\nTerceiro.";
+        let report = r#"{"custody":"revised","changed_blocks":[
+            {"block_id":"B0001","change_type":"addition","new_block_count":1,"protocol_basis":"required context"},
+            {"block_id":"B0002","protocol_basis":"editorial correction"}
+        ]}"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
+    fn addition_after_edited_block_uses_that_received_anchor() {
+        let before = "Primeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "Primeiro.\n\nSegundo revisado.\n\nNovo.\n\nTerceiro.";
+        let report = r#"{"custody":"revised","changed_blocks":[
+            {"block_id":"B0002","change_type":"addition","new_block_count":1,"protocol_basis":"required context"}
+        ]}"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
+    fn stable_separator_identifies_edited_duplicate_received_block() {
+        let before = "Início.\n\nRepetido.\n\nMeio.\n\nRepetido.\n\nFim.";
+        let after = "Início.\n\nRepetido.\n\nMeio.\n\nRevisado.\n\nFim.";
+        let report = r#"{"custody":"revised","changed_blocks":[
+            {"block_id":"B0004","protocol_basis":"editorial correction"}
+        ]}"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
     fn nonexistent_received_block_cannot_grant_growth() {
         let report = r#"{"changed_blocks":[
             {"block_id":"B9999","change_type":"addition","protocol_basis":"required context"}
