@@ -635,6 +635,29 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn resume_preserves_blocked_perplexity_model_failure() {
+        let session_dir = sessions_dir().join(format!(
+            "maestro-perplexity-model-resume-test-{}",
+            std::process::id()
+        ));
+        let agent_dir = session_dir.join("agent-runs");
+        let _ = std::fs::remove_dir_all(&session_dir);
+        std::fs::create_dir_all(&agent_dir).unwrap();
+
+        let name = "round-001-perplexity-review-attempt-001.md";
+        write_text_file(
+            &agent_dir.join(name),
+            "# Perplexity - review\n\n- CLI: `perplexity-api`\n- Status: `PERPLEXITY_AGENT_MODEL_REQUIRED`\n",
+        )
+        .unwrap();
+        let artifact = parse_agent_artifact_name(&agent_dir, name).unwrap();
+        let resumed = parse_agent_artifact_result(&artifact).unwrap();
+        assert_eq!(resumed.tone, "blocked");
+
+        std::fs::remove_dir_all(&session_dir).unwrap();
+    }
+
+    #[test]
     fn resume_preserves_billed_failure_cost_and_token_usage() {
         let session_dir = sessions_dir().join(format!(
             "maestro-perplexity-cost-resume-test-{}",
