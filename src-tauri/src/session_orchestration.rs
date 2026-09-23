@@ -4168,6 +4168,26 @@ Texto revisado.
     }
 
     #[test]
+    fn serial_contract_rejects_unchanged_legacy_yaml_report() {
+        let stdout = "MAESTRO_STATUS: READY\n<maestro_revision_report>\ncustody: unchanged\nchanges: []\n</maestro_revision_report>";
+
+        let error = validate_serial_turn_output(stdout, "READY").unwrap_err();
+        assert!(error.contains("JSON"), "{error}");
+    }
+
+    #[test]
+    fn serial_contract_rejects_duplicate_custody_fields_before_transfer() {
+        let stdout = r#"MAESTRO_STATUS: READY
+<maestro_revision_report>
+{"custody":"unchanged","custody":"revised","changes":[]}
+</maestro_revision_report>
+<maestro_final_text>Revisado.</maestro_final_text>"#;
+
+        let error = validate_serial_turn_output(stdout, "READY").unwrap_err();
+        assert!(error.contains("duplicate") || error.contains("duplicad"), "{error}");
+    }
+
+    #[test]
     fn serial_content_lock_rejects_undeclared_changed_received_block() {
         let stdout = r#"MAESTRO_STATUS: READY
 <maestro_revision_report>

@@ -644,6 +644,18 @@ mod tests {
     }
 
     #[test]
+    fn addition_declared_on_unrelated_block_cannot_authorize_insertion() {
+        let before = "Primeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "Primeiro.\n\nNovo.\n\nSegundo.\n\nTerceiro.";
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0003","change_type":"addition","protocol_basis":"required context"}
+        ],"custody":"revised"}"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+        assert!(error.contains("B0001") || error.contains("B0002"), "{error}");
+    }
+
+    #[test]
     fn silent_reorder_of_received_blocks_is_rejected() {
         let before = "# Titulo\n\nPrimeiro bloco aprovado.\n\nSegundo bloco aprovado.";
         let after = "# Titulo\n\nSegundo bloco aprovado.\n\nPrimeiro bloco aprovado.";
@@ -715,6 +727,18 @@ mod tests {
           ],
           "custody": "revised"
         }"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
+    fn one_block_can_declare_addition_and_reorder_together() {
+        let before = "Primeiro.\n\nSegundo.";
+        let after = "Novo.\n\nSegundo.\n\nPrimeiro.";
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0001","change_type":"reorder","protocol_basis":"structure"},
+            {"block_id":"B0002","change_type":["addition","reorder"],"protocol_basis":"structure and context"}
+        ],"custody":"revised"}"#;
 
         validate_revision_content_lock(before, after, report).unwrap();
     }
