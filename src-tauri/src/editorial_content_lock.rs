@@ -567,6 +567,13 @@ fn validate_growth_anchors(
     declarations: &BTreeMap<String, ChangedBlockDeclaration>,
 ) -> Result<(), String> {
     let matched = matched_received_indices(before_blocks, after_blocks);
+    let unmatched_gap_count = matched
+        .iter()
+        .enumerate()
+        .filter(|(index, received)| {
+            received.is_none() && (*index == 0 || matched[*index - 1].is_some())
+        })
+        .count();
     let changed_id_set = changed_ids.iter().map(String::as_str).collect::<BTreeSet<_>>();
     let changed_indices = before_blocks
         .iter()
@@ -606,6 +613,9 @@ fn validate_growth_anchors(
                     (Some(left), None) => *received_index > left,
                     (None, Some(right)) => *received_index < right,
                     (None, None) => true,
+                    (Some(left), Some(right)) if left > right => {
+                        unmatched_gap_count == 1 && changed_indices.len() == 1
+                    }
                     _ => false,
                 }
             })
@@ -1301,6 +1311,19 @@ mod tests {
         let after = "Terceiro.\n\nPrimeiro revisado.\n\nComplemento do primeiro.\n\nSegundo.";
         let report = r#"{"custody":"revised","changed_blocks":[
             {"block_id":"B0001","change_type":"split","new_block_count":1,"protocol_basis":"required split"},
+            {"block_id":"B0002","change_type":"reorder","protocol_basis":"required order"},
+            {"block_id":"B0003","change_type":"reorder","protocol_basis":"required order"}
+        ]}"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
+    fn unique_edit_can_stay_between_reordered_received_neighbors() {
+        let before = "Primeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "Terceiro.\n\nPrimeiro revisado.\n\nSegundo.";
+        let report = r#"{"custody":"revised","changed_blocks":[
+            {"block_id":"B0001","protocol_basis":"editorial correction"},
             {"block_id":"B0002","change_type":"reorder","protocol_basis":"required order"},
             {"block_id":"B0003","change_type":"reorder","protocol_basis":"required order"}
         ]}"#;

@@ -85,6 +85,11 @@ block if the insertion starts the article. A split must be local to its
 changed received block. Growth beside a changed block that cannot be
 attributed to one split fails closed until the separate provenance protocol
 decision is adopted. Free-text `reason` never grants permission.
+When unchanged received neighbors have been reordered, one changed received
+block in a single unmatched region may be attributed to that region; any
+additional growth still requires its own `split` declaration and limit.
+This inverted-neighbor exception does not apply when multiple unmatched
+regions or changed sources leave the origin ambiguous.
 
 Whitespace-only separator lines delimit blocks; received IDs start at
 `B0001` and continue through `B10000` and beyond. Ambiguous edits to
