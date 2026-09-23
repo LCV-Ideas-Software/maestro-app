@@ -1296,6 +1296,19 @@ mod tests {
     }
 
     #[test]
+    fn split_can_grow_between_reordered_received_neighbors() {
+        let before = "Primeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "Terceiro.\n\nPrimeiro revisado.\n\nComplemento do primeiro.\n\nSegundo.";
+        let report = r#"{"custody":"revised","changed_blocks":[
+            {"block_id":"B0001","change_type":"split","new_block_count":1,"protocol_basis":"required split"},
+            {"block_id":"B0002","change_type":"reorder","protocol_basis":"required order"},
+            {"block_id":"B0003","change_type":"reorder","protocol_basis":"required order"}
+        ]}"#;
+
+        validate_revision_content_lock(before, after, report).unwrap();
+    }
+
+    #[test]
     fn nonexistent_received_block_cannot_grant_growth() {
         let report = r#"{"changed_blocks":[
             {"block_id":"B9999","change_type":"addition","protocol_basis":"required context"}
