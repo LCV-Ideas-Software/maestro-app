@@ -520,29 +520,30 @@ pub(crate) fn parse_agent_artifact_result(
     artifact: &SessionArtifact,
 ) -> Option<EditorialAgentResult> {
     let text = read_text_file(&artifact.path).ok()?;
-    let cli = extract_bullet_code_value(&text, "CLI").unwrap_or_else(|| artifact.agent.clone());
-    let status = extract_bullet_code_value(&text, "Status").unwrap_or_else(|| {
+    let metadata = text.split_once("## Stdout").map_or(text.as_str(), |(head, _)| head);
+    let cli = extract_bullet_code_value(metadata, "CLI").unwrap_or_else(|| artifact.agent.clone());
+    let status = extract_bullet_code_value(metadata, "Status").unwrap_or_else(|| {
         if artifact.role == "draft" || artifact.role == "revision" {
             "DRAFT_CREATED".to_string()
         } else {
             "NOT_READY".to_string()
         }
     });
-    let duration_ms = extract_bullet_code_value(&text, "Duration ms")
+    let duration_ms = extract_bullet_code_value(metadata, "Duration ms")
         .and_then(|value| value.parse::<u128>().ok())
         .unwrap_or(0);
     let exit_code =
-        extract_bullet_code_value(&text, "Exit code").and_then(|value| value.parse::<i32>().ok());
-    let usage_input_tokens = extract_bullet_code_value(&text, "Usage input tokens")
+        extract_bullet_code_value(metadata, "Exit code").and_then(|value| value.parse::<i32>().ok());
+    let usage_input_tokens = extract_bullet_code_value(metadata, "Usage input tokens")
         .and_then(|value| value.parse::<u64>().ok());
-    let usage_output_tokens = extract_bullet_code_value(&text, "Usage output tokens")
+    let usage_output_tokens = extract_bullet_code_value(metadata, "Usage output tokens")
         .and_then(|value| value.parse::<u64>().ok());
-    let observed_cost = extract_bullet_code_value(&text, "Cost observed USD")
+    let observed_cost = extract_bullet_code_value(metadata, "Cost observed USD")
         .and_then(|value| value.parse::<f64>().ok());
-    let estimated_cost = extract_bullet_code_value(&text, "Cost estimated USD")
+    let estimated_cost = extract_bullet_code_value(metadata, "Cost estimated USD")
         .and_then(|value| value.parse::<f64>().ok());
     let legacy_cost =
-        extract_bullet_code_value(&text, "Cost USD").and_then(|value| value.parse::<f64>().ok());
+        extract_bullet_code_value(metadata, "Cost USD").and_then(|value| value.parse::<f64>().ok());
     let (cost_usd, cost_estimated) = if let Some(cost) = observed_cost {
         (Some(cost), Some(false))
     } else if let Some(cost) = estimated_cost {
@@ -550,13 +551,15 @@ pub(crate) fn parse_agent_artifact_result(
     } else {
         (legacy_cost, legacy_cost.map(|_| true))
     };
-    let cache = parse_cache_telemetry_from_artifact(&text);
+    let cache = parse_cache_telemetry_from_artifact(metadata);
     let inferred_tone = if status == "READY" || status == "DRAFT_CREATED" {
         "ok"
     } else if status == "CLI_NOT_FOUND"
         || status == "API_KEY_NOT_AVAILABLE"
         || status == "REMOTE_SECRET_NOT_READABLE"
         || status == "PERPLEXITY_AGENT_MODEL_REQUIRED"
+        || status == "COST_LIMIT_REACHED"
+        || status == "STOPPED_BY_USER"
     {
         "blocked"
     } else if status.starts_with("EXEC_ERROR")
@@ -565,8 +568,6 @@ pub(crate) fn parse_agent_artifact_result(
         || status == "AGENT_FAILED_EMPTY"
         || status == "EMPTY_DRAFT"
         || status == "RUNNING"
-        || status == "STOPPED_BY_USER"
-        || status == "COST_LIMIT_REACHED"
         || status == "CODEX_CLI_NO_FINAL_OUTPUT"
         || status == "CODEX_WINDOWS_SANDBOX_UPSTREAM"
         || status == "GEMINI_CLI_NO_FINAL_OUTPUT"
@@ -577,7 +578,7 @@ pub(crate) fn parse_agent_artifact_result(
     } else {
         "warn"
     };
-    let tone = match extract_bullet_code_value(&text, "Tone").as_deref() {
+    let tone = match extract_bullet_code_value(metadata, "Tone").as_deref() {
         Some("ok") => "ok",
         Some("warn") => "warn",
         Some("error") => "error",
@@ -652,7 +653,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&session_dir);
         std::fs::create_dir_all(&agent_dir).unwrap();
 
-        let name = "round-001-perplexity-review-attempt-001.md";
+        let name = "round-001-perplexity-review.md";
         write_text_file(
             &agent_dir.join(name),
             "# Perplexity - review\n\n- CLI: `perplexity-api`\n- Status: `PERPLEXITY_AGENT_MODEL_REQUIRED`\n",
@@ -671,6 +672,30 @@ mod tests {
         let explicit_artifact = parse_agent_artifact_name(&agent_dir, explicit_name).unwrap();
         let explicit_result = parse_agent_artifact_result(&explicit_artifact).unwrap();
         assert_eq!(explicit_result.tone, "blocked");
+
+        let legacy_name = "round-001-perplexity-review-attempt-003.md";
+        write_text_file(
+            &agent_dir.join(legacy_name),
+            "# Perplexity - review\n\n- Status: `READY`\n\n## Stdout\n\n```text\n- Tone: `blocked`\n- Usage input tokens: `999`\n- Cost observed USD: `9.99`\n```\n",
+        )
+        .unwrap();
+        let legacy_artifact = parse_agent_artifact_name(&agent_dir, legacy_name).unwrap();
+        let legacy_result = parse_agent_artifact_result(&legacy_artifact).unwrap();
+        assert_eq!(legacy_result.tone, "ok");
+        assert_eq!(legacy_result.usage_input_tokens, None);
+        assert_eq!(legacy_result.cost_usd, None);
+
+        for (attempt, status) in [(4, "COST_LIMIT_REACHED"), (5, "STOPPED_BY_USER")] {
+            let name = format!("round-001-perplexity-review-attempt-{attempt:03}.md");
+            write_text_file(
+                &agent_dir.join(&name),
+                &format!("# Perplexity - review\n\n- Status: `{status}`\n"),
+            )
+            .unwrap();
+            let artifact = parse_agent_artifact_name(&agent_dir, &name).unwrap();
+            let resumed = parse_agent_artifact_result(&artifact).unwrap();
+            assert_eq!(resumed.tone, "blocked");
+        }
 
         std::fs::remove_dir_all(&session_dir).unwrap();
     }

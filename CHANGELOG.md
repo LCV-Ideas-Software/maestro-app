@@ -10,7 +10,7 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 - **MAESTRO-33 follow-up:** Charge searches that return zero results or omit token counters when estimating an unreported provider total. Update the in-app Perplexity labels and `LEIAME.md` to identify the Agent API and its default model.
 - **MAESTRO-33 resume accounting:** Persist token usage and the observed versus estimated cost label for billed provider failures; restore those fields when resuming a session while retaining compatibility with older `Cost USD` artifacts.
-- **MAESTRO-33 resume tone:** Persist the provider result tone in session artifacts and restore it directly, with a legacy status fallback. Legacy Perplexity model configuration failures remain blocked after resume.
+- **MAESTRO-33 resume tone:** Persist the provider result tone in session artifacts, update status and tone together after final gate reclassification, and restore the recorded tone directly, with a legacy status fallback. Read accounting and status only from the artifact header. Legacy Perplexity model configuration failures remain blocked after resume.
 
 ### Changed
 
