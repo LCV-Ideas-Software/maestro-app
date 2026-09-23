@@ -1,7 +1,9 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::fmt;
 
 use regex::Regex;
-use serde::Deserialize;
+use serde::de::{self, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -18,13 +20,21 @@ pub(crate) struct EditorialContentBlock {
 struct ChangedBlockDeclaration {
     has_protocol_basis: bool,
     allowed_block_count_growth: usize,
+    allows_addition: bool,
+    allows_split: bool,
     allows_reorder: bool,
 }
 
 #[derive(Deserialize)]
-struct RevisionReport {
+pub(crate) struct RevisionReport {
     #[serde(default)]
     changed_blocks: Vec<ChangedBlockEntry>,
+    #[serde(default)]
+    pub(crate) custody: Option<String>,
+    #[serde(default)]
+    pub(crate) changes: Vec<Value>,
+    #[serde(default)]
+    pub(crate) operator_evidence_required: Vec<Value>,
 }
 
 #[derive(Deserialize)]
@@ -33,9 +43,106 @@ struct ChangedBlockEntry {
     #[serde(default)]
     protocol_basis: Option<Value>,
     #[serde(default)]
-    change_type: Option<String>,
+    change_type: Option<ChangeType>,
     #[serde(default)]
     new_block_count: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ChangeType {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+struct NoDuplicateJson(Value);
+
+impl<'de> Deserialize<'de> for NoDuplicateJson {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct NoDuplicateVisitor;
+
+        impl<'de> Visitor<'de> for NoDuplicateVisitor {
+            type Value = NoDuplicateJson;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a JSON value without duplicate object fields")
+            }
+
+            fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson(Value::Bool(value)))
+            }
+
+            fn visit_i64<E: de::Error>(self, value: i64) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson(Value::from(value)))
+            }
+
+            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson(Value::from(value)))
+            }
+
+            fn visit_f64<E: de::Error>(self, value: f64) -> Result<Self::Value, E> {
+                let number = serde_json::Number::from_f64(value)
+                    .ok_or_else(|| E::custom("non-finite JSON number"))?;
+                Ok(NoDuplicateJson(Value::Number(number)))
+            }
+
+            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson(Value::String(value.to_owned())))
+            }
+
+            fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson(Value::String(value)))
+            }
+
+            fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+                Ok(NoDuplicateJson(Value::Null))
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
+                let mut values = Vec::new();
+                while let Some(NoDuplicateJson(value)) = sequence.next_element()? {
+                    values.push(value);
+                }
+                Ok(NoDuplicateJson(Value::Array(values)))
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut values = serde_json::Map::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if values.contains_key(&key) {
+                        return Err(de::Error::custom(format!("duplicate field `{key}`")));
+                    }
+                    let NoDuplicateJson(value) = map.next_value()?;
+                    values.insert(key, value);
+                }
+                Ok(NoDuplicateJson(Value::Object(values)))
+            }
+        }
+
+        deserializer.deserialize_any(NoDuplicateVisitor)
+    }
+}
+
+pub(crate) fn parse_revision_report(report: &str) -> Result<RevisionReport, String> {
+    let NoDuplicateJson(root) = serde_json::from_str(report).map_err(|error| {
+        format!(
+            "approved-content lock violation: maestro_revision_report must be one strict JSON object: {error}"
+        )
+    })?;
+    if !root.is_object() {
+        return Err(
+            "approved-content lock violation: maestro_revision_report must be one strict JSON object"
+                .to_string(),
+        );
+    }
+    serde_json::from_value(root).map_err(|error| {
+        format!(
+            "approved-content lock violation: maestro_revision_report must be one strict JSON object: {error}"
+        )
+    })
 }
 
 pub(crate) fn segment_editorial_blocks(text: &str) -> Vec<EditorialContentBlock> {
@@ -92,24 +199,7 @@ pub(crate) fn validate_revision_content_lock(
     after: &str,
     report: &str,
 ) -> Result<(), String> {
-    // Serde can deserialize a struct from a positional JSON array. The report
-    // contract requires an object, so check the root before typed decoding.
-    let root: Value = serde_json::from_str(report).map_err(|error| {
-        format!(
-            "approved-content lock violation: maestro_revision_report must be one strict JSON object: {error}"
-        )
-    })?;
-    if !root.is_object() {
-        return Err(
-            "approved-content lock violation: maestro_revision_report must be one strict JSON object"
-                .to_string(),
-        );
-    }
-    let parsed: RevisionReport = serde_json::from_str(report).map_err(|error| {
-        format!(
-            "approved-content lock violation: maestro_revision_report must be one strict JSON object: {error}"
-        )
-    })?;
+    let parsed = parse_revision_report(report)?;
     let before_blocks = segment_editorial_blocks(before);
     let after_blocks = segment_editorial_blocks(after);
     let changed_ids = changed_received_block_ids(&before_blocks, &after_blocks);
@@ -217,6 +307,7 @@ pub(crate) fn validate_revision_content_lock(
                 .to_string(),
         );
     }
+    validate_growth_anchors(&before_blocks, &after_blocks, &changed_ids, &declarations)?;
 
     if reordered
         && !reordered_ids.iter().all(|id| {
@@ -434,6 +525,143 @@ fn common_block_id_sequence(
     sequence
 }
 
+fn matched_received_indices(
+    before_blocks: &[EditorialContentBlock],
+    after_blocks: &[EditorialContentBlock],
+) -> Vec<Option<usize>> {
+    let common_counts = common_normalized_hash_counts(before_blocks, after_blocks);
+    let mut remaining = common_counts.clone();
+    let mut indices_by_hash = BTreeMap::<String, VecDeque<usize>>::new();
+    for (index, block) in before_blocks.iter().enumerate() {
+        if let Some(count) = remaining.get_mut(&block.normalized_hash) {
+            if *count > 0 {
+                indices_by_hash
+                    .entry(block.normalized_hash.clone())
+                    .or_default()
+                    .push_back(index);
+                *count -= 1;
+            }
+        }
+    }
+
+    remaining = common_counts;
+    after_blocks
+        .iter()
+        .map(|block| {
+            let count = remaining.get_mut(&block.normalized_hash)?;
+            if *count == 0 {
+                return None;
+            }
+            *count -= 1;
+            indices_by_hash
+                .get_mut(&block.normalized_hash)?
+                .pop_front()
+        })
+        .collect()
+}
+
+fn validate_growth_anchors(
+    before_blocks: &[EditorialContentBlock],
+    after_blocks: &[EditorialContentBlock],
+    changed_ids: &[String],
+    declarations: &BTreeMap<String, ChangedBlockDeclaration>,
+) -> Result<(), String> {
+    let matched = matched_received_indices(before_blocks, after_blocks);
+    let changed_id_set = changed_ids.iter().map(String::as_str).collect::<BTreeSet<_>>();
+    let changed_indices = before_blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, block)| changed_id_set.contains(block.id.as_str()).then_some(index))
+        .collect::<Vec<_>>();
+    let mut consumed_changed_indices = BTreeSet::new();
+    let mut remaining_growth = declarations
+        .iter()
+        .map(|(id, declaration)| (id.as_str(), declaration.allowed_block_count_growth))
+        .collect::<BTreeMap<_, _>>();
+    let mut preceding = None;
+    let mut index = 0;
+    while index < matched.len() {
+        if let Some(received_index) = matched[index] {
+            preceding = Some(received_index);
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < matched.len() && matched[index].is_none() {
+            index += 1;
+        }
+        let following = matched.get(index).copied().flatten();
+        let changed_in_gap = changed_indices
+            .iter()
+            .copied()
+            .filter(|received_index| {
+                if consumed_changed_indices.contains(received_index) {
+                    return false;
+                }
+                match (preceding, following) {
+                    (Some(left), Some(right)) if left < right => {
+                        left < *received_index && *received_index < right
+                    }
+                    (Some(left), None) => *received_index > left,
+                    (None, Some(right)) => *received_index < right,
+                    (None, None) => true,
+                    _ => false,
+                }
+            })
+            .collect::<Vec<_>>();
+        consumed_changed_indices.extend(changed_in_gap.iter().copied());
+        let growth = (index - start).saturating_sub(changed_in_gap.len());
+        if growth == 0 {
+            continue;
+        }
+
+        let source_index = if changed_in_gap.is_empty() {
+            let anchor = preceding.or(following).ok_or_else(|| {
+                "approved-content lock violation: added blocks have no received insertion anchor"
+                    .to_string()
+            })?;
+            let anchor_id = &before_blocks[anchor].id;
+            if !declarations
+                .get(anchor_id)
+                .is_some_and(|declaration| declaration.has_protocol_basis && declaration.allows_addition)
+            {
+                return Err(format!(
+                    "approved-content lock violation: added blocks require change_type addition on insertion anchor {anchor_id}"
+                ));
+            }
+            anchor
+        } else {
+            let split_sources = changed_in_gap
+                .iter()
+                .copied()
+                .filter(|received_index| {
+                    declarations
+                        .get(&before_blocks[*received_index].id)
+                        .is_some_and(|declaration| {
+                            declaration.has_protocol_basis && declaration.allows_split
+                        })
+                })
+                .collect::<Vec<_>>();
+            if split_sources.len() != 1 {
+                return Err(
+                    "approved-content lock violation: added blocks beside changed received blocks require one unambiguous split declaration"
+                        .to_string(),
+                );
+            }
+            split_sources[0]
+        };
+        let source_id = before_blocks[source_index].id.as_str();
+        let allowance = remaining_growth.get_mut(source_id).expect("declared growth source");
+        if growth > *allowance {
+            return Err(format!(
+                "approved-content lock violation: added blocks exceed new_block_count for insertion anchor {source_id}"
+            ));
+        }
+        *allowance -= growth;
+    }
+    Ok(())
+}
+
 fn parse_changed_block_declarations(
     entries: Vec<ChangedBlockEntry>,
     before_blocks: &[EditorialContentBlock],
@@ -466,15 +694,52 @@ fn parse_changed_block_declarations(
             Some(Value::Object(values)) => !values.is_empty(),
             _ => false,
         };
-        let allowed_block_count_growth = if matches!(
-            entry.change_type.as_deref(),
-            Some("split" | "addition")
-        ) {
+        let change_types = match entry.change_type {
+            Some(ChangeType::Single(value)) => vec![value],
+            Some(ChangeType::Multiple(values)) if !values.is_empty() => values,
+            Some(ChangeType::Multiple(_)) => {
+                return Err(format!(
+                    "approved-content lock violation: empty change_type for {}",
+                    entry.block_id
+                ));
+            }
+            None => Vec::new(),
+        };
+        let mut unique_change_types = BTreeSet::new();
+        for change_type in change_types {
+            if !unique_change_types.insert(change_type) {
+                return Err(format!(
+                    "approved-content lock violation: duplicate change_type for {}",
+                    entry.block_id
+                ));
+            }
+        }
+        let allows_addition = unique_change_types.contains("addition");
+        let allows_split = unique_change_types.contains("split");
+        let allows_reorder = unique_change_types.contains("reorder");
+        let allowed_block_count_growth = if allows_addition || allows_split {
             match entry.new_block_count {
-                Some(count) => usize::try_from(count).unwrap_or(0),
+                Some(count) if count > 0 => usize::try_from(count).map_err(|_| {
+                    format!(
+                        "approved-content lock violation: invalid new_block_count for {}",
+                        entry.block_id
+                    )
+                })?,
+                Some(_) => {
+                    return Err(format!(
+                        "approved-content lock violation: new_block_count must be positive for {}",
+                        entry.block_id
+                    ));
+                }
                 None => 1,
             }
         } else {
+            if entry.new_block_count.is_some() {
+                return Err(format!(
+                    "approved-content lock violation: new_block_count requires split or addition for {}",
+                    entry.block_id
+                ));
+            }
             0
         };
         declarations.insert(
@@ -482,7 +747,9 @@ fn parse_changed_block_declarations(
             ChangedBlockDeclaration {
                 has_protocol_basis,
                 allowed_block_count_growth,
-                allows_reorder: entry.change_type.as_deref() == Some("reorder"),
+                allows_addition,
+                allows_split,
+                allows_reorder,
             },
         );
     }
@@ -635,7 +902,7 @@ mod tests {
             "# Titulo\n\nNovo contexto necessario.\n\nParagrafo aprovado.\n\nConclusao aprovada.";
         let report = r#"{
           "changed_blocks": [
-            {"block_id": "B0002", "change_type": "addition", "protocol_basis": "required context"}
+            {"block_id": "B0001", "change_type": "addition", "protocol_basis": "required context"}
           ],
           "custody": "revised"
         }"#;
@@ -653,6 +920,18 @@ mod tests {
 
         let error = validate_revision_content_lock(before, after, report).unwrap_err();
         assert!(error.contains("B0001") || error.contains("B0002"), "{error}");
+    }
+
+    #[test]
+    fn split_declared_on_unrelated_block_cannot_authorize_insertion() {
+        let before = "Primeiro.\n\nSegundo.\n\nTerceiro.";
+        let after = "Primeiro.\n\nNovo.\n\nSegundo.\n\nTerceiro.";
+        let report = r#"{"changed_blocks":[
+            {"block_id":"B0003","change_type":"split","protocol_basis":"required context"}
+        ],"custody":"revised"}"#;
+
+        let error = validate_revision_content_lock(before, after, report).unwrap_err();
+        assert!(error.contains("B0001"), "{error}");
     }
 
     #[test]
@@ -981,6 +1260,14 @@ mod tests {
         let error = validate_revision_content_lock("Original.", "Revisado.", duplicate_field)
             .unwrap_err();
         assert!(error.contains("strict JSON object"), "{error}");
+    }
+
+    #[test]
+    fn duplicate_field_inside_non_authorization_metadata_fails_closed() {
+        let report = r#"{"changed_blocks":[],"metadata":{"note":"first","note":"second"}}"#;
+
+        let error = validate_revision_content_lock("Original.", "Original.", report).unwrap_err();
+        assert!(error.contains("duplicate field `note`"), "{error}");
     }
 
     #[test]

@@ -488,7 +488,7 @@ The answer MUST contain exactly these parts:
    - `reviewer`
    - `current_author`
    - `status`
-   - `changed_blocks`: list every changed received block using `block_id`, `change_type`, `reason`, `protocol_basis`, and `required: true|false`. Each entry names one received block exactly once. For a pure addition, name the existing received block immediately before the inserted text (or the first following received block when inserting at the start); never invent a new `block_id`. Use `change_type: "split"` or `"addition"` whenever the revised article creates extra blocks; each entry permits one extra block unless `new_block_count` explicitly gives a larger positive integer of EXTRA blocks. Use `change_type: "reorder"` whenever approved blocks move.
+   - `changed_blocks`: list every changed received block using `block_id`, `change_type`, `reason`, `protocol_basis`, and `required: true|false`. Each entry names one received block exactly once. For a pure addition, name the existing received block immediately before the inserted text (or the first following received block when inserting at the start); never invent a new `block_id`. Use `change_type: "split"` for extra blocks beside a changed received block and `"addition"` for a pure insertion; each entry permits one extra block unless `new_block_count` explicitly gives a larger positive integer of EXTRA blocks. Use `"reorder"` whenever approved blocks move. When one block requires multiple operations, use a JSON array of distinct exact tokens, for example `"change_type": ["addition", "reorder"]`.
    - `unchanged_approved_blocks`: list approved block IDs that you intentionally preserved.
    - `changes`: list of changed passages, received line/passage reference, reason, protocol citation, and whether the change was required.
    - `operator_evidence_required`: list of blockers that cannot be corrected from supplied materials and require external evidence or operator decision.
@@ -506,7 +506,7 @@ An incomplete tag, missing closing tag, reproduced protocol text, or malformed/t
 
 ## Current Text Block Manifest
 
-Every received block is locked by default. If `<maestro_final_text>` changes, deletes, compresses, splits, moves, or replaces a received block, the corresponding received `block_id` MUST appear in `changed_blocks` with a concrete `protocol_basis`. Silent changes to approved blocks are contract violations. Extra blocks require `change_type: "split"` or `"addition"`; moved approved blocks require `change_type: "reorder"`.
+Every received block is locked by default. If `<maestro_final_text>` changes, deletes, compresses, splits, moves, or replaces a received block, the corresponding received `block_id` MUST appear in `changed_blocks` with a concrete `protocol_basis`. Silent changes to approved blocks are contract violations. Extra blocks require `change_type: "split"` or `"addition"` at their received block anchor; moved approved blocks require `"reorder"`. A block needing both permissions must declare both in one `change_type` array.
 
 {}
 

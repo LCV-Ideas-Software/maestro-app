@@ -69,17 +69,22 @@ If any peer remains `NOT_READY` or `NEEDS_EVIDENCE`, the session continues, paus
 
 The revision report body is extracted from its balanced
 `<maestro_revision_report>` tag before content-lock validation. Since
-`v0.5.65`, the body must be exactly one JSON object. Prose, Markdown fences,
-YAML, trailing text and duplicate authorization fields fail closed.
+`v0.5.65`, every serial turn must contain exactly one JSON object. Prose,
+Markdown fences, YAML, trailing text and duplicate fields at any depth fail
+closed, including turns that approve unchanged custody.
 `changed_blocks` is a JSON array; each entry names one existing ID from the
 received block manifest. A changed received block requires its own nonempty
-`protocol_basis`. Only exact `change_type: "reorder"` authorizes movement,
-and only `"split"` or `"addition"` permits growth. Each such entry permits
+`protocol_basis`. `change_type` is one exact token or an array of distinct
+exact tokens when a block needs compound operations. Only `"reorder"`
+authorizes movement, and only `"split"` or `"addition"` permits growth.
+Each such entry permits
 one extra block by default, or a positive `new_block_count` of extra blocks
 when more are required. For a pure addition, the entry names the received
 block immediately before the insertion, or the first following received
-block if the insertion starts the article. Free-text `reason` never grants
-permission.
+block if the insertion starts the article. A split must be local to its
+changed received block. Growth beside a changed block that cannot be
+attributed to one split fails closed until the separate provenance protocol
+decision is adopted. Free-text `reason` never grants permission.
 
 Whitespace-only separator lines delimit blocks; received IDs start at
 `B0001` and continue through `B10000` and beyond. Ambiguous edits to

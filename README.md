@@ -24,7 +24,7 @@ The version history at a glance:
 
 | Release | Scope |
 | --- | --- |
-| **`v0.5.65` (source)** | MAESTRO-30: revision reports require strict JSON; received block IDs, protocol basis, reorder permission, and per-block addition counts are validated from fields. Whitespace-only separator lines and five-digit block IDs are supported. |
+| **`v0.5.65` (source)** | MAESTRO-30: every serial revision report requires JSON without duplicate fields; block permissions and insertion anchors are validated from received IDs, with compound reorder/addition declarations. Whitespace-only separator lines and five-digit block IDs are supported. |
 | **`v0.5.60`** | Ships the complete MAESTRO-17/20/22/23 release set, including the official Linear writer, fail-closed dependency inventory, source-qualified third-party licence evidence, complete portable legal notices, and the bounded release-gate wait. |
 | **`v0.5.58`** | Completes the active Maestro implementation set: modularized code, secure runtime bootstrap, web-evidence acquisition, deterministic ABNT and link-integrity gates, bounded corrective retries, MainSite-compatible durable drafts, safe shared-chat import and Markdown/HTML/PDF export, and operator-confirmed Cloudflare D1 publication with optimistic concurrency and readback. |
 | **`v0.5.57`** | Refreshes the portable editor baseline through Tiptap 3.29.2, ProseMirror View 1.42.2 and Lucide 1.28.0; removes the expired Socket/StepSecurity integrations; updates verified CI controls; resolves audited Undici 8.10.0; and stops retaining duplicate raw render errors in React state. |

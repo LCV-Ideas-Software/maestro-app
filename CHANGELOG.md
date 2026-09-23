@@ -32,10 +32,11 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   basis, require exact reorder/split/addition values, bound added blocks per
   declaration, and reject duplicate or ambiguous declarations. Preserve
   separate blocks across whitespace-only blank lines and accept `B10000`
-  when it exists in the received manifest. Keep the 19 original Rust fixtures
-  and add measured regressions for the nine reported failure classes. Bump the
-  synchronized source version to 0.5.65; Windows Rust gates remain pending
-  on the GitHub-hosted CI runner.
+  when it exists in the received manifest. Validate insertion anchors, allow
+  compound operation tokens, and require duplicate-free JSON even for unchanged
+  serial turns. Keep the 19 original Rust test functions and add regressions
+  for the measured failures and PR review cases. Bump the synchronized source
+  version to 0.5.65; Windows Rust gates run on GitHub-hosted CI.
 
 - Retry the release attestation check instead of failing the publication on
   the first miss. `gh release verify-asset` runs seconds after
