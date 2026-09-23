@@ -23,7 +23,7 @@ use crate::provider_runners::{
 };
 use crate::session_controls::{
     api_role_max_tokens, estimate_provider_cost_from_input_chars, provider_cache_plan,
-    provider_cache_telemetry_with_plan, provider_cost, usage_tokens,
+    provider_cache_telemetry_with_plan, provider_cost, usage_tokens, ProviderCostRates,
 };
 use crate::{
     api_error_message, api_input_estimate_chars, first_env_value, provider_key_for_agent,
@@ -250,10 +250,12 @@ pub(crate) async fn run_perplexity_api_agent(
 
     let parsed: Value = serde_json::from_str(&body_text).unwrap_or_else(|_| json!({}));
     let (usage_input_tokens, usage_output_tokens) = usage_tokens(&parsed);
-    let reported_cost_usd = parsed
-        .pointer("/usage/cost/total_cost")
-        .and_then(Value::as_f64)
-        .filter(|cost| cost.is_finite() && *cost >= 0.0);
+    let (cost_usd, cost_estimated) = perplexity_response_cost(
+        &parsed,
+        usage_input_tokens,
+        usage_output_tokens,
+        cost_guard.as_ref().map(|guard| guard.rates),
+    );
     if parsed.get("status").and_then(Value::as_str) != Some("completed") {
         return write_provider_error_result_with_accounting(
             &invocation,
@@ -262,7 +264,8 @@ pub(crate) async fn run_perplexity_api_agent(
             started.elapsed().as_millis(),
             usage_input_tokens,
             usage_output_tokens,
-            reported_cost_usd,
+            cost_usd,
+            cost_estimated,
         );
     }
     let stdout = perplexity_response_text(&parsed)
@@ -276,7 +279,8 @@ pub(crate) async fn run_perplexity_api_agent(
             started.elapsed().as_millis(),
             usage_input_tokens,
             usage_output_tokens,
-            reported_cost_usd,
+            cost_usd,
+            cost_estimated,
         );
     }
     if !perplexity_has_search_evidence(&parsed) {
@@ -287,18 +291,12 @@ pub(crate) async fn run_perplexity_api_agent(
             started.elapsed().as_millis(),
             usage_input_tokens,
             usage_output_tokens,
-            reported_cost_usd,
+            cost_usd,
+            cost_estimated,
         );
     }
     log_perplexity_sources(log_session, run_id, &parsed, output_path);
     let cache = Some(provider_cache_telemetry_with_plan(&cache_plan, None));
-    let cost_usd = reported_cost_usd.or_else(|| {
-        cost_guard.as_ref().and_then(|guard| {
-            usage_input_tokens.zip(usage_output_tokens).map(|(input, output)| {
-                provider_cost(input, output, guard.rates) + PERPLEXITY_WEB_SEARCH_COST_USD
-            })
-        })
-    });
     let model_reported = parsed
         .get("model")
         .and_then(Value::as_str)
@@ -318,7 +316,7 @@ pub(crate) async fn run_perplexity_api_agent(
         usage_input_tokens,
         usage_output_tokens,
         cost_usd,
-        cost_usd.map(|_| reported_cost_usd.is_none()),
+        cost_estimated,
         cache,
         started.elapsed().as_millis(),
         prompt.chars().count(),
@@ -335,6 +333,34 @@ pub(crate) fn perplexity_model() -> String {
 
 fn normalize_agent_model_override(value: &str) -> String {
     value.trim().to_string()
+}
+
+fn perplexity_response_cost(
+    value: &Value,
+    usage_input_tokens: Option<u64>,
+    usage_output_tokens: Option<u64>,
+    rates: Option<ProviderCostRates>,
+) -> (Option<f64>, Option<bool>) {
+    let reported = value
+        .pointer("/usage/cost/total_cost")
+        .and_then(Value::as_f64)
+        .filter(|cost| cost.is_finite() && *cost >= 0.0);
+    if let Some(cost) = reported {
+        return (Some(cost), Some(false));
+    }
+    let estimated = rates.and_then(|rates| {
+        usage_input_tokens
+            .zip(usage_output_tokens)
+            .map(|(input, output)| {
+                provider_cost(input, output, rates)
+                    + if perplexity_has_search_evidence(value) {
+                        PERPLEXITY_WEB_SEARCH_COST_USD
+                    } else {
+                        0.0
+                    }
+            })
+    });
+    (estimated, estimated.map(|_| true))
 }
 
 fn perplexity_has_search_evidence(value: &Value) -> bool {
@@ -490,5 +516,33 @@ mod tests {
                 "content": [{"type":"output_text","text":"answer"}]
             }]
         })));
+    }
+
+    #[test]
+    fn response_cost_accounts_for_failed_and_ungrounded_attempts() {
+        let rates = ProviderCostRates {
+            input_usd_per_million: 1.0,
+            output_usd_per_million: 2.0,
+        };
+        let with_search = json!({
+            "status": "incomplete",
+            "output": [{"type":"search_results","results":[{"url":"https://example.org"}]}]
+        });
+        let (cost, estimated) =
+            perplexity_response_cost(&with_search, Some(100), Some(20), Some(rates));
+        assert!((cost.unwrap() - 0.00264).abs() < 1e-9);
+        assert_eq!(estimated, Some(true));
+
+        let without_search = json!({"status":"failed","output":[]});
+        let (cost, estimated) =
+            perplexity_response_cost(&without_search, Some(100), Some(20), Some(rates));
+        assert!((cost.unwrap() - 0.00014).abs() < 1e-9);
+        assert_eq!(estimated, Some(true));
+
+        let reported = json!({"status":"failed","usage":{"cost":{"total_cost":0.01}}});
+        assert_eq!(
+            perplexity_response_cost(&reported, Some(100), Some(20), Some(rates)),
+            (Some(0.01), Some(false))
+        );
     }
 }

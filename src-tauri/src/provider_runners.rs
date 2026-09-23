@@ -331,6 +331,7 @@ pub(crate) fn write_provider_error_result_with_accounting(
     usage_input_tokens: Option<u64>,
     usage_output_tokens: Option<u64>,
     cost_usd: Option<f64>,
+    cost_estimated: Option<bool>,
 ) -> EditorialAgentResult {
     write_provider_failure_result_accounted(
         invocation,
@@ -343,6 +344,7 @@ pub(crate) fn write_provider_error_result_with_accounting(
         usage_input_tokens,
         usage_output_tokens,
         cost_usd,
+        cost_estimated,
     )
 }
 
@@ -366,6 +368,7 @@ pub(crate) fn write_provider_failure_result(
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -381,6 +384,7 @@ fn write_provider_failure_result_accounted(
     usage_input_tokens: Option<u64>,
     usage_output_tokens: Option<u64>,
     cost_usd: Option<f64>,
+    cost_estimated: Option<bool>,
 ) -> EditorialAgentResult {
     let safe_status = sanitize_text(status, 240);
     let safe_note = sanitize_text(note, 2000);
@@ -388,7 +392,14 @@ fn write_provider_failure_result_accounted(
         .map(|value| format!("- Cost projected USD: `{value:.6}`\n"))
         .unwrap_or_default();
     let billed_line = cost_usd
-        .map(|value| format!("- Cost observed USD: `{value:.8}`\n"))
+        .map(|value| {
+            let kind = if cost_estimated == Some(true) {
+                "estimated"
+            } else {
+                "observed"
+            };
+            format!("- Cost {kind} USD: `{value:.8}`\n")
+        })
         .unwrap_or_default();
     let _ = write_text_file(
         invocation.output_path,
@@ -422,7 +433,7 @@ fn write_provider_failure_result_accounted(
         usage_input_tokens,
         usage_output_tokens,
         cost_usd,
-        cost_estimated: cost_usd.map(|_| false),
+        cost_estimated,
         cache: None,
     };
     log_editorial_agent_finished(
