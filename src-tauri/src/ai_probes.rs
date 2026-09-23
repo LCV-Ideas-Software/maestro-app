@@ -151,14 +151,14 @@ fn probe_perplexity_api(client: &Client, config: &AiProviderConfig) -> AiProvide
         config.perplexity_api_key.as_deref(),
         &["MAESTRO_PERPLEXITY_API_KEY", "PERPLEXITY_API_KEY"],
     ) else {
-        return missing_provider_key_row("Perplexity / Sonar", config.perplexity_api_key_remote);
+        return missing_provider_key_row("Perplexity / Agent API", config.perplexity_api_key_remote);
     };
 
     let response = client
         .get("https://api.perplexity.ai/v1/models")
         .bearer_auth(&key)
         .send();
-    summarize_ai_probe_response("Perplexity / Sonar", response)
+    summarize_ai_probe_response("Perplexity / Agent API", response)
 }
 
 fn missing_provider_key_row(label: &str, remote_present: bool) -> AiProviderProbeRow {

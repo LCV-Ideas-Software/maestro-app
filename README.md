@@ -154,7 +154,7 @@ When a reviewer revises approved text, the content lock reads the isolated `<mae
 Perplexity configuration:
 
 - Key: set `MAESTRO_PERPLEXITY_API_KEY` or `PERPLEXITY_API_KEY`, or enter the key in **Ajustes > Agentes via API**.
-- Model override: optional `MAESTRO_PERPLEXITY_MODEL` or `PERPLEXITY_MODEL`; default is `sonar-reasoning-pro`.
+- Model override: optional `MAESTRO_PERPLEXITY_MODEL` or `PERPLEXITY_MODEL` in Agent API `provider/model` format; default is `perplexity/kimi-k3`. Legacy unprefixed Sonar IDs are rejected before a paid call.
 - Cost controls: configure both Perplexity input/output USD-per-million-token rates before paid API sessions. Maestro blocks paid API calls without explicit user-provided rate and session-cost ceilings.
 - Transport: Perplexity is disabled in **CLI** mode, enabled in **Hybrid** and **API** modes, and uses text/manifest attachment fallback rather than native file uploads.
 

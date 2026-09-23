@@ -143,7 +143,7 @@ This pass is still conservative. The deterministic link checker, ABNT engine, ca
 - Anthropic/Claude direct API calls mark the stable `system` text block with `cache_control: { "type": "ephemeral" }` and record provider cache read/create token usage when returned.
 - DeepSeek uses its provider-side automatic prefix/disk cache and records hit/miss token usage when returned.
 - Gemini keeps the normal thinking-preserving GenerateContent flow. Maestro records Gemini cached-token usage when returned by `usageMetadata`.
-- Perplexity/Sonar currently has no documented prompt-cache control comparable to the other direct editorial flows. Maestro does not add invented cache fields and records only non-secret source/cache-plan metadata when available.
+- The Perplexity Agent API currently has no documented prompt-cache control comparable to the other direct editorial flows. Maestro does not add invented cache fields and records only non-secret source/cache-plan metadata when available.
 - Logs and artifacts store only cache mode, key hash, retention label, and token counts. They never store raw API keys, full prompts, protocols, or cache keys that could reveal private content.
 
 1. Maestro builds an evidence pack and protocol pack.

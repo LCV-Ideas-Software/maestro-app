@@ -289,7 +289,7 @@ pub(crate) fn provider_cache_plan(
         ),
         "perplexity" => (
             "automatic_prefix".to_string(),
-            "sonar_no_documented_prompt_cache_control".to_string(),
+            "agent_api_no_documented_prompt_cache_control".to_string(),
             None,
         ),
         _ => (
@@ -693,7 +693,7 @@ mod tests {
     fn provider_cache_plan_keeps_perplexity_without_invented_payload_fields() {
         let plan = provider_cache_plan(
             "perplexity",
-            "sonar-reasoning-pro",
+            "perplexity/kimi-k3",
             "review",
             "Perplexity",
             "system",
@@ -702,7 +702,7 @@ mod tests {
         assert_eq!(plan.provider_mode, "automatic_prefix");
         assert_eq!(
             plan.cache_control_status,
-            "sonar_no_documented_prompt_cache_control"
+            "agent_api_no_documented_prompt_cache_control"
         );
         assert_eq!(plan.cache_retention, None);
     }
