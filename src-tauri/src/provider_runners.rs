@@ -322,6 +322,30 @@ pub(crate) fn write_provider_error_result(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn write_provider_error_result_with_accounting(
+    invocation: &ProviderInvocation,
+    model: &str,
+    status: &str,
+    duration_ms: u128,
+    usage_input_tokens: Option<u64>,
+    usage_output_tokens: Option<u64>,
+    cost_usd: Option<f64>,
+) -> EditorialAgentResult {
+    write_provider_failure_result_accounted(
+        invocation,
+        model,
+        status,
+        "error",
+        status,
+        duration_ms,
+        None,
+        usage_input_tokens,
+        usage_output_tokens,
+        cost_usd,
+    )
+}
+
 pub(crate) fn write_provider_failure_result(
     invocation: &ProviderInvocation,
     model: &str,
@@ -331,15 +355,45 @@ pub(crate) fn write_provider_failure_result(
     duration_ms: u128,
     projected_cost_usd: Option<f64>,
 ) -> EditorialAgentResult {
+    write_provider_failure_result_accounted(
+        invocation,
+        model,
+        status,
+        tone,
+        note,
+        duration_ms,
+        projected_cost_usd,
+        None,
+        None,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_provider_failure_result_accounted(
+    invocation: &ProviderInvocation,
+    model: &str,
+    status: &str,
+    tone: &str,
+    note: &str,
+    duration_ms: u128,
+    projected_cost_usd: Option<f64>,
+    usage_input_tokens: Option<u64>,
+    usage_output_tokens: Option<u64>,
+    cost_usd: Option<f64>,
+) -> EditorialAgentResult {
     let safe_status = sanitize_text(status, 240);
     let safe_note = sanitize_text(note, 2000);
     let projected_line = projected_cost_usd
         .map(|value| format!("- Cost projected USD: `{value:.6}`\n"))
         .unwrap_or_default();
+    let billed_line = cost_usd
+        .map(|value| format!("- Cost observed USD: `{value:.8}`\n"))
+        .unwrap_or_default();
     let _ = write_text_file(
         invocation.output_path,
         &format!(
-            "# {} - {}\n\n- CLI: `{}`\n- Provider: `{}`\n- Model: `{}`\n- Status: `{}`\n- Exit code: `unknown`\n- Duration ms: `{duration_ms}`\n{}{}\n## Stdout\n\n```text\n\n```\n\n## Stderr\n\n```text\n{}\n```\n",
+            "# {} - {}\n\n- CLI: `{}`\n- Provider: `{}`\n- Model: `{}`\n- Status: `{}`\n- Exit code: `unknown`\n- Duration ms: `{duration_ms}`\n{}{}{}\n## Stdout\n\n```text\n\n```\n\n## Stderr\n\n```text\n{}\n```\n",
             invocation.name,
             invocation.role,
             invocation.cli,
@@ -347,6 +401,7 @@ pub(crate) fn write_provider_failure_result(
             sanitize_text(model, 120),
             safe_status,
             projected_line,
+            billed_line,
             if safe_note.is_empty() {
                 String::new()
             } else {
@@ -364,10 +419,10 @@ pub(crate) fn write_provider_failure_result(
         duration_ms,
         exit_code: None,
         output_path: invocation.output_path.to_string_lossy().to_string(),
-        usage_input_tokens: None,
-        usage_output_tokens: None,
-        cost_usd: None,
-        cost_estimated: None,
+        usage_input_tokens,
+        usage_output_tokens,
+        cost_usd,
+        cost_estimated: cost_usd.map(|_| false),
         cache: None,
     };
     log_editorial_agent_finished(
@@ -398,6 +453,7 @@ pub(crate) fn write_provider_success_result(
     usage_input_tokens: Option<u64>,
     usage_output_tokens: Option<u64>,
     cost_usd: Option<f64>,
+    cost_estimated: Option<bool>,
     cache: Option<ProviderCacheTelemetry>,
     duration_ms: u128,
     prompt_chars: usize,
@@ -448,7 +504,7 @@ pub(crate) fn write_provider_success_result(
         usage_input_tokens,
         usage_output_tokens,
         cost_usd,
-        cost_estimated: cost_usd.map(|_| true),
+        cost_estimated,
         cache,
     };
     log_editorial_agent_finished(
@@ -720,6 +776,7 @@ pub(crate) async fn run_openai_api_agent(
         usage_input_tokens,
         usage_output_tokens,
         cost_usd,
+        cost_usd.map(|_| true),
         cache,
         started.elapsed().as_millis(),
         prompt.chars().count(),
@@ -947,6 +1004,7 @@ pub(crate) async fn run_anthropic_api_agent(
         usage_input_tokens,
         usage_output_tokens,
         cost_usd,
+        cost_usd.map(|_| true),
         cache,
         started.elapsed().as_millis(),
         prompt.chars().count(),
@@ -1174,6 +1232,7 @@ pub(crate) async fn run_gemini_api_agent(
         usage_input_tokens,
         usage_output_tokens,
         cost_usd,
+        cost_usd.map(|_| true),
         cache,
         started.elapsed().as_millis(),
         prompt.chars().count(),

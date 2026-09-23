@@ -6,7 +6,7 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Fixed
 
-- **MAESTRO-33:** Move the Perplexity desktop peer to the Agent API with a documented `provider/model` pin, explicit web search, typed response parsing, source metadata, and provider-reported cost. Reject legacy Sonar model IDs before dispatch.
+- **MAESTRO-33:** Move the Perplexity desktop peer to the Agent API with a documented `provider/model` pin, typed response parsing, and source metadata. Preserve model override separators, require search evidence before accepting a response, reserve the web-search fee in cost guards, and record provider-reported cost even for incomplete responses. Reject legacy Sonar model IDs before dispatch.
 
 ### Changed
 
