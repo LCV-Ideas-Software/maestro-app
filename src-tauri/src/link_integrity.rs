@@ -21,9 +21,9 @@ use crate::app_paths::{checked_data_child_path, data_dir};
 use crate::editorial_io::write_text_file;
 use crate::sanitize::{sanitize_short, sanitize_text};
 use crate::web_evidence::{
-    fetch_web_evidence_inner, search_web_evidence_inner, WebEvidenceFetchRequest,
-    WebEvidenceInteractionState, WebEvidenceMethod, WebEvidenceRecord, WebEvidenceSearchRequest,
-    WebEvidenceState,
+    fetch_web_evidence_inner, search_web_evidence_inner, WebEvidenceCacheState,
+    WebEvidenceFetchRequest, WebEvidenceInteractionState, WebEvidenceMethod, WebEvidenceRecord,
+    WebEvidenceSearchRequest, WebEvidenceState,
 };
 use crate::{
     LinkAuditResult, LinkAuditRow, LinkClassification, LinkCorrectionAction,
@@ -231,7 +231,9 @@ fn extract_links(text: &str) -> Vec<ExtractedLink> {
         r#"(?s)\[([^\]\n]{0,240})\]\(\s*((?:[a-zA-Z][a-zA-Z0-9+.-]*:)[^)\s]+)(?:\s+[\"'][^\"']*[\"'])?\s*\)"#,
     ) {
         for capture in markdown.captures_iter(text) {
-            let Some(whole) = capture.get(0) else { continue };
+            let Some(whole) = capture.get(0) else {
+                continue;
+            };
             let Some(url) = capture.get(2) else { continue };
             let anchor = capture
                 .get(1)
@@ -251,7 +253,9 @@ fn extract_links(text: &str) -> Vec<ExtractedLink> {
         r#"(?is)<a\b[^>]*\bhref\s*=\s*[\"']((?:[a-z][a-z0-9+.-]*:)[^\"']+)[\"'][^>]*>(.*?)</a>"#,
     ) {
         for capture in html.captures_iter(text) {
-            let Some(whole) = capture.get(0) else { continue };
+            let Some(whole) = capture.get(0) else {
+                continue;
+            };
             if overlaps(whole.start(), whole.end(), &covered) {
                 continue;
             }
@@ -371,6 +375,7 @@ fn base_row(
         checked_at: Utc::now().to_rfc3339(),
         claim_supported: None,
         classification: LinkClassification::VerifiedButWeak,
+        mechanical_classification: None,
         correction_candidates: Vec::new(),
         cross_review_status: LinkCrossReviewStatus::Pending,
         review_decision: None,
@@ -397,6 +402,11 @@ fn content_type_mismatch(url: &str, content_type: Option<&str>) -> bool {
 }
 
 fn mechanical_failure_class(record: &WebEvidenceRecord) -> Option<LinkClassification> {
+    if record.status == Some(403)
+        && record.interaction_state == WebEvidenceInteractionState::LoginRequired
+    {
+        return Some(LinkClassification::Forbidden);
+    }
     if record.interaction_state == WebEvidenceInteractionState::CaptchaRequired {
         return Some(LinkClassification::CaptchaRequired);
     }
@@ -406,6 +416,22 @@ fn mechanical_failure_class(record: &WebEvidenceRecord) -> Option<LinkClassifica
     if record.interaction_state == WebEvidenceInteractionState::Paywall {
         return Some(LinkClassification::Paywall);
     }
+    if !matches!(record.interaction_state, WebEvidenceInteractionState::None)
+        && !(record.interaction_state == WebEvidenceInteractionState::HumanResolved
+            && record.human_resolved)
+    {
+        return Some(LinkClassification::Quarantined);
+    }
+    if record.state == WebEvidenceState::Blocked {
+        return Some(LinkClassification::Quarantined);
+    }
+    if record.state != WebEvidenceState::Ready && record.state != WebEvidenceState::Failed {
+        return Some(LinkClassification::Quarantined);
+    }
+    if record.state == WebEvidenceState::Ready && record.cache_state != WebEvidenceCacheState::Fresh
+    {
+        return Some(LinkClassification::Quarantined);
+    }
     match record.status {
         Some(401) => Some(LinkClassification::AuthRequired),
         Some(403) => Some(LinkClassification::Forbidden),
@@ -413,7 +439,6 @@ fn mechanical_failure_class(record: &WebEvidenceRecord) -> Option<LinkClassifica
         Some(status) if !(200..=299).contains(&status) => {
             Some(LinkClassification::SuspectedHallucination)
         }
-        _ if record.state == WebEvidenceState::Blocked => Some(LinkClassification::Quarantined),
         _ if record.state == WebEvidenceState::Failed => {
             let notes = record.notes.join(" ").to_ascii_lowercase();
             if notes.contains("timed out") || notes.contains("timeout") {
@@ -426,6 +451,7 @@ fn mechanical_failure_class(record: &WebEvidenceRecord) -> Option<LinkClassifica
                 Some(LinkClassification::SuspectedHallucination)
             }
         }
+        _ if record.status.is_none() => Some(LinkClassification::Quarantined),
         _ => None,
     }
 }
@@ -451,6 +477,7 @@ fn apply_web_evidence(row: &mut LinkAuditRow, evidence: WebEvidenceRecord) {
 
     if let Some(classification) = mechanical_failure_class(&evidence) {
         row.classification = classification;
+        row.mechanical_classification = Some(classification);
         row.cross_review_status = LinkCrossReviewStatus::Pending;
         row.status = evidence
             .status
@@ -471,6 +498,7 @@ fn apply_web_evidence(row: &mut LinkAuditRow, evidence: WebEvidenceRecord) {
 
     if content_type_mismatch(&row.normalized_url, row.content_type.as_deref()) {
         row.classification = LinkClassification::ContentTypeMismatch;
+        row.mechanical_classification = Some(LinkClassification::ContentTypeMismatch);
         row.status = row
             .http_status
             .map(|status| format!("HTTP {status}"))
@@ -490,6 +518,7 @@ fn apply_web_evidence(row: &mut LinkAuditRow, evidence: WebEvidenceRecord) {
     } else {
         LinkClassification::VerifiedButWeak
     };
+    row.mechanical_classification = Some(row.classification);
     row.cross_review_status = LinkCrossReviewStatus::Pending;
     row.status = row
         .http_status
@@ -510,6 +539,8 @@ fn apply_preserved_review(row: &mut LinkAuditRow, previous: &LinkAuditRow) {
         || previous.normalized_url != row.normalized_url
         || previous.sha256 != row.sha256
         || previous.review_decision.is_none()
+        || (previous.review_decision == Some(LinkReviewDecision::Accept)
+            && !mechanically_acceptable(row))
     {
         return;
     }
@@ -552,6 +583,29 @@ fn apply_preserved_review(row: &mut LinkAuditRow, previous: &LinkAuditRow) {
         }
         None => {}
     }
+}
+
+fn valid_content_hash(hash: Option<&str>) -> bool {
+    hash.is_some_and(|value| {
+        value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    })
+}
+
+fn mechanically_acceptable(row: &LinkAuditRow) -> bool {
+    if row.normalized_url.starts_with("mailto:") {
+        return row.mechanical_classification == Some(LinkClassification::VerifiedButWeak);
+    }
+    row.http_status
+        .is_some_and(|status| (200..=299).contains(&status))
+        && valid_content_hash(row.sha256.as_deref())
+        && matches!(
+            row.mechanical_classification,
+            Some(LinkClassification::VerifiedButWeak | LinkClassification::RedirectedVerified)
+        )
+}
+
+fn normalized_url_is_safe_to_collect(url: &str) -> bool {
+    sanitize_text(url, 1000) == url
 }
 
 fn malformed_row(
@@ -597,13 +651,26 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
         let occurrence = occurrences.entry(occurrence_key).or_insert(0);
         *occurrence += 1;
         let mut row = match normalized {
-            Ok((normalized_url, changes)) => base_row(
-                &extracted,
-                &source_fingerprint,
-                normalized_url,
-                changes,
-                *occurrence,
-            ),
+            Ok((normalized_url, changes)) => {
+                if !normalized_url_is_safe_to_collect(&normalized_url) {
+                    let row = save_audit_record(malformed_row(
+                        &extracted,
+                        &source_fingerprint,
+                        *occurrence,
+                        "normalized URL would change during sanitization",
+                    ))?;
+                    append_event("audit", &row)?;
+                    rows.push(row);
+                    continue;
+                }
+                base_row(
+                    &extracted,
+                    &source_fingerprint,
+                    normalized_url,
+                    changes,
+                    *occurrence,
+                )
+            }
             Err(error) => {
                 let row = save_audit_record(malformed_row(
                     &extracted,
@@ -621,6 +688,7 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
             row.status = "mailto sintaticamente valido".to_string();
             row.invalidity = "destino mailto requer julgamento editorial explicito".to_string();
             row.classification = LinkClassification::VerifiedButWeak;
+            row.mechanical_classification = Some(LinkClassification::VerifiedButWeak);
             row.cross_review_status = LinkCrossReviewStatus::Pending;
             row.tone = "warn".to_string();
         } else {
@@ -645,6 +713,7 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
                         LinkClassification::SuspectedHallucination
                     };
                     row.status = "falha mecanica".to_string();
+                    row.mechanical_classification = Some(row.classification);
                     row.invalidity = sanitize_text(&error, 180);
                     row.tone = "error".to_string();
                 }
@@ -659,10 +728,7 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
         .iter()
         .filter(|row| row.cross_review_status == LinkCrossReviewStatus::Pending)
         .count();
-    let blocked = rows
-        .iter()
-        .filter(|row| row.tone == "blocked")
-        .count();
+    let blocked = rows.iter().filter(|row| row.tone == "blocked").count();
     let failed = rows
         .iter()
         .filter(|row| matches!(row.tone.as_str(), "error" | "blocked"))
@@ -700,7 +766,8 @@ pub(crate) fn list_link_integrity_records(
     for entry in fs::read_dir(records_dir()?)
         .map_err(|error| format!("failed to list link-integrity records: {error}"))?
     {
-        let entry = entry.map_err(|error| format!("failed to read link-integrity entry: {error}"))?;
+        let entry =
+            entry.map_err(|error| format!("failed to read link-integrity entry: {error}"))?;
         let Some(link_id) = entry
             .path()
             .file_stem()
@@ -724,8 +791,7 @@ pub(crate) fn list_link_integrity_records(
         {
             continue;
         }
-        if request.needs_review_only
-            && record.cross_review_status != LinkCrossReviewStatus::Pending
+        if request.needs_review_only && record.cross_review_status != LinkCrossReviewStatus::Pending
         {
             continue;
         }
@@ -794,27 +860,16 @@ pub(crate) fn review_link_integrity(
     let expected_sha256 = request.expected_sha256;
     let decision = request.decision;
     let record = update_record(&link_id, move |record| {
-        if record.normalized_url != expected_normalized_url
-            || record.sha256 != expected_sha256
-        {
+        if record.normalized_url != expected_normalized_url || record.sha256 != expected_sha256 {
             return Err(
                 "link URL or content hash changed since it was read; reload before reviewing"
                     .to_string(),
             );
         }
         if decision == LinkReviewDecision::Accept {
-            let reachable_http = record
-                .http_status
-                .map(|status| (200..=299).contains(&status))
-                .unwrap_or(false);
-            if !reachable_http && !record.normalized_url.starts_with("mailto:") {
+            if !mechanically_acceptable(record) {
                 return Err(
                     "cannot accept a link that did not pass mechanical validation".to_string(),
-                );
-            }
-            if record.classification == LinkClassification::ContentTypeMismatch {
-                return Err(
-                    "content-type mismatch must be corrected before acceptance".to_string(),
                 );
             }
         }
@@ -930,8 +985,9 @@ pub(crate) fn propose_link_corrections(
         provider: "maestro".to_string(),
         query: None,
         web_evidence_id: None,
-        rationale: "remover o link ou a afirmacao quando nenhuma fonte confiavel sustentar o trecho"
-            .to_string(),
+        rationale:
+            "remover o link ou a afirmacao quando nenhuma fonte confiavel sustentar o trecho"
+                .to_string(),
         proposed_at: proposed_at.clone(),
     });
     candidates.push(LinkCorrectionCandidate {
@@ -972,10 +1028,65 @@ pub(crate) fn audit_requires_editorial_resolution(result: &LinkAuditResult) -> b
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::web_evidence::{
+        WebEvidenceAccessMode, WebEvidenceCacheState, WebEvidenceCopyrightState,
+        WebEvidenceRobotsState,
+    };
+
+    fn test_row() -> LinkAuditRow {
+        let extracted = ExtractedLink {
+            start: 0,
+            original_url: "https://example.com/source".to_string(),
+            anchor_text: Some("fonte".to_string()),
+            surrounding_text: "afirmacao com fonte".to_string(),
+        };
+        base_row(
+            &extracted,
+            &sha256("source"),
+            extracted.original_url.clone(),
+            Vec::new(),
+            1,
+        )
+    }
+
+    fn test_evidence() -> WebEvidenceRecord {
+        WebEvidenceRecord {
+            id: "evidence".to_string(),
+            schema_version: "web_evidence.v1".to_string(),
+            state: WebEvidenceState::Ready,
+            url: "https://example.com/source".to_string(),
+            method: WebEvidenceMethod::Get,
+            access_mode: WebEvidenceAccessMode::HttpFetch,
+            status: Some(200),
+            final_url: Some("https://example.com/source".to_string()),
+            title: None,
+            content_type: Some("text/html".to_string()),
+            sha256: Some("a".repeat(64)),
+            retrieved_at: None,
+            expires_at: None,
+            cache_ttl: "test".to_string(),
+            cache_state: WebEvidenceCacheState::Fresh,
+            robots_state: WebEvidenceRobotsState::Allowed,
+            copyright_state: WebEvidenceCopyrightState::Unknown,
+            interaction_state: WebEvidenceInteractionState::None,
+            human_resolved: false,
+            byte_count: None,
+            duration_ms: None,
+            redirect_chain: Vec::new(),
+            curl_command: None,
+            provider: None,
+            query: None,
+            artifact_name: None,
+            notes: Vec::new(),
+            created_at: "2026-09-25T00:00:00Z".to_string(),
+            updated_at: "2026-09-25T00:00:00Z".to_string(),
+        }
+    }
 
     #[test]
     fn extraction_preserves_markdown_anchor_and_context() {
-        let links = extract_links("A fonte [documento oficial](https://example.com/a) sustenta a frase.");
+        let links =
+            extract_links("A fonte [documento oficial](https://example.com/a) sustenta a frase.");
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].anchor_text.as_deref(), Some("documento oficial"));
         assert!(links[0].surrounding_text.contains("sustenta a frase"));
@@ -1065,5 +1176,99 @@ mod tests {
         assert_eq!(row.claim_supported, None);
         assert_eq!(row.classification, LinkClassification::VerifiedButWeak);
         assert_eq!(row.cross_review_status, LinkCrossReviewStatus::Pending);
+    }
+
+    #[test]
+    fn accept_and_preservation_require_current_mechanical_proof() {
+        let mut row = test_row();
+        apply_web_evidence(&mut row, test_evidence());
+        assert!(mechanically_acceptable(&row));
+        let mut previous = row.clone();
+        previous.review_decision = Some(LinkReviewDecision::Accept);
+        let mut refreshed = row.clone();
+        refreshed.mechanical_classification = Some(LinkClassification::Quarantined);
+        apply_preserved_review(&mut refreshed, &previous);
+        assert_eq!(refreshed.review_decision, None);
+
+        let mut blocked = test_evidence();
+        blocked.state = WebEvidenceState::Blocked;
+        let mut blocked_row = test_row();
+        apply_web_evidence(&mut blocked_row, blocked);
+        assert_eq!(
+            blocked_row.mechanical_classification,
+            Some(LinkClassification::Quarantined)
+        );
+        assert!(!mechanically_acceptable(&blocked_row));
+    }
+
+    #[test]
+    fn collected_url_must_survive_sanitization_unchanged() {
+        assert!(normalized_url_is_safe_to_collect(
+            "https://example.com/source"
+        ));
+        assert!(!normalized_url_is_safe_to_collect(&format!(
+            "https://example.com/{}",
+            "a".repeat(1000)
+        )));
+    }
+
+    #[test]
+    fn http_accept_requires_valid_content_hash() {
+        let mut row = test_row();
+        apply_web_evidence(&mut row, test_evidence());
+        row.sha256 = None;
+        assert!(!mechanically_acceptable(&row));
+        let mut previous = row.clone();
+        previous.review_decision = Some(LinkReviewDecision::Accept);
+        let mut refreshed = row.clone();
+        apply_preserved_review(&mut refreshed, &previous);
+        assert_eq!(refreshed.review_decision, None);
+        row.sha256 = Some("short".to_string());
+        assert!(!mechanically_acceptable(&row));
+    }
+
+    #[test]
+    fn only_ready_resolved_evidence_is_mechanically_acceptable() {
+        let mut evidence = test_evidence();
+        for state in [
+            WebEvidenceState::Queued,
+            WebEvidenceState::Collecting,
+            WebEvidenceState::Stale,
+            WebEvidenceState::OperatorActionRequired,
+        ] {
+            evidence.state = state;
+            assert!(mechanical_failure_class(&evidence).is_some());
+        }
+        evidence.state = WebEvidenceState::Ready;
+        evidence.cache_state = WebEvidenceCacheState::Stale;
+        assert!(mechanical_failure_class(&evidence).is_some());
+        evidence.cache_state = WebEvidenceCacheState::Fresh;
+        for interaction in [
+            WebEvidenceInteractionState::ConsentRequired,
+            WebEvidenceInteractionState::DownloadConfirmation,
+            WebEvidenceInteractionState::HumanResolved,
+        ] {
+            evidence.interaction_state = interaction;
+            assert!(mechanical_failure_class(&evidence).is_some());
+        }
+        evidence.interaction_state = WebEvidenceInteractionState::HumanResolved;
+        evidence.human_resolved = true;
+        assert_eq!(mechanical_failure_class(&evidence), None);
+    }
+
+    #[test]
+    fn login_required_403_keeps_forbidden_classification() {
+        let mut evidence = test_evidence();
+        evidence.status = Some(403);
+        evidence.interaction_state = WebEvidenceInteractionState::LoginRequired;
+        assert_eq!(
+            mechanical_failure_class(&evidence),
+            Some(LinkClassification::Forbidden)
+        );
+        evidence.status = Some(401);
+        assert_eq!(
+            mechanical_failure_class(&evidence),
+            Some(LinkClassification::AuthRequired)
+        );
     }
 }

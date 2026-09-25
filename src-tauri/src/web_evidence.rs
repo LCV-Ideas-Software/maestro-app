@@ -560,8 +560,7 @@ fn cache_state(record: &WebEvidenceRecord, now: DateTime<Utc>) -> WebEvidenceCac
 
 fn project_record(mut record: WebEvidenceRecord, now: DateTime<Utc>) -> WebEvidenceRecord {
     record.cache_state = cache_state(&record, now);
-    if record.state == WebEvidenceState::Ready
-        && record.cache_state == WebEvidenceCacheState::Stale
+    if record.state == WebEvidenceState::Ready && record.cache_state == WebEvidenceCacheState::Stale
     {
         record.state = WebEvidenceState::Stale;
     }
@@ -682,6 +681,23 @@ fn validate_public_url(value: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+fn rejected_url_for_record(value: &str) -> String {
+    let Ok(mut url) = Url::parse(value) else {
+        return "<blocked URL>".to_string();
+    };
+    if !matches!(url.scheme(), "http" | "https")
+        || url.set_username("").is_err()
+        || url.set_password(None).is_err()
+    {
+        return "<blocked URL>".to_string();
+    }
+    // A rejected URL is never fetched. Drop the entire query, including
+    // nonstandard delimiters that query_pairs would not recognize.
+    url.set_query(None);
+    url.set_fragment(None);
+    sanitize_text(url.as_str(), 2_048)
+}
+
 fn sensitive_query_key(value: &str) -> bool {
     let normalized = value.to_ascii_lowercase();
     [
@@ -717,7 +733,12 @@ fn build_public_http_client() -> Result<Client, String> {
             env!("CARGO_PKG_VERSION")
         ))
         .build()
-        .map_err(|error| format!("failed to create guarded HTTP client: {}", error.without_url()))
+        .map_err(|error| {
+            format!(
+                "failed to create guarded HTTP client: {}",
+                error.without_url()
+            )
+        })
 }
 
 fn same_origin(left: &Url, right: &Url) -> bool {
@@ -737,11 +758,12 @@ fn safe_response_headers(response: &Response) -> BTreeMap<String, String> {
         LAST_MODIFIED,
         LOCATION,
     ] {
-        if let Some(value) = response.headers().get(&name).and_then(|value| value.to_str().ok()) {
-            result.insert(
-                name.as_str().to_string(),
-                sanitize_text(value, 1_024),
-            );
+        if let Some(value) = response
+            .headers()
+            .get(&name)
+            .and_then(|value| value.to_str().ok())
+        {
+            result.insert(name.as_str().to_string(), sanitize_text(value, 1_024));
         }
     }
     result
@@ -779,7 +801,8 @@ fn execute_public_request(
             .map_err(|error| format!("HTTP request failed: {}", error.without_url()))?;
         let status = response.status();
 
-        if status.is_redirection() {
+        // 304 is a cache validation response, not a Location redirect.
+        if follows_location_redirect(status) {
             let location = response
                 .headers()
                 .get(LOCATION)
@@ -852,6 +875,10 @@ fn execute_public_request(
             redirects,
         });
     }
+}
+
+fn follows_location_redirect(status: StatusCode) -> bool {
+    status.is_redirection() && status != StatusCode::NOT_MODIFIED
 }
 
 fn robots_url_for(url: &Url) -> Result<Url, String> {
@@ -991,7 +1018,11 @@ fn extract_html_title(body: &[u8], content_type: Option<&str>) -> Option<String>
     (!title.is_empty()).then_some(title)
 }
 
-fn classify_interaction(status: u16, content_type: Option<&str>, body: &[u8]) -> WebEvidenceInteractionState {
+fn classify_interaction(
+    status: u16,
+    content_type: Option<&str>,
+    body: &[u8],
+) -> WebEvidenceInteractionState {
     if status == 401 || status == 403 {
         return WebEvidenceInteractionState::LoginRequired;
     }
@@ -1043,7 +1074,10 @@ fn conditional_headers(stored: Option<&StoredWebEvidence>) -> Vec<(HeaderName, H
     let Some(stored) = stored else {
         return result;
     };
-    for (source, target) in [("etag", IF_NONE_MATCH), ("last-modified", IF_MODIFIED_SINCE)] {
+    for (source, target) in [
+        ("etag", IF_NONE_MATCH),
+        ("last-modified", IF_MODIFIED_SINCE),
+    ] {
         if let Some(value) = stored.response_headers.get(source) {
             if let Ok(value) = HeaderValue::from_str(value) {
                 result.push((target, value));
@@ -1053,7 +1087,19 @@ fn conditional_headers(stored: Option<&StoredWebEvidence>) -> Vec<(HeaderName, H
     result
 }
 
-fn persist_content(id: &str, content_type: Option<&str>, bytes: &[u8]) -> Result<Option<String>, String> {
+fn ready_cached_evidence_for_304(stored: &StoredWebEvidence) -> bool {
+    stored.record.state == WebEvidenceState::Ready
+        && stored.content_path.is_some()
+        && stored.record.sha256.as_deref().is_some_and(|hash| {
+            hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+}
+
+fn persist_content(
+    id: &str,
+    content_type: Option<&str>,
+    bytes: &[u8],
+) -> Result<Option<String>, String> {
     if bytes.is_empty() {
         return Ok(None);
     }
@@ -1100,6 +1146,23 @@ fn failed_fetch_record(
     }
 }
 
+fn blocked_request_record(
+    request: &WebEvidenceFetchRequest,
+    id: &str,
+    reason: &str,
+    now: DateTime<Utc>,
+) -> StoredWebEvidence {
+    failed_fetch_record(
+        None,
+        id,
+        &rejected_url_for_record(&request.url),
+        request.method,
+        WebEvidenceState::Blocked,
+        reason,
+        now,
+    )
+}
+
 pub(crate) fn fetch_web_evidence_inner(
     app: Option<&tauri::AppHandle>,
     request: WebEvidenceFetchRequest,
@@ -1110,20 +1173,18 @@ pub(crate) fn fetch_web_evidence_inner(
         request.method.as_str(),
         request.url
     ));
-    emit_progress(app, "fetch", Some(&preliminary_id), "validating", "Validando destino publico");
+    emit_progress(
+        app,
+        "fetch",
+        Some(&preliminary_id),
+        "validating",
+        "Validando destino publico",
+    );
 
     let validated = match validate_public_url(&request.url) {
         Ok(url) => url,
         Err(error) => {
-            let stored = failed_fetch_record(
-                None,
-                &preliminary_id,
-                &request.url,
-                request.method,
-                WebEvidenceState::Blocked,
-                &error,
-                now,
-            );
+            let stored = blocked_request_record(&request, &preliminary_id, &error, now);
             save_stored(&stored)?;
             append_event("fetch_blocked", &stored.record)?;
             emit_progress(app, "fetch", Some(&stored.record.id), "blocked", &error);
@@ -1147,7 +1208,13 @@ pub(crate) fn fetch_web_evidence_inner(
             if record.state == WebEvidenceState::Ready
                 && record.cache_state == WebEvidenceCacheState::Fresh
             {
-                emit_progress(app, "fetch", Some(&id), "cache_hit", "Evidencia fresca reutilizada");
+                emit_progress(
+                    app,
+                    "fetch",
+                    Some(&id),
+                    "cache_hit",
+                    "Evidencia fresca reutilizada",
+                );
                 return Ok(record);
             }
         }
@@ -1171,13 +1238,19 @@ pub(crate) fn fetch_web_evidence_inner(
         }
     };
 
-    emit_progress(app, "fetch", Some(&id), "robots", "Verificando politica robots.txt");
+    emit_progress(
+        app,
+        "fetch",
+        Some(&id),
+        "robots",
+        "Verificando politica robots.txt",
+    );
     let robots_state = robots_state_for(&client, &validated);
     if robots_state == WebEvidenceRobotsState::Disallowed {
         let mut stored = failed_fetch_record(
             existing.as_ref(),
             &id,
-            &canonical_url,
+            &rejected_url_for_record(&canonical_url),
             request.method,
             WebEvidenceState::Blocked,
             "robots.txt disallows automatic collection for this path",
@@ -1186,11 +1259,23 @@ pub(crate) fn fetch_web_evidence_inner(
         stored.record.robots_state = robots_state;
         save_stored(&stored)?;
         append_event("fetch_robots_disallowed", &stored.record)?;
-        emit_progress(app, "fetch", Some(&id), "blocked", "Coleta automatica bloqueada por robots.txt");
+        emit_progress(
+            app,
+            "fetch",
+            Some(&id),
+            "blocked",
+            "Coleta automatica bloqueada por robots.txt",
+        );
         return Ok(stored.record);
     }
 
-    emit_progress(app, "fetch", Some(&id), "requesting", "Coletando evidencia HTTP");
+    emit_progress(
+        app,
+        "fetch",
+        Some(&id),
+        "requesting",
+        "Coletando evidencia HTTP",
+    );
     let headers = if request.force_revalidate {
         conditional_headers(existing.as_ref())
     } else {
@@ -1226,6 +1311,9 @@ pub(crate) fn fetch_web_evidence_inner(
         let Some(mut stored) = existing else {
             return Err("received HTTP 304 without a cached evidence record".to_string());
         };
+        if !ready_cached_evidence_for_304(&stored) {
+            return Err("received HTTP 304 without a ready cached evidence record".to_string());
+        }
         let retrieved_at = Utc::now();
         stored.record.state = WebEvidenceState::Ready;
         stored.record.cache_state = WebEvidenceCacheState::Fresh;
@@ -1235,6 +1323,7 @@ pub(crate) fn fetch_web_evidence_inner(
         );
         stored.record.updated_at = retrieved_at.to_rfc3339();
         stored.record.duration_ms = Some(raw.duration_ms);
+        stored.record.final_url = Some(raw.final_url);
         stored.record.robots_state = robots_state;
         stored.record.redirect_chain = raw.redirects;
         stored
@@ -1246,7 +1335,13 @@ pub(crate) fn fetch_web_evidence_inner(
         }
         save_stored(&stored)?;
         append_event("fetch_revalidated", &stored.record)?;
-        emit_progress(app, "fetch", Some(&id), "ready", "Cache revalidado sem nova transferencia");
+        emit_progress(
+            app,
+            "fetch",
+            Some(&id),
+            "ready",
+            "Cache revalidado sem nova transferencia",
+        );
         return Ok(stored.record);
     }
 
@@ -1286,9 +1381,8 @@ pub(crate) fn fetch_web_evidence_inner(
     record.content_type = content_type.clone();
     record.sha256 = content_sha;
     record.retrieved_at = Some(retrieved_at.to_rfc3339());
-    record.expires_at = Some(
-        (retrieved_at.clone() + ChronoDuration::days(DEFAULT_CACHE_TTL_DAYS)).to_rfc3339(),
-    );
+    record.expires_at =
+        Some((retrieved_at.clone() + ChronoDuration::days(DEFAULT_CACHE_TTL_DAYS)).to_rfc3339());
     record.cache_state = if state == WebEvidenceState::Ready {
         WebEvidenceCacheState::Fresh
     } else {
@@ -1328,7 +1422,11 @@ pub(crate) fn fetch_web_evidence_inner(
         app,
         "fetch",
         Some(&id),
-        if state == WebEvidenceState::Ready { "ready" } else { "attention" },
+        if state == WebEvidenceState::Ready {
+            "ready"
+        } else {
+            "attention"
+        },
         "Coleta HTTP persistida com proveniencia e hash",
     );
     Ok(stored.record)
@@ -1359,11 +1457,21 @@ pub(crate) fn list_web_evidence(
     for entry in fs::read_dir(records_dir()?)
         .map_err(|error| format!("failed to list web evidence records: {error}"))?
     {
-        let entry = entry.map_err(|error| format!("failed to inspect web evidence entry: {error}"))?;
-        if !entry.file_type().map(|kind| kind.is_file()).unwrap_or(false) {
+        let entry =
+            entry.map_err(|error| format!("failed to inspect web evidence entry: {error}"))?;
+        if !entry
+            .file_type()
+            .map(|kind| kind.is_file())
+            .unwrap_or(false)
+        {
             continue;
         }
-        let Some(stem) = entry.path().file_stem().and_then(|value| value.to_str()).map(str::to_string) else {
+        let Some(stem) = entry
+            .path()
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .map(str::to_string)
+        else {
             continue;
         };
         if !is_valid_evidence_id(&stem) {
@@ -1380,7 +1488,12 @@ pub(crate) fn list_web_evidence(
         if request.stale_only && record.cache_state != WebEvidenceCacheState::Stale {
             continue;
         }
-        if let Some(query) = request.query.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        if let Some(query) = request
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             let query = query.to_ascii_lowercase();
             let haystack = format!(
                 "{} {} {} {} {}",
@@ -1475,7 +1588,10 @@ fn validate_search_connector(connector: &SearchConnector) -> Result<(), String> 
         return Err("search connector id contains unsupported characters".to_string());
     }
     if connector.label.trim().is_empty() || connector.label.len() > 120 {
-        return Err(format!("search connector '{}' has an invalid label", connector.id));
+        return Err(format!(
+            "search connector '{}' has an invalid label",
+            connector.id
+        ));
     }
     let endpoint = validate_public_url(&connector.endpoint)?;
     if endpoint.query().is_some() || endpoint.fragment().is_some() {
@@ -1499,9 +1615,9 @@ fn validate_search_connector(connector: &SearchConnector) -> Result<(), String> 
     ] {
         if field.is_empty()
             || field.len() > 160
-            || !field
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.'))
+            || !field.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+            })
         {
             return Err(format!(
                 "search connector '{}' contains an invalid response field path",
@@ -1527,7 +1643,10 @@ fn validate_search_connector(connector: &SearchConnector) -> Result<(), String> 
                 ));
             }
             HeaderName::from_bytes(header.as_bytes()).map_err(|_| {
-                format!("search connector '{}' has an invalid API header name", connector.id)
+                format!(
+                    "search connector '{}' has an invalid API header name",
+                    connector.id
+                )
             })?;
         }
         _ => {
@@ -1542,11 +1661,8 @@ fn validate_search_connector(connector: &SearchConnector) -> Result<(), String> 
 
 fn load_search_connectors() -> Result<Vec<SearchConnector>, String> {
     let mut connectors = built_in_search_connectors();
-    let config_path = checked_data_child_path(
-        &data_dir()
-            .join("config")
-            .join("web-evidence-search.json"),
-    )?;
+    let config_path =
+        checked_data_child_path(&data_dir().join("config").join("web-evidence-search.json"))?;
     if config_path.exists() {
         let encoded = read_text_file(&config_path)?;
         let configured: SearchConnectorFile = serde_json::from_str(&encoded)
@@ -1581,7 +1697,9 @@ fn json_field_text(value: &Value, field: &str) -> Option<String> {
     let value = json_value_at_path(value, field)?;
     match value {
         Value::String(text) => Some(text.clone()),
-        Value::Array(values) => values.iter().find_map(|value| value.as_str().map(str::to_string)),
+        Value::Array(values) => values
+            .iter()
+            .find_map(|value| value.as_str().map(str::to_string)),
         Value::Number(number) => Some(number.to_string()),
         _ => None,
     }
@@ -1653,12 +1771,22 @@ pub(crate) fn search_web_evidence_inner(
         })?;
         let name = HeaderName::from_bytes(header.as_bytes())
             .map_err(|_| format!("search provider '{}' API header is invalid", connector.id))?;
-        let value = HeaderValue::from_str(&secret)
-            .map_err(|_| format!("search provider '{}' API credential is invalid", connector.id))?;
+        let value = HeaderValue::from_str(&secret).map_err(|_| {
+            format!(
+                "search provider '{}' API credential is invalid",
+                connector.id
+            )
+        })?;
         headers.push((name, value));
     }
     let client = build_public_http_client()?;
-    emit_progress(app, "search", None, "requesting", &format!("Consultando {}", connector.label));
+    emit_progress(
+        app,
+        "search",
+        None,
+        "requesting",
+        &format!("Consultando {}", connector.label),
+    );
     let raw = execute_public_request(
         &client,
         WebEvidenceMethod::Get,
@@ -1719,14 +1847,13 @@ pub(crate) fn search_web_evidence_inner(
         record.state = WebEvidenceState::Ready;
         record.status = Some(raw.status);
         record.final_url = Some(result_url.clone());
-        record.title = json_field_text(value, &connector.title_field)
-            .map(|value| sanitize_text(&value, 240));
+        record.title =
+            json_field_text(value, &connector.title_field).map(|value| sanitize_text(&value, 240));
         record.content_type = Some("application/json".to_string());
         record.sha256 = Some(sha256_bytes(&hit_bytes));
         record.retrieved_at = Some(now.to_rfc3339());
-        record.expires_at = Some(
-            (now.clone() + ChronoDuration::days(DEFAULT_CACHE_TTL_DAYS)).to_rfc3339(),
-        );
+        record.expires_at =
+            Some((now.clone() + ChronoDuration::days(DEFAULT_CACHE_TTL_DAYS)).to_rfc3339());
         record.cache_state = WebEvidenceCacheState::Fresh;
         record.byte_count = Some(hit_bytes.len() as u64);
         record.duration_ms = Some(raw.duration_ms);
@@ -1940,22 +2067,18 @@ pub(crate) async fn start_rendered_web_evidence(
             .map_err(|error| format!("failed to close previous evidence window: {error}"))?;
     }
     let navigation_guard = |url: &Url| validate_public_url(url.as_str()).is_ok();
-    let build_result = WebviewWindowBuilder::new(
-        &app,
-        label,
-        WebviewUrl::External(external_url),
-    )
-    .title("Maestro - coleta web isolada")
-    .inner_size(1180.0, 820.0)
-    .data_directory(webview_data_dir()?)
-    .incognito(true)
-    .browser_extensions_enabled(false)
-    .general_autofill_enabled(false)
-    .devtools(false)
-    .on_navigation(navigation_guard)
-    .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
-    .on_download(|_, _| false)
-    .build();
+    let build_result = WebviewWindowBuilder::new(&app, label, WebviewUrl::External(external_url))
+        .title("Maestro - coleta web isolada")
+        .inner_size(1180.0, 820.0)
+        .data_directory(webview_data_dir()?)
+        .incognito(true)
+        .browser_extensions_enabled(false)
+        .general_autofill_enabled(false)
+        .devtools(false)
+        .on_navigation(navigation_guard)
+        .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
+        .on_download(|_, _| false)
+        .build();
     match build_result {
         Ok(_) => {
             stored.record.notes.push(
@@ -2137,7 +2260,12 @@ pub(crate) async fn import_operator_evidence(
             ));
         }
         validate_import_magic(media_type, &bytes)?;
-        let source_url = match request.url.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        let source_url = match request
+            .url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             Some(url) => Some(validate_public_url(url)?.as_str().to_string()),
             None => None,
         };
@@ -2169,9 +2297,8 @@ pub(crate) async fn import_operator_evidence(
         record.content_type = Some(media_type.to_string());
         record.sha256 = Some(digest);
         record.retrieved_at = Some(now.to_rfc3339());
-        record.expires_at = Some(
-            (now.clone() + ChronoDuration::days(DEFAULT_CACHE_TTL_DAYS)).to_rfc3339(),
-        );
+        record.expires_at =
+            Some((now.clone() + ChronoDuration::days(DEFAULT_CACHE_TTL_DAYS)).to_rfc3339());
         record.cache_state = WebEvidenceCacheState::Fresh;
         record.copyright_state = WebEvidenceCopyrightState::OperatorProvided;
         record.interaction_state = WebEvidenceInteractionState::HumanResolved;
@@ -2185,9 +2312,9 @@ pub(crate) async fn import_operator_evidence(
             .map(|note| sanitize_text(note, 500))
             .filter(|note| !note.is_empty())
             .collect();
-        record
-            .notes
-            .push("Artifact explicitly supplied by the operator; no browser profile was read".to_string());
+        record.notes.push(
+            "Artifact explicitly supplied by the operator; no browser profile was read".to_string(),
+        );
         record.updated_at = now.to_rfc3339();
         let relative = path
             .strip_prefix(evidence_dir()?)
@@ -2272,11 +2399,7 @@ fn classify_shared_chat_url(value: &str) -> Result<ClassifiedSharedChatUrl, Stri
         "gemini.google.com" if segments.len() == 2 && segments[0] == "share" => {
             (SharedChatProvider::Gemini, segments[1], false)
         }
-        "g.co"
-            if segments.len() == 3
-                && segments[0] == "gemini"
-                && segments[1] == "share" =>
-        {
+        "g.co" if segments.len() == 3 && segments[0] == "gemini" && segments[1] == "share" => {
             (SharedChatProvider::Gemini, segments[2], true)
         }
         "claude.ai" if segments.len() == 2 && segments[0] == "share" => {
@@ -2284,13 +2407,14 @@ fn classify_shared_chat_url(value: &str) -> Result<ClassifiedSharedChatUrl, Stri
         }
         _ => {
             return Err(
-                "URL is not a recognized public ChatGPT, Gemini, or Claude share URL"
-                    .to_string(),
+                "URL is not a recognized public ChatGPT, Gemini, or Claude share URL".to_string(),
             )
         }
     };
     if !valid_shared_chat_token(token) {
-        return Err("shared-chat URL contains an invalid or truncated share identifier".to_string());
+        return Err(
+            "shared-chat URL contains an invalid or truncated share identifier".to_string(),
+        );
     }
     let token = token.to_string();
 
@@ -2441,12 +2565,13 @@ fn decode_html_entities(value: &str) -> String {
             "apos" | "#39" => Some('\''),
             "nbsp" => Some(' '),
             value if value.starts_with("#x") || value.starts_with("#X") => {
-                u32::from_str_radix(&value[2..], 16).ok().and_then(char::from_u32)
+                u32::from_str_radix(&value[2..], 16)
+                    .ok()
+                    .and_then(char::from_u32)
             }
-            value if value.starts_with('#') => value[1..]
-                .parse::<u32>()
-                .ok()
-                .and_then(char::from_u32),
+            value if value.starts_with('#') => {
+                value[1..].parse::<u32>().ok().and_then(char::from_u32)
+            }
             _ => None,
         };
         if let Some(character) = decoded {
@@ -2462,25 +2587,24 @@ fn decode_html_entities(value: &str) -> String {
 
 fn normalize_visible_text(value: &str) -> String {
     let value = value.replace("\r\n", "\n").replace('\r', "\n");
-    let lines = value
-        .lines()
-        .map(str::trim_end)
-        .collect::<Vec<_>>();
+    let lines = value.lines().map(str::trim_end).collect::<Vec<_>>();
     let mut normalized = lines.join("\n");
     while normalized.contains("\n\n\n") {
         normalized = normalized.replace("\n\n\n", "\n\n");
     }
-    redact_secrets(normalized.trim()).chars().take(MAX_SHARED_CHAT_TURN_BYTES).collect()
+    redact_secrets(normalized.trim())
+        .chars()
+        .take(MAX_SHARED_CHAT_TURN_BYTES)
+        .collect()
 }
 
 fn html_fragment_to_markdown(value: &str) -> String {
-    let without_active = Regex::new(r"(?is)<(?:script|style|noscript)\b[^>]*>.*?</(?:script|style|noscript)\s*>")
-        .map(|regex| regex.replace_all(value, " ").to_string())
-        .unwrap_or_else(|_| value.to_string());
-    let anchors = Regex::new(
-        r#"(?is)<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a\s*>"#,
-    )
-    .ok();
+    let without_active =
+        Regex::new(r"(?is)<(?:script|style|noscript)\b[^>]*>.*?</(?:script|style|noscript)\s*>")
+            .map(|regex| regex.replace_all(value, " ").to_string())
+            .unwrap_or_else(|_| value.to_string());
+    let anchors =
+        Regex::new(r#"(?is)<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a\s*>"#).ok();
     let with_links = anchors
         .as_ref()
         .map(|regex| {
@@ -2490,7 +2614,10 @@ fn html_fragment_to_markdown(value: &str) -> String {
                         .map(|tags| tags.replace_all(&captures[2], " ").to_string())
                         .unwrap_or_else(|_| captures[2].to_string());
                     let label = normalize_visible_text(&decode_html_entities(&label));
-                    let href = captures.get(1).map(|value| value.as_str()).unwrap_or_default();
+                    let href = captures
+                        .get(1)
+                        .map(|value| value.as_str())
+                        .unwrap_or_default();
                     let safe_href = validate_public_url(href)
                         .ok()
                         .filter(|url| url.scheme() == "https")
@@ -2505,11 +2632,10 @@ fn html_fragment_to_markdown(value: &str) -> String {
                 .to_string()
         })
         .unwrap_or(without_active);
-    let with_breaks = Regex::new(
-        r"(?is)<br\s*/?>|</(?:p|div|section|article|li|h[1-6]|blockquote|pre|tr)\s*>",
-    )
-    .map(|regex| regex.replace_all(&with_links, "\n").to_string())
-    .unwrap_or(with_links);
+    let with_breaks =
+        Regex::new(r"(?is)<br\s*/?>|</(?:p|div|section|article|li|h[1-6]|blockquote|pre|tr)\s*>")
+            .map(|regex| regex.replace_all(&with_links, "\n").to_string())
+            .unwrap_or(with_links);
     let with_lists = Regex::new(r"(?is)<li\b[^>]*>")
         .map(|regex| regex.replace_all(&with_breaks, "- ").to_string())
         .unwrap_or(with_breaks);
@@ -2601,7 +2727,14 @@ fn message_content_from_json(object: &serde_json::Map<String, Value>) -> Option<
 }
 
 fn timestamp_hint_from_json(object: &serde_json::Map<String, Value>) -> Option<String> {
-    for key in ["timestamp", "timestamp_hint", "created_at", "create_time", "updated_at", "time"] {
+    for key in [
+        "timestamp",
+        "timestamp_hint",
+        "created_at",
+        "create_time",
+        "updated_at",
+        "time",
+    ] {
         let Some(value) = object.get(key) else {
             continue;
         };
@@ -2677,8 +2810,12 @@ fn visible_artifacts_from_json(object: &serde_json::Map<String, Value>) -> Vec<S
         }
     }
     artifacts.sort_by(|left, right| {
-        (&left.kind, &left.name, &left.url, &left.content)
-            .cmp(&(&right.kind, &right.name, &right.url, &right.content))
+        (&left.kind, &left.name, &left.url, &left.content).cmp(&(
+            &right.kind,
+            &right.name,
+            &right.url,
+            &right.content,
+        ))
     });
     artifacts.dedup();
     artifacts.truncate(50);
@@ -2703,8 +2840,12 @@ fn turn_from_json(value: &Value, provider: SharedChatProvider) -> Option<SharedC
     if !std::ptr::eq(message, outer) {
         artifacts.extend(visible_artifacts_from_json(outer));
         artifacts.sort_by(|left, right| {
-            (&left.kind, &left.name, &left.url, &left.content)
-                .cmp(&(&right.kind, &right.name, &right.url, &right.content))
+            (&left.kind, &left.name, &left.url, &left.content).cmp(&(
+                &right.kind,
+                &right.name,
+                &right.url,
+                &right.content,
+            ))
         });
         artifacts.dedup();
     }
@@ -2758,7 +2899,9 @@ fn chatgpt_mapping_candidate(
                 "ChatGPT mapping current_node chain is incomplete".to_string(),
             ));
         };
-        if let Some(turn) = turn_from_json(&Value::Object(node.clone()), SharedChatProvider::ChatGpt) {
+        if let Some(turn) =
+            turn_from_json(&Value::Object(node.clone()), SharedChatProvider::ChatGpt)
+        {
             turns.push(turn);
         }
         let Some(parent) = node.get("parent").and_then(Value::as_str) else {
@@ -2830,11 +2973,15 @@ fn candidates_from_embedded_json(
     html: &str,
     provider: SharedChatProvider,
 ) -> Result<Vec<SharedChatCandidate>, SharedChatExtractionError> {
-    let scripts = Regex::new(r#"(?is)<script\b([^>]*)>(.*?)</script\s*>"#)
-        .map_err(|error| SharedChatExtractionError::Invalid(format!("invalid JSON script matcher: {error}")))?;
+    let scripts = Regex::new(r#"(?is)<script\b([^>]*)>(.*?)</script\s*>"#).map_err(|error| {
+        SharedChatExtractionError::Invalid(format!("invalid JSON script matcher: {error}"))
+    })?;
     let mut candidates = Vec::new();
     for captures in scripts.captures_iter(html).take(100) {
-        let attributes = captures.get(1).map(|value| value.as_str()).unwrap_or_default();
+        let attributes = captures
+            .get(1)
+            .map(|value| value.as_str())
+            .unwrap_or_default();
         let attributes_lower = attributes.to_ascii_lowercase();
         let is_json = attributes_lower.contains("application/json")
             || attributes_lower.contains("__next_data__")
@@ -2842,7 +2989,11 @@ fn candidates_from_embedded_json(
         if !is_json {
             continue;
         }
-        let body = captures.get(2).map(|value| value.as_str()).unwrap_or_default().trim();
+        let body = captures
+            .get(2)
+            .map(|value| value.as_str())
+            .unwrap_or_default()
+            .trim();
         if body.is_empty() || body.len() > MAX_SHARED_CHAT_ARTIFACT_BYTES {
             continue;
         }
@@ -2855,11 +3006,7 @@ fn candidates_from_embedded_json(
     Ok(candidates)
 }
 
-fn balanced_html_element<'a>(
-    html: &'a str,
-    opening_end: usize,
-    tag: &str,
-) -> Option<&'a str> {
+fn balanced_html_element<'a>(html: &'a str, opening_end: usize, tag: &str) -> Option<&'a str> {
     let token = Regex::new(&format!(r"(?is)</?{}\b[^>]*>", regex::escape(tag))).ok()?;
     let mut depth = 1usize;
     for item in token.find_iter(&html[opening_end..]) {
@@ -2888,8 +3035,9 @@ fn dom_marker_regex(provider: SharedChatProvider) -> Result<Regex, SharedChatExt
             r#"(?is)<(article|section|div)\b[^>]*\bdata-testid\s*=\s*["'](user-message|assistant-message)["'][^>]*>"#
         }
     };
-    Regex::new(pattern)
-        .map_err(|error| SharedChatExtractionError::Invalid(format!("invalid DOM marker matcher: {error}")))
+    Regex::new(pattern).map_err(|error| {
+        SharedChatExtractionError::Invalid(format!("invalid DOM marker matcher: {error}"))
+    })
 }
 
 fn candidate_from_dom(
@@ -2902,8 +3050,14 @@ fn candidate_from_dom(
         let Some(opening) = captures.get(0) else {
             continue;
         };
-        let tag = captures.get(1).map(|value| value.as_str()).unwrap_or_default();
-        let label = captures.get(2).map(|value| value.as_str()).unwrap_or_default();
+        let tag = captures
+            .get(1)
+            .map(|value| value.as_str())
+            .unwrap_or_default();
+        let label = captures
+            .get(2)
+            .map(|value| value.as_str())
+            .unwrap_or_default();
         let normalized_label = label.strip_suffix("-message").unwrap_or(label);
         let Some(role) = role_from_label(normalized_label, provider) else {
             continue;
@@ -2935,9 +3089,9 @@ fn candidate_from_dom(
 }
 
 fn visible_artifacts_from_html(fragment: &str) -> Vec<SharedChatArtifact> {
-    let Ok(anchors) = Regex::new(
-        r#"(?is)<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a\s*>"#,
-    ) else {
+    let Ok(anchors) =
+        Regex::new(r#"(?is)<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a\s*>"#)
+    else {
         return Vec::new();
     };
     let mut artifacts = anchors
@@ -2968,18 +3122,15 @@ fn visible_artifacts_from_html(fragment: &str) -> Vec<SharedChatArtifact> {
 }
 
 fn timestamp_hint_from_html(fragment: &str) -> Option<String> {
-    let datetime = Regex::new(
-        r#"(?is)<time\b[^>]*\bdatetime\s*=\s*["']([^"']+)["'][^>]*>"#,
-    )
-    .ok()
-    .and_then(|regex| regex.captures(fragment))
-    .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()));
-    let data_timestamp = Regex::new(
-        r#"(?is)\bdata-(?:timestamp|created-at)\s*=\s*["']([^"']+)["']"#,
-    )
-    .ok()
-    .and_then(|regex| regex.captures(fragment))
-    .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()));
+    let datetime = Regex::new(r#"(?is)<time\b[^>]*\bdatetime\s*=\s*["']([^"']+)["'][^>]*>"#)
+        .ok()
+        .and_then(|regex| regex.captures(fragment))
+        .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()));
+    let data_timestamp =
+        Regex::new(r#"(?is)\bdata-(?:timestamp|created-at)\s*=\s*["']([^"']+)["']"#)
+            .ok()
+            .and_then(|regex| regex.captures(fragment))
+            .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()));
     datetime
         .or(data_timestamp)
         .map(|value| sanitize_text(&value, 120))
@@ -2998,28 +3149,32 @@ fn candidate_from_markdown(
     let mut current_role = None;
     let mut current_lines = Vec::new();
 
-    let flush = |role: Option<SharedChatRole>, lines: &mut Vec<&str>, turns: &mut Vec<SharedChatTurn>| {
-        let Some(role) = role else {
+    let flush =
+        |role: Option<SharedChatRole>, lines: &mut Vec<&str>, turns: &mut Vec<SharedChatTurn>| {
+            let Some(role) = role else {
+                lines.clear();
+                return;
+            };
+            let content_markdown = normalize_visible_text(&lines.join("\n"));
             lines.clear();
-            return;
+            if !content_markdown.is_empty() {
+                turns.push(SharedChatTurn {
+                    ordinal: 0,
+                    role,
+                    content_markdown,
+                    artifacts: Vec::new(),
+                    timestamp_hint: None,
+                });
+            }
         };
-        let content_markdown = normalize_visible_text(&lines.join("\n"));
-        lines.clear();
-        if !content_markdown.is_empty() {
-            turns.push(SharedChatTurn {
-                ordinal: 0,
-                role,
-                content_markdown,
-                artifacts: Vec::new(),
-                timestamp_hint: None,
-            });
-        }
-    };
 
     for line in markdown.lines() {
         if let Some(captures) = heading.captures(line.trim()) {
             flush(current_role, &mut current_lines, &mut turns);
-            let label = captures.get(1).map(|value| value.as_str()).unwrap_or_default();
+            let label = captures
+                .get(1)
+                .map(|value| value.as_str())
+                .unwrap_or_default();
             let lowercase_label = label.to_lowercase();
             let translated = match lowercase_label.as_str() {
                 "usuário" | "usuario" | "pergunta" => "user",
@@ -3085,7 +3240,9 @@ fn normalize_shared_chat_candidate(
     for (index, turn) in normalized.iter_mut().enumerate() {
         turn.ordinal = index + 1;
     }
-    let has_user = normalized.iter().any(|turn| turn.role == SharedChatRole::User);
+    let has_user = normalized
+        .iter()
+        .any(|turn| turn.role == SharedChatRole::User);
     let has_assistant = normalized
         .iter()
         .any(|turn| turn.role == SharedChatRole::Assistant);
@@ -3108,7 +3265,11 @@ fn select_shared_chat_candidate(
     let mut valid = Vec::new();
     for candidate in candidates {
         match normalize_shared_chat_candidate(candidate) {
-            Ok(candidate) if !valid.iter().any(|existing: &SharedChatCandidate| existing.turns == candidate.turns) => {
+            Ok(candidate)
+                if !valid
+                    .iter()
+                    .any(|existing: &SharedChatCandidate| existing.turns == candidate.turns) =>
+            {
                 valid.push(candidate)
             }
             Ok(_) | Err(SharedChatExtractionError::Insufficient(_)) => {}
@@ -3141,7 +3302,9 @@ fn extract_shared_chat_candidate(
 ) -> Result<SharedChatCandidate, SharedChatExtractionError> {
     if kind == "markdown" {
         return select_shared_chat_candidate(
-            candidate_from_markdown(artifact, provider)?.into_iter().collect(),
+            candidate_from_markdown(artifact, provider)?
+                .into_iter()
+                .collect(),
         );
     }
 
@@ -3158,7 +3321,11 @@ fn extract_shared_chat_candidate(
             Err(SharedChatExtractionError::Insufficient(_)) => {}
         }
     }
-    select_shared_chat_candidate(candidate_from_dom(artifact, provider)?.into_iter().collect())
+    select_shared_chat_candidate(
+        candidate_from_dom(artifact, provider)?
+            .into_iter()
+            .collect(),
+    )
 }
 
 fn markdown_plain_text(value: &str) -> String {
@@ -3166,8 +3333,24 @@ fn markdown_plain_text(value: &str) -> String {
     for character in value.chars() {
         if matches!(
             character,
-            '\\' | '`' | '*' | '_' | '{' | '}' | '[' | ']' | '<' | '>' | '(' | ')' | '#'
-                | '+' | '-' | '.' | '!' | '|' | '~'
+            '\\' | '`'
+                | '*'
+                | '_'
+                | '{'
+                | '}'
+                | '['
+                | ']'
+                | '<'
+                | '>'
+                | '('
+                | ')'
+                | '#'
+                | '+'
+                | '-'
+                | '.'
+                | '!'
+                | '|'
+                | '~'
         ) {
             output.push('\\');
         }
@@ -3286,7 +3469,9 @@ fn persist_shared_chat(
         .filter(|title| !title.is_empty());
     let (markdown, html) = render_shared_chat(title.as_deref(), &candidate.turns)?;
     let conversation_bytes = serde_json::to_vec(&candidate.turns).map_err(|error| {
-        SharedChatExtractionError::Invalid(format!("failed to hash extracted conversation: {error}"))
+        SharedChatExtractionError::Invalid(format!(
+            "failed to hash extracted conversation: {error}"
+        ))
     })?;
     let conversation_sha256 = sha256_bytes(&conversation_bytes);
     let markdown_sha256 = sha256_bytes(markdown.as_bytes());
@@ -3304,7 +3489,9 @@ fn persist_shared_chat(
     let directory = checked_data_child_path(&data_dir().join(&relative_dir))
         .map_err(SharedChatExtractionError::Invalid)?;
     fs::create_dir_all(&directory).map_err(|error| {
-        SharedChatExtractionError::Invalid(format!("failed to create shared-chat data directory: {error}"))
+        SharedChatExtractionError::Invalid(format!(
+            "failed to create shared-chat data directory: {error}"
+        ))
     })?;
     let markdown_path = checked_data_child_path(&directory.join("conversation.md"))
         .map_err(SharedChatExtractionError::Invalid)?;
@@ -3328,11 +3515,13 @@ fn persist_shared_chat(
         created_at: Utc::now().to_rfc3339(),
     };
     let encoded = serde_json::to_string_pretty(&provenance).map_err(|error| {
-        SharedChatExtractionError::Invalid(format!("failed to serialize shared-chat provenance: {error}"))
+        SharedChatExtractionError::Invalid(format!(
+            "failed to serialize shared-chat provenance: {error}"
+        ))
     })?;
-    let _guard = io_lock()
-        .lock()
-        .map_err(|_| SharedChatExtractionError::Invalid("web evidence I/O lock poisoned".to_string()))?;
+    let _guard = io_lock().lock().map_err(|_| {
+        SharedChatExtractionError::Invalid("web evidence I/O lock poisoned".to_string())
+    })?;
     // Markdown is written first; provenance is the final commit marker. Both
     // helpers use temp-file + fsync + rename semantics.
     write_text_file(&markdown_path, &markdown).map_err(SharedChatExtractionError::Invalid)?;
@@ -3444,7 +3633,8 @@ pub(crate) async fn import_shared_chat(
         return match process_shared_chat_evidence(&classified, evidence_id_value) {
             Ok(result) => Ok(result),
             Err(SharedChatExtractionError::Insufficient(message))
-                if stored.record.access_mode != WebEvidenceAccessMode::OperatorAssistedBrowserCapture =>
+                if stored.record.access_mode
+                    != WebEvidenceAccessMode::OperatorAssistedBrowserCapture =>
             {
                 begin_shared_chat_handoff(app, &classified, &message).await
             }
@@ -3490,9 +3680,67 @@ mod tests {
     use super::*;
 
     #[test]
+    fn not_modified_reaches_cache_revalidation_without_location() {
+        assert!(!follows_location_redirect(StatusCode::NOT_MODIFIED));
+        assert!(follows_location_redirect(StatusCode::FOUND));
+    }
+
+    #[test]
+    fn not_modified_requires_a_ready_cached_body_and_hash() {
+        let mut stored = failed_fetch_record(
+            None,
+            "test-id",
+            "https://example.com/source",
+            WebEvidenceMethod::Get,
+            WebEvidenceState::Ready,
+            "test ready record",
+            Utc::now(),
+        );
+        assert!(!ready_cached_evidence_for_304(&stored));
+        stored.content_path = Some("content/test-id.html".to_string());
+        stored.record.sha256 = Some("a".repeat(64));
+        assert!(ready_cached_evidence_for_304(&stored));
+        stored.record.state = WebEvidenceState::Failed;
+        assert!(!ready_cached_evidence_for_304(&stored));
+    }
+
+    #[test]
+    fn rejected_url_never_persists_credentials_or_sensitive_query_values() {
+        let original = "https://user:senha@example.com/path?access_token=valor-super-secreto;sig=outra-senha#fragmento-secreto";
+        let safe = rejected_url_for_record(original);
+        assert_eq!(safe, "https://example.com/path");
+        assert_eq!(
+            rejected_url_for_record("not a URL?access_token=senha"),
+            "<blocked URL>"
+        );
+        let stored = blocked_request_record(
+            &WebEvidenceFetchRequest {
+                url: original.to_string(),
+                method: WebEvidenceMethod::Get,
+                force_revalidate: false,
+            },
+            &evidence_id(original),
+            "test blocked record",
+            Utc::now(),
+        );
+        let serialized = serde_json::to_string(&stored).unwrap();
+        assert!(!serialized.contains("senha"));
+        assert!(!serialized.contains("valor-super-secreto"));
+        assert!(!serialized.contains("user:"));
+        let reason = validate_public_url(original).unwrap_err();
+        assert!(!reason.contains("senha"));
+        assert!(!reason.contains("valor-super-secreto"));
+        assert_eq!(
+            rejected_url_for_record("https://example.com/path?q=segredo-operacional"),
+            "https://example.com/path"
+        );
+    }
+
+    #[test]
     fn shared_chat_url_gate_accepts_only_exact_public_share_surfaces() {
-        let chatgpt = classify_shared_chat_url("https://chatgpt.com/share/abcdefgh?utm_source=test")
-            .expect("ChatGPT share should classify");
+        let chatgpt =
+            classify_shared_chat_url("https://chatgpt.com/share/abcdefgh?utm_source=test")
+                .expect("ChatGPT share should classify");
         assert_eq!(chatgpt.provider, SharedChatProvider::ChatGpt);
         assert_eq!(chatgpt.normalized_url, "https://chatgpt.com/share/abcdefgh");
 
@@ -3524,7 +3772,8 @@ mod tests {
         assert_eq!(candidate.turns[0].role, SharedChatRole::User);
         assert_eq!(candidate.turns[1].role, SharedChatRole::Assistant);
 
-        let navigation = "<html><nav>User Assistant Login Consent</nav><main>Choose a chat</main></html>";
+        let navigation =
+            "<html><nav>User Assistant Login Consent</nav><main>Choose a chat</main></html>";
         assert!(matches!(
             extract_shared_chat_candidate("html", navigation, SharedChatProvider::ChatGpt),
             Err(SharedChatExtractionError::Insufficient(_))
@@ -3554,12 +3803,9 @@ mod tests {
     #[test]
     fn shared_chat_markdown_requires_explicit_turn_headings() {
         let fixture = "# Export\n\n## Prompt\n\nPergunta\n\n## Resposta\n\nResposta\n";
-        let candidate = extract_shared_chat_candidate(
-            "markdown",
-            fixture,
-            SharedChatProvider::Claude,
-        )
-        .expect("explicit Markdown turn headings should extract");
+        let candidate =
+            extract_shared_chat_candidate("markdown", fixture, SharedChatProvider::Claude)
+                .expect("explicit Markdown turn headings should extract");
         assert_eq!(candidate.turns.len(), 2);
 
         assert!(matches!(

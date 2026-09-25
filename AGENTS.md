@@ -27,8 +27,9 @@ npm run parity:check
 npm audit --audit-level=moderate
 ```
 
-Run Rust validation only on GitHub-hosted Windows runners. Do not run `cargo`
-or `rustc` on the operator's local machine:
+Rust validation may run locally when the executables are permitted by the
+operator's Windows Application Control policy. GitHub-hosted Windows runners
+remain the validation path when that policy blocks the local toolchain:
 
 ```powershell
 cargo check --locked --all-targets --manifest-path src-tauri/Cargo.toml

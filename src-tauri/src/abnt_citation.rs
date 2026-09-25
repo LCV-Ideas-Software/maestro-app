@@ -254,6 +254,44 @@ fn ascii_fold(value: &str) -> String {
         .collect()
 }
 
+fn faithful_fold(value: &str) -> Option<String> {
+    let folded = ascii_fold(value);
+    if folded.is_empty()
+        || value.chars().any(|character| {
+            character.is_alphanumeric() && ascii_fold(&character.to_string()).is_empty()
+        })
+    {
+        None
+    } else {
+        Some(folded)
+    }
+}
+
+fn equivalent_value(left: &str, right: &str) -> bool {
+    if left.trim().is_empty()
+        || right.trim().is_empty()
+        || ascii_fold(left).is_empty()
+        || ascii_fold(right).is_empty()
+    {
+        return false;
+    }
+    match (faithful_fold(left), faithful_fold(right)) {
+        (Some(left), Some(right)) => left == right,
+        _ => left.to_lowercase() == right.to_lowercase(),
+    }
+}
+
+fn contains_value(haystack: &str, needle: &str) -> bool {
+    if needle.trim().is_empty() || ascii_fold(needle).is_empty() {
+        return false;
+    }
+    if let Some(folded_needle) = faithful_fold(needle) {
+        ascii_fold(haystack).contains(&folded_needle)
+    } else {
+        haystack.to_lowercase().contains(&needle.to_lowercase())
+    }
+}
+
 fn canonical_author_key(value: &str) -> String {
     value
         .split_whitespace()
@@ -312,7 +350,12 @@ fn locator_is_valid(locator: Option<&str>) -> bool {
 }
 
 fn has_direct_quote_context(text: &str, start: usize) -> bool {
-    let begin = text[..start].char_indices().rev().nth(220).map(|(at, _)| at).unwrap_or(0);
+    let begin = text[..start]
+        .char_indices()
+        .rev()
+        .nth(220)
+        .map(|(at, _)| at)
+        .unwrap_or(0);
     let context = &text[begin..start];
     let trimmed = context.trim_end();
     if trimmed.ends_with('”') || trimmed.ends_with('"') {
@@ -340,11 +383,17 @@ fn raw_citations(text: &str) -> Vec<CitationAuditCitation> {
             let Some(whole) = capture.get(0) else {
                 continue;
             };
-            if !seen.insert((whole.start(), whole.end())) || rows.len() >= MAX_CITATIONS {
+            if !seen.insert((whole.start(), whole.end())) || rows.len() > MAX_CITATIONS {
                 continue;
             }
-            let author = capture.get(1).map(|value| value.as_str()).unwrap_or_default();
-            let year = capture.get(2).map(|value| value.as_str()).unwrap_or_default();
+            let author = capture
+                .get(1)
+                .map(|value| value.as_str())
+                .unwrap_or_default();
+            let year = capture
+                .get(2)
+                .map(|value| value.as_str())
+                .unwrap_or_default();
             let locator = capture
                 .get(3)
                 .map(|value| sanitize_text(value.as_str().trim(), 80))
@@ -360,7 +409,12 @@ fn raw_citations(text: &str) -> Vec<CitationAuditCitation> {
             };
             rows.push(CitationAuditCitation {
                 schema_version: CITATION_SCHEMA.to_string(),
-                claim_id: sha256(format!("{}|{}|{}", whole.start(), whole.end(), whole.as_str())),
+                claim_id: sha256(format!(
+                    "{}|{}|{}",
+                    whole.start(),
+                    whole.end(),
+                    whole.as_str()
+                )),
                 citation_type: if direct {
                     CitationType::DirectQuote
                 } else {
@@ -385,9 +439,9 @@ fn raw_citations(text: &str) -> Vec<CitationAuditCitation> {
 }
 
 fn reference_section(text: &str) -> Vec<RawReference> {
-    let Ok(heading) = Regex::new(
-        r"(?im)^#{1,6}\s*(?:refer[eê]ncias(?:\s+bibliogr[aá]ficas)?|bibliografia)\s*$",
-    ) else {
+    let Ok(heading) =
+        Regex::new(r"(?im)^#{1,6}\s*(?:refer[eê]ncias(?:\s+bibliogr[aá]ficas)?|bibliografia)\s*$")
+    else {
         return Vec::new();
     };
     let Some(found) = heading.find(text) else {
@@ -401,7 +455,7 @@ fn reference_section(text: &str) -> Vec<RawReference> {
         .filter(|line| !line.is_empty())
         .map(|line| line.trim_start_matches(['-', '*']).trim())
         .filter(|line| !line.is_empty())
-        .take(MAX_SOURCES)
+        .take(MAX_SOURCES + 1)
         .map(|line| {
             let author = line.split('.').next().unwrap_or_default();
             let key = author.split(',').next().unwrap_or(author);
@@ -411,7 +465,7 @@ fn reference_section(text: &str) -> Vec<RawReference> {
                 .and_then(|capture| capture.get(1))
                 .map(|value| value.as_str().to_string());
             RawReference {
-                key: ascii_fold(key),
+                key: key.to_string(),
                 year,
                 text: sanitize_text(line, 1200),
             }
@@ -424,17 +478,10 @@ fn quote_blockers(text: &str, citations: &[CitationAuditCitation]) -> Vec<Citati
         return Vec::new();
     };
     let mut blockers = Vec::new();
-    for found in pattern.find_iter(text).take(MAX_CITATIONS) {
-        if found.as_str().starts_with('"') {
-            let before = &text[..found.start()];
-            let inside_html_tag = match (before.rfind('<'), before.rfind('>')) {
-                (Some(_), None) => true,
-                (Some(open), Some(close)) => open > close,
-                _ => false,
-            };
-            if inside_html_tag || before.trim_end().ends_with('=') {
-                continue;
-            }
+    for (index, found) in pattern.find_iter(text).take(MAX_CITATIONS + 1).enumerate() {
+        if index == MAX_CITATIONS {
+            blockers.push(capacity_blocker("direct quotes"));
+            break;
         }
         if found.as_str().split_whitespace().count() < 4 {
             continue;
@@ -452,7 +499,7 @@ fn quote_blockers(text: &str, citations: &[CitationAuditCitation]) -> Vec<Citati
             ]
             .into_iter()
             .flatten()
-            .any(|candidate| nearby.contains(candidate))
+            .any(|candidate| contains_value(nearby, candidate))
         });
         if !cited {
             blockers.push(blocker(
@@ -469,22 +516,39 @@ fn quote_blockers(text: &str, citations: &[CitationAuditCitation]) -> Vec<Citati
     blockers
 }
 
-fn unstructured_citation_signals(text: &str) -> Vec<String> {
+fn unstructured_citation_signals(text: &str) -> (Vec<String>, bool) {
     let patterns = [
         r"(?i)<(?:cite|blockquote|q)\b[^>]*>",
         r"(?m)\[\^[^\]\r\n]{1,80}\]",
-        r"(?i)\b(?:apud|ibidem|ibid\.|idem|op\.\s*cit\.)\b",
+        r"(?i)\b(?:apud|ibidem|idem)\b|\b(?:ibid\.|op\.\s*cit\.)",
     ];
     let mut signals = BTreeSet::new();
+    let mut count = 0;
     for raw_pattern in patterns {
         let Ok(pattern) = Regex::new(raw_pattern) else {
             continue;
         };
-        for found in pattern.find_iter(text).take(MAX_CITATIONS) {
+        for found in pattern.find_iter(text) {
+            count += 1;
+            if count > MAX_CITATIONS {
+                return (signals.into_iter().collect(), true);
+            }
             signals.insert(sanitize_text(found.as_str(), 240));
         }
     }
-    signals.into_iter().collect()
+    (signals.into_iter().collect(), false)
+}
+
+fn capacity_blocker(reader: &str) -> CitationAuditBlocker {
+    blocker(
+        "citation_capacity_exceeded",
+        format!("O leitor de {reader} excedeu o limite seguro de 500 ocorrencias."),
+        "error",
+        None,
+        None,
+        None,
+        false,
+    )
 }
 
 fn document_policy_blockers(
@@ -492,6 +556,23 @@ fn document_policy_blockers(
     citations: &[CitationAuditCitation],
 ) -> Vec<CitationAuditBlocker> {
     let mut blockers = quote_blockers(text, citations);
+    // CommonMark raw HTML is disallowed in the final editorial text. A plain
+    // less-than sign in prose (for example `2 < 3`) is not an HTML opener.
+    let raw_html =
+        Regex::new(r"(?is)<(?:/?[a-z][a-z0-9-]*(?:\s+[^<>]*)?\s*/?>|!--|!\[CDATA\[|![a-z]|\?)");
+    if let Ok(pattern) = raw_html {
+        if let Some(found) = pattern.find(text) {
+            blockers.push(blocker(
+                "raw_html_in_final_text",
+                "O texto final contem HTML cru; substitua por texto ou Markdown.",
+                "error",
+                None,
+                None,
+                Some(found.as_str()),
+                false,
+            ));
+        }
+    }
     let folded = ascii_fold(text);
     if folded.contains("wikipediaorg") || folded.contains("ptwikipediaorg") {
         blockers.push(blocker(
@@ -585,17 +666,20 @@ fn raw_text_blockers(
                 true,
             ));
         }
-        let author_key = ascii_fold(&citation.author_key);
+        let author_key = &citation.author_key;
         let first_author_token = citation
             .author_key
             .split_whitespace()
             .next()
-            .map(ascii_fold)
             .unwrap_or_default();
         let matched = references.iter().enumerate().find(|(_, reference)| {
-            (reference.key.contains(&author_key)
-                || (first_author_token.len() >= 4
-                    && reference.key.contains(&first_author_token)))
+            (contains_value(&reference.key, author_key)
+                || (first_author_token
+                    .chars()
+                    .filter(|c| c.is_alphanumeric())
+                    .count()
+                    >= 4
+                    && contains_value(&reference.key, first_author_token)))
                 && reference.year.as_deref() == Some(citation.year.as_str())
         });
         if let Some((index, _)) = matched {
@@ -662,10 +746,22 @@ fn required_source_fields(source: &CitationSource) -> Vec<&'static str> {
     }
     match source.source_type {
         CitationSourceType::Book => {
-            if source.place.as_deref().unwrap_or_default().trim().is_empty() {
+            if source
+                .place
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
                 missing.push("place");
             }
-            if source.publisher.as_deref().unwrap_or_default().trim().is_empty() {
+            if source
+                .publisher
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
                 missing.push("publisher");
             }
         }
@@ -679,13 +775,31 @@ fn required_source_fields(source: &CitationSource) -> Vec<&'static str> {
             {
                 missing.push("container_title");
             }
-            if source.pages.as_deref().unwrap_or_default().trim().is_empty() {
+            if source
+                .pages
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
                 missing.push("pages");
             }
-            if source.place.as_deref().unwrap_or_default().trim().is_empty() {
+            if source
+                .place
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
                 missing.push("place");
             }
-            if source.publisher.as_deref().unwrap_or_default().trim().is_empty() {
+            if source
+                .publisher
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
                 missing.push("publisher");
             }
         }
@@ -740,10 +854,7 @@ fn author_text(authors: &[CitationAuthor]) -> String {
         .join("; ")
 }
 
-fn format_in_text_citation(
-    citation: &CitationAuditCitation,
-    source: &CitationSource,
-) -> String {
+fn format_in_text_citation(citation: &CitationAuditCitation, source: &CitationSource) -> String {
     let author = displayed_surname(citation);
     let locator = citation
         .locator
@@ -794,14 +905,24 @@ fn format_reference(source: &CitationSource) -> String {
         parts.push(format!("{authors}."));
     }
     let mut title = sanitize_text(source.title.trim(), 500);
-    if let Some(subtitle) = source.subtitle.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+    if let Some(subtitle) = source
+        .subtitle
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
         title.push_str(": ");
         title.push_str(&sanitize_text(subtitle, 300));
     }
     if !title.is_empty() {
         parts.push(format!("{title}."));
     }
-    if let Some(edition) = source.edition.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+    if let Some(edition) = source
+        .edition
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
         parts.push(format!("{}.", sanitize_text(edition, 80)));
     }
     if let Some(container) = source
@@ -819,13 +940,28 @@ fn format_reference(source: &CitationSource) -> String {
         if !place.is_empty() {
             publication.push(sanitize_text(place, 160));
         }
-        if let Some(volume) = source.volume.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        if let Some(volume) = source
+            .volume
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
             publication.push(format!("v. {}", sanitize_text(volume, 80)));
         }
-        if let Some(issue) = source.issue.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        if let Some(issue) = source
+            .issue
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
             publication.push(format!("n. {}", sanitize_text(issue, 80)));
         }
-        if let Some(pages) = source.pages.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        if let Some(pages) = source
+            .pages
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
             publication.push(format!("p. {}", sanitize_text(pages, 100)));
         }
         if valid_year(source.year.trim()) {
@@ -838,7 +974,11 @@ fn format_reference(source: &CitationSource) -> String {
         let publication = format!(
             "{}{}{}",
             sanitize_text(place, 160),
-            if !place.is_empty() && !publisher.is_empty() { ": " } else { "" },
+            if !place.is_empty() && !publisher.is_empty() {
+                ": "
+            } else {
+                ""
+            },
             sanitize_text(publisher, 240)
         );
         if !publication.is_empty() && valid_year(source.year.trim()) {
@@ -848,20 +988,45 @@ fn format_reference(source: &CitationSource) -> String {
         } else if valid_year(source.year.trim()) {
             parts.push(format!("{}.", source.year.trim()));
         }
-        if let Some(volume) = source.volume.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        if let Some(volume) = source
+            .volume
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
             parts.push(format!("v. {}.", sanitize_text(volume, 80)));
         }
-        if let Some(issue) = source.issue.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        if let Some(issue) = source
+            .issue
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
             parts.push(format!("n. {}.", sanitize_text(issue, 80)));
         }
-        if let Some(pages) = source.pages.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        if let Some(pages) = source
+            .pages
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
             parts.push(format!("p. {}.", sanitize_text(pages, 100)));
         }
     }
-    if let Some(doi) = source.doi.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+    if let Some(doi) = source
+        .doi
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
         parts.push(format!("DOI: {}.", sanitize_text(doi, 240)));
     }
-    if let Some(url) = source.url.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+    if let Some(url) = source
+        .url
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
         parts.push(format!("Disponivel em: {}.", sanitize_text(url, 1000)));
     }
     if let Some(accessed) = source
@@ -967,7 +1132,6 @@ fn validate_manifest(
     let mut used_sources = BTreeSet::new();
     let mut seen_claims = BTreeSet::new();
     let mut citations = Vec::new();
-    let folded_text = ascii_fold(text);
     for citation in manifest.citations.iter().take(MAX_CITATIONS) {
         let claim_id = sanitize_short(&citation.claim_id, 120);
         let source_id = sanitize_short(&citation.source_id, 120);
@@ -1030,7 +1194,7 @@ fn validate_manifest(
                 true,
             ));
         }
-        if ascii_fold(&displayed_surname(citation)) != ascii_fold(citation.author_key.trim()) {
+        if !equivalent_value(&displayed_surname(citation), citation.author_key.trim()) {
             blockers.push(blocker(
                 "citation_canonical_author_mismatch",
                 "author_display da citacao deve preservar integralmente a chave canonica author_key.",
@@ -1134,9 +1298,9 @@ fn validate_manifest(
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(|value| folded_text.contains(&ascii_fold(value)))
+            .map(|value| contains_value(text, value))
             .unwrap_or(false);
-        let normalized_present = folded_text.contains(&ascii_fold(&normalized_text));
+        let normalized_present = contains_value(text, &normalized_text);
         if !original_present && !normalized_present {
             blockers.push(blocker(
                 "manifest_citation_absent_from_text",
@@ -1150,10 +1314,7 @@ fn validate_manifest(
         }
         let mut normalized = citation.clone();
         normalized.normalized_text = Some(normalized_text);
-        normalized.normalized_footnote = Some(format_footnote(
-            source,
-            citation.locator.as_deref(),
-        ));
+        normalized.normalized_footnote = Some(format_footnote(source, citation.locator.as_deref()));
         citations.push(normalized);
     }
     let mut references = Vec::new();
@@ -1188,9 +1349,7 @@ fn validate_manifest(
                 .next()
                 .map(str::trim)
                 .unwrap_or_default();
-            if display_key.is_empty()
-                || ascii_fold(display_key) != ascii_fold(author.author_key.trim())
-            {
+            if display_key.is_empty() || !equivalent_value(display_key, author.author_key.trim()) {
                 blockers.push(blocker(
                     "canonical_author_display_mismatch",
                     "author_display deve iniciar pela mesma chave canonica completa de author_key.",
@@ -1214,7 +1373,7 @@ fn validate_manifest(
             ));
         }
         let formatted = format_reference(source);
-        if !formatted.is_empty() && !folded_text.contains(&ascii_fold(&formatted)) {
+        if !formatted.is_empty() && !contains_value(text, &formatted) {
             blockers.push(blocker(
                 "reference_not_normalized",
                 "A referencia estruturada ainda nao aparece no texto com a forma normalizada gerada pelo motor.",
@@ -1228,10 +1387,9 @@ fn validate_manifest(
         references.push(formatted);
     }
     for reference in raw_references {
-        let raw_key = ascii_fold(&reference.text);
         if !references
             .iter()
-            .any(|normalized| ascii_fold(normalized) == raw_key)
+            .any(|normalized| equivalent_value(normalized, &reference.text))
         {
             blockers.push(blocker(
                 "reference_not_in_manifest",
@@ -1244,22 +1402,22 @@ fn validate_manifest(
             ));
         }
     }
+    let mut available = (0..citations.len()).collect::<BTreeSet<_>>();
     for raw in raw_citations {
-        let represented = citations.iter().any(|structured| {
-            ascii_fold(&structured.author_key) == ascii_fold(&raw.author_key)
+        let represented = available.iter().copied().find(|index| {
+            let structured = &citations[*index];
+            equivalent_value(&structured.author_key, &raw.author_key)
                 && structured.year.trim() == raw.year.trim()
-                && structured
-                    .locator
-                    .as_deref()
-                    .map(ascii_fold)
-                    .unwrap_or_default()
-                    == raw
-                        .locator
-                        .as_deref()
-                        .map(ascii_fold)
-                        .unwrap_or_default()
+                && match (structured.locator.as_deref(), raw.locator.as_deref()) {
+                    (None, None) => true,
+                    (Some(left), Some(right)) => equivalent_value(left, right),
+                    _ => false,
+                }
         });
-        if !represented {
+        if let Some(index) = represented {
+            available.remove(&index);
+        }
+        if represented.is_none() {
             blockers.push(blocker(
                 "body_citation_not_in_manifest",
                 "O texto contem citacao autor-data sem entrada inequivoca no manifesto estruturado.",
@@ -1271,7 +1429,11 @@ fn validate_manifest(
             ));
         }
     }
-    for signal in unstructured_citation_signals(text) {
+    let (signals, overflow) = unstructured_citation_signals(text);
+    if overflow {
+        blockers.push(capacity_blocker("citation signals"));
+    }
+    for signal in signals {
         let represented = citations.iter().any(|citation| {
             [
                 citation.original_text.as_deref(),
@@ -1279,7 +1441,7 @@ fn validate_manifest(
             ]
             .into_iter()
             .flatten()
-            .any(|candidate| ascii_fold(candidate).contains(&ascii_fold(&signal)))
+            .any(|candidate| candidate.to_lowercase().contains(&signal.to_lowercase()))
         });
         if !represented {
             blockers.push(blocker(
@@ -1296,22 +1458,36 @@ fn validate_manifest(
     (citations, references)
 }
 
-fn semantic_diff(current: Option<&CitationManifest>, previous: Option<&CitationManifest>) -> String {
+fn semantic_diff(
+    current: Option<&CitationManifest>,
+    previous: Option<&CitationManifest>,
+) -> String {
     let Some(current) = current else {
         return "Manifesto estruturado ausente; diff semantico indisponivel.".to_string();
     };
     let Some(previous) = previous else {
-        return "Primeiro manifesto estruturado; nenhuma versao anterior para comparar.".to_string();
+        return "Primeiro manifesto estruturado; nenhuma versao anterior para comparar."
+            .to_string();
     };
     let current_claims = current
         .citations
         .iter()
-        .map(|citation| (citation.claim_id.clone(), sha256(serde_json::to_vec(citation).unwrap_or_default())))
+        .map(|citation| {
+            (
+                citation.claim_id.clone(),
+                sha256(serde_json::to_vec(citation).unwrap_or_default()),
+            )
+        })
         .collect::<BTreeMap<_, _>>();
     let previous_claims = previous
         .citations
         .iter()
-        .map(|citation| (citation.claim_id.clone(), sha256(serde_json::to_vec(citation).unwrap_or_default())))
+        .map(|citation| {
+            (
+                citation.claim_id.clone(),
+                sha256(serde_json::to_vec(citation).unwrap_or_default()),
+            )
+        })
         .collect::<BTreeMap<_, _>>();
     let added = current_claims
         .keys()
@@ -1481,6 +1657,12 @@ pub(crate) fn audit_abnt_citations_inner(
     let raw_references = reference_section(&request.text);
     let raw_citation_rows = raw_citations(&request.text);
     let mut blockers = Vec::new();
+    if raw_citation_rows.len() > MAX_CITATIONS {
+        blockers.push(capacity_blocker("body citations"));
+    }
+    if raw_references.len() > MAX_SOURCES {
+        blockers.push(capacity_blocker("references"));
+    }
     let (citations, normalized_references) = if let Some(manifest) = request.manifest.as_ref() {
         let (citations, references) = validate_manifest(
             &request.text,
@@ -1496,6 +1678,21 @@ pub(crate) fn audit_abnt_citations_inner(
         (citations, references)
     } else {
         let citations = raw_citation_rows;
+        let (signals, overflow) = unstructured_citation_signals(&request.text);
+        if overflow {
+            blockers.push(capacity_blocker("citation signals"));
+        }
+        for signal in signals {
+            blockers.push(blocker(
+                "unstructured_citation_signal",
+                "Foi detectada citacao em nota ou HTML sem manifesto estruturado.",
+                "error",
+                None,
+                None,
+                Some(&signal),
+                true,
+            ));
+        }
         blockers.extend(raw_text_blockers(
             &request.text,
             &citations,
@@ -1540,18 +1737,23 @@ pub(crate) fn audit_abnt_citations_inner(
         .iter()
         .map(|reference| format!("<li>{}</li>", escape_html(reference)))
         .collect::<Vec<_>>();
-    let semantic_diff = semantic_diff(request.manifest.as_ref(), request.previous_manifest.as_ref());
+    let semantic_diff = semantic_diff(
+        request.manifest.as_ref(),
+        request.previous_manifest.as_ref(),
+    );
     let manifest_bytes = request
         .manifest
         .as_ref()
         .and_then(|manifest| serde_json::to_vec(manifest).ok())
         .unwrap_or_default();
-    let audit_id = sha256([
-        request.text.as_bytes(),
-        protocol_hash.as_deref().unwrap_or_default().as_bytes(),
-        manifest_bytes.as_slice(),
-    ]
-    .concat());
+    let audit_id = sha256(
+        [
+            request.text.as_bytes(),
+            protocol_hash.as_deref().unwrap_or_default().as_bytes(),
+            manifest_bytes.as_slice(),
+        ]
+        .concat(),
+    );
     let audit_table_markdown = audit_table(&citations, &blockers);
     Ok(CitationAuditResult {
         schema_version: RESULT_SCHEMA.to_string(),
@@ -1765,5 +1967,170 @@ mod tests {
             .blockers
             .iter()
             .any(|item| item.code == "unstructured_citation_signal"));
+    }
+
+    #[test]
+    fn manifest_year_digits_do_not_disguise_an_unlisted_footnote() {
+        let result = audit_abnt_citations_inner(AbntAuditRequest {
+            text: "“Trecho direto com mais de quatro palavras” (Silva, 2026, p. 12). Nota[^1].\n\n[^1]: Fonte adicional.\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026.".to_string(),
+            protocol_hash: Some("protocol-sha256".to_string()),
+            manifest: Some(verified_manifest()),
+            previous_manifest: None,
+        })
+        .unwrap();
+        assert!(result.blockers.iter().any(|item| {
+            item.code == "unstructured_citation_signal" && item.excerpt.as_deref() == Some("[^1]")
+        }));
+    }
+
+    #[test]
+    fn manifest_overflow_blocks_before_truncated_entries_can_pass() {
+        let mut manifest = verified_manifest();
+        manifest.citations = vec![manifest.citations[0].clone(); MAX_CITATIONS + 1];
+        let result = audit_abnt_citations_inner(AbntAuditRequest {
+            text: "“Trecho direto com mais de quatro palavras” (Silva, 2026, p. 12).\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026.".to_string(),
+            protocol_hash: Some("protocol-sha256".to_string()),
+            manifest: Some(manifest),
+            previous_manifest: None,
+        })
+        .unwrap();
+        assert!(result
+            .blockers
+            .iter()
+            .any(|item| item.code == "manifest_capacity_exceeded"));
+    }
+
+    #[test]
+    fn unstructured_citation_signals_block_without_manifest() {
+        for signal in [
+            "[^1]",
+            "<cite>Fonte</cite>",
+            "<blockquote>Fonte</blockquote>",
+            "<q>Fonte</q>",
+            "apud",
+            "ibid.",
+            "op. cit.",
+        ] {
+            let result =
+                audit_abnt_citations_inner(request(&format!("Texto com {signal} sem autor-data.")))
+                    .unwrap();
+            assert!(
+                result
+                    .blockers
+                    .iter()
+                    .any(|item| item.code == "unstructured_citation_signal"),
+                "{signal}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_reader_blocks_at_the_501st_occurrence() {
+        let citations = "(Silva, 2020) ".repeat(MAX_CITATIONS + 1);
+        assert!(audit_abnt_citations_inner(request(&citations))
+            .unwrap()
+            .blockers
+            .iter()
+            .any(|item| item.code == "citation_capacity_exceeded"));
+
+        let references = format!(
+            "## Referencias\n{}",
+            "SILVA, Ana. Obra. Editora, 2020.\n".repeat(MAX_SOURCES + 1)
+        );
+        assert!(audit_abnt_citations_inner(request(&references))
+            .unwrap()
+            .blockers
+            .iter()
+            .any(|item| item.code == "citation_capacity_exceeded"));
+
+        let quotes = "\"Trecho direto suficientemente longo sem fonte\" ".repeat(MAX_CITATIONS + 1);
+        assert!(audit_abnt_citations_inner(request(&quotes))
+            .unwrap()
+            .blockers
+            .iter()
+            .any(|item| item.code == "citation_capacity_exceeded"));
+
+        let signals = "[^1] ".repeat(MAX_CITATIONS + 1);
+        assert!(audit_abnt_citations_inner(request(&signals))
+            .unwrap()
+            .blockers
+            .iter()
+            .any(|item| item.code == "citation_capacity_exceeded"));
+    }
+
+    #[test]
+    fn values_that_fold_to_empty_do_not_count_as_present() {
+        assert!(!contains_value("O texto termina.", "."));
+        assert!(!equivalent_value(".", "*"));
+        let mut manifest = verified_manifest();
+        manifest.citations[0].original_text = Some(".".to_string());
+        let result = audit_abnt_citations_inner(AbntAuditRequest {
+            text: "Texto sem citacao.\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026.".to_string(),
+            protocol_hash: Some("protocol-sha256".to_string()),
+            manifest: Some(manifest),
+            previous_manifest: None,
+        }).unwrap();
+        assert!(result
+            .blockers
+            .iter()
+            .any(|item| item.code == "manifest_citation_absent_from_text"));
+    }
+
+    #[test]
+    fn unicode_letters_are_never_discarded_during_matching() {
+        assert!(!contains_value("Referencia de 2020.", "(Ωμέγα, 2020)"));
+        assert!(!equivalent_value("Ωμέγα, 2020", "2020"));
+        let mut manifest = verified_manifest();
+        manifest.citations[0].original_text = Some("(Ωμέγα, 2020)".to_string());
+        let result = audit_abnt_citations_inner(AbntAuditRequest {
+            text: "Texto de 2020.\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026."
+                .to_string(),
+            protocol_hash: Some("protocol-sha256".to_string()),
+            manifest: Some(manifest),
+            previous_manifest: None,
+        })
+        .unwrap();
+        assert!(result
+            .blockers
+            .iter()
+            .any(|item| item.code == "manifest_citation_absent_from_text"));
+    }
+
+    #[test]
+    fn each_body_occurrence_consumes_one_manifest_entry() {
+        let result = audit_abnt_citations_inner(AbntAuditRequest {
+            text: "Primeira frase (Silva, 2026, p. 12). Segunda frase (Silva, 2026, p. 12).\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026.".to_string(),
+            protocol_hash: Some("protocol-sha256".to_string()),
+            manifest: Some(verified_manifest()),
+            previous_manifest: None,
+        }).unwrap();
+        assert!(result
+            .blockers
+            .iter()
+            .any(|item| item.code == "body_citation_not_in_manifest"));
+    }
+
+    #[test]
+    fn prose_quotes_and_raw_html_are_independently_checked() {
+        for text in [
+            "2 < 3 e \"um trecho direto com varias palavras\".",
+            "x = \"um trecho direto com varias palavras\".",
+        ] {
+            let result = audit_abnt_citations_inner(request(text)).unwrap();
+            assert!(result
+                .blockers
+                .iter()
+                .any(|item| item.code == "direct_quote_without_citation"));
+            assert!(!result
+                .blockers
+                .iter()
+                .any(|item| item.code == "raw_html_in_final_text"));
+        }
+        let html = audit_abnt_citations_inner(request("Texto <cite>fonte</cite> e <!-- nota -->."))
+            .unwrap();
+        assert!(html
+            .blockers
+            .iter()
+            .any(|item| item.code == "raw_html_in_final_text"));
     }
 }
