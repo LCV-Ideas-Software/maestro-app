@@ -3734,6 +3734,21 @@ mod tests {
             rejected_url_for_record("https://example.com/path?q=segredo-operacional"),
             "https://example.com/path"
         );
+        let fetched = fetch_web_evidence_inner(
+            None,
+            WebEvidenceFetchRequest {
+                url: original.to_string(),
+                method: WebEvidenceMethod::Get,
+                force_revalidate: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(fetched.state, WebEvidenceState::Blocked);
+        let persisted = read_text_file(&record_path(&fetched.id).unwrap()).unwrap();
+        assert!(!persisted.contains("senha"));
+        assert!(!persisted.contains("valor-super-secreto"));
+        assert!(!persisted.contains("user:"));
+        fs::remove_file(record_path(&fetched.id).unwrap()).unwrap();
     }
 
     #[test]
