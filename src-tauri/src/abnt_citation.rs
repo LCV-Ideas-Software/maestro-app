@@ -2279,6 +2279,12 @@ mod tests {
                     | "reference_not_normalized"
             )
         }));
+        assert_eq!(
+            result.maestro_peer_status,
+            MaestroPeerStatus::Ready,
+            "{:?}",
+            result.blockers
+        );
     }
 
     #[test]
