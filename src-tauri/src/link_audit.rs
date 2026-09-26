@@ -314,6 +314,36 @@ fn is_blocked_link_audit_ipv6(ip: Ipv6Addr) -> bool {
     }
 
     let segments = ip.segments();
+    // RFC 6145 IPv4-translatable ::ffff:0:0/96 also embeds IPv4 in the
+    // final 32 bits, distinct from Rust's IPv4-mapped address helper.
+    if segments[0..4].iter().all(|segment| *segment == 0)
+        && segments[4] == 0xffff
+        && segments[5] == 0
+    {
+        let [a, b] = segments[6].to_be_bytes();
+        let [c, d] = segments[7].to_be_bytes();
+        return is_blocked_link_audit_ipv4(Ipv4Addr::new(a, b, c, d));
+    }
+    // RFC 8215 local-use NAT64 permits several RFC 6052 layouts; the
+    // address alone does not identify which embedded IPv4 bits to trust.
+    if segments[0] == 0x0064 && segments[1] == 0xff9b && segments[2] == 0x0001 {
+        return true;
+    }
+    // RFC 6052 well-known /96 prefix and RFC 3056 6to4 carry IPv4
+    // addresses at fixed positions.
+    if segments[0] == 0x0064
+        && segments[1] == 0xff9b
+        && segments[2..6].iter().all(|segment| *segment == 0)
+    {
+        let [a, b] = segments[6].to_be_bytes();
+        let [c, d] = segments[7].to_be_bytes();
+        return is_blocked_link_audit_ipv4(Ipv4Addr::new(a, b, c, d));
+    }
+    if segments[0] == 0x2002 {
+        let [a, b] = segments[1].to_be_bytes();
+        let [c, d] = segments[2].to_be_bytes();
+        return is_blocked_link_audit_ipv4(Ipv4Addr::new(a, b, c, d));
+    }
     if segments[0..5].iter().all(|segment| *segment == 0)
         && (segments[5] == 0 || segments[5] == 0xffff)
     {
@@ -325,6 +355,7 @@ fn is_blocked_link_audit_ipv6(ip: Ipv6Addr) -> bool {
     let first_segment = segments[0];
     (first_segment & 0xfe00) == 0xfc00
         || (first_segment & 0xffc0) == 0xfe80
+        || (first_segment & 0xffc0) == 0xfec0
         || (first_segment & 0xff00) == 0xff00
         || (segments[0] == 0x2001 && segments[1] == 0x0db8)
 }
@@ -397,12 +428,15 @@ fn link_audit_row(
         normalization_changes: Vec::new(),
         final_url: None,
         redirect_chain: Vec::new(),
-        http_status: status.strip_prefix("HTTP ").and_then(|value| value.parse().ok()),
+        http_status: status
+            .strip_prefix("HTTP ")
+            .and_then(|value| value.parse().ok()),
         content_type: None,
         sha256: None,
         checked_at: chrono::Utc::now().to_rfc3339(),
         claim_supported: None,
         classification,
+        mechanical_classification: None,
         correction_candidates: Vec::new(),
         cross_review_status: LinkCrossReviewStatus::Pending,
         review_decision: None,
@@ -431,4 +465,46 @@ fn sha256_hex(value: &[u8]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+#[cfg(test)]
+mod ip_regression_tests {
+    use super::*;
+
+    #[test]
+    fn site_local_and_local_use_nat64_are_blocked() {
+        for address in [
+            "fec0::1",
+            "feff::1",
+            "64:ff9b:1::a00:1",
+            "64:ff9b:1:20::808:808",
+        ] {
+            assert!(
+                is_blocked_link_audit_ipv6(address.parse().unwrap()),
+                "{address}"
+            );
+        }
+    }
+
+    #[test]
+    fn well_known_nat64_and_6to4_inspect_embedded_ipv4() {
+        for address in ["64:ff9b::a00:1", "64:ff9b::7f00:1", "2002:c0a8:0101::1"] {
+            assert!(
+                is_blocked_link_audit_ipv6(address.parse().unwrap()),
+                "{address}"
+            );
+        }
+        for address in ["64:ff9b::808:808", "2002:0808:0808::1"] {
+            assert!(
+                !is_blocked_link_audit_ipv6(address.parse().unwrap()),
+                "{address}"
+            );
+        }
+        assert!(is_blocked_link_audit_ipv6(
+            "::ffff:0:a00:1".parse().unwrap()
+        ));
+        assert!(!is_blocked_link_audit_ipv6(
+            "::ffff:0:808:808".parse().unwrap()
+        ));
+    }
 }

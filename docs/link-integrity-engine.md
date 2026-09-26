@@ -73,11 +73,26 @@ Only `verified_supports_claim` and explicitly accepted `redirected_verified` lin
 
 Records are stored under `data/evidence/link-integrity/`. Review writeback is append-only in `events.ndjson`, requires an allowed reviewer identity and a substantive note, and uses optimistic checks against the normalized URL and content SHA-256. Link identity includes the complete source fingerprint and local claim context, so a decision cannot migrate to a different assertion that reuses the same URL. A later mechanical audit preserves a decision only while the source, assertion, URL, and content hash remain unchanged.
 
+Markdown destinations are read with the maintained CommonMark parser, including
+balanced parentheses. An invalid destination remains a blocked `malformed` row;
+internal fragment anchors are local references, and code examples and HTML
+comments are excluded.
+Bare URL extraction preserves
+balanced parentheses as well. A later audit preserves an editorial decision
+only when the final URL and redirect chain also remain unchanged. Fragments are
+retained for editorial context and excluded only from the network redirect
+comparison.
+
+Rejected links with embedded credentials or credential-like path, query, or fragment keys are stored with only the URL origin; the raw URL, anchor and surrounding text are omitted from persisted records and events. The same redaction covers their appearance in neighboring link context.
+
 ## Sanitization
 
 For MainSite-compatible HTML, Maestro must:
 
 - Preserve safe `http`, `https`, and `mailto` links.
+- A `mailto:` address can be syntactically valid, but cannot receive editorial
+  `Accept` as evidence supporting a factual claim because no fetched content
+  or SHA-256 exists for it. It remains visibly pending in the evidence gate.
 - Reject `javascript:`, unsafe data URLs, malformed URLs, and suspicious control characters.
 - Normalize internal LCV-family links according to the MainSite reader behavior.
 - Add `target="_blank"` and `rel="noopener noreferrer"` to external non-YouTube links before save.
@@ -122,4 +137,4 @@ The final-release gate remains blocked until every link is mechanically valid an
 - Candidate lookup updates only the candidate list under an atomic read-modify-write lock; it cannot erase or overwrite a concurrent editorial decision.
 - More than 30 link occurrences fail closed before any partial network audit; the engine never reports a truncated set as complete.
 - Rendered/browser-assisted evidence stays in the Web Evidence workflow and requires explicit operator custody.
-- Rust compilation, Clippy, native tests, and Windows portable validation run only in GitHub Actions for this workstream.
+- Rust compilation, Clippy, native tests, and Windows portable validation run in GitHub Actions; local Rust validation is also permitted by the operator's 25/09/2026 decision.

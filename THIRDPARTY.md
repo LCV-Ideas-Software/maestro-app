@@ -68,24 +68,24 @@ declared explicitly in this inventory and the applicable distribution notices.
 | @tiptap/suggestion | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/suggestion |
 | dompurify | 3.4.15 | (MPL-2.0 OR Apache-2.0) | runtime | No | https://www.npmjs.com/package/dompurify |
 | lowlight | 3.3.0 | MIT | runtime | No | https://www.npmjs.com/package/lowlight |
-| lucide-react | 1.45.0 | ISC AND MIT | runtime | No | https://www.npmjs.com/package/lucide-react |
+| lucide-react | 1.47.0 | ISC AND MIT | runtime | No | https://www.npmjs.com/package/lucide-react |
 | mammoth | 1.12.3 | BSD-2-Clause | runtime | No | https://www.npmjs.com/package/mammoth |
 | marked | 18.0.13 | MIT AND BSD-3-Clause | runtime | No | https://www.npmjs.com/package/marked |
 | prosemirror-model | 1.25.11 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-model |
 | prosemirror-state | 1.4.4 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-state |
-| prosemirror-view | 1.42.3 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-view |
+| prosemirror-view | 1.42.4 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-view |
 | react | 19.3.0 | MIT | runtime | No | https://www.npmjs.com/package/react |
 | react-dom | 19.3.0 | MIT | runtime | No | https://www.npmjs.com/package/react-dom |
 | tiptap-markdown | 0.9.0 | MIT | runtime | No | https://www.npmjs.com/package/tiptap-markdown |
-| @biomejs/biome | 2.5.13 | MIT OR Apache-2.0 | development | No | https://www.npmjs.com/package/@biomejs/biome |
+| @biomejs/biome | 2.5.14 | MIT OR Apache-2.0 | development | No | https://www.npmjs.com/package/@biomejs/biome |
 | @tauri-apps/cli | 2.11.4 | Apache-2.0 OR MIT | development | No | https://www.npmjs.com/package/@tauri-apps/cli |
 | @testing-library/jest-dom | 7.0.1 | MIT | development | No | https://www.npmjs.com/package/@testing-library/jest-dom |
 | @testing-library/react | 16.3.3 | MIT | development | No | https://www.npmjs.com/package/@testing-library/react |
 | @types/react | 19.3.0 | MIT | development | No | https://www.npmjs.com/package/@types/react |
 | @types/react-dom | 19.3.0 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
 | @vitejs/plugin-react | 6.1.1 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
-| jsdom | 30.0.1 | MIT | development | No | https://www.npmjs.com/package/jsdom |
-| prettier | 3.9.6 | MIT | development | No | https://www.npmjs.com/package/prettier |
+| jsdom | 30.1.0 | MIT | development | No | https://www.npmjs.com/package/jsdom |
+| prettier | 3.9.8 | MIT | development | No | https://www.npmjs.com/package/prettier |
 | typescript | 7.0.2 | Apache-2.0 | development | No | https://www.npmjs.com/package/typescript |
 | vite | 8.3.0 | MIT | development | No | https://www.npmjs.com/package/vite |
 | vitest | 5.0.1 | MIT | development | No | https://www.npmjs.com/package/vitest |
@@ -104,9 +104,9 @@ artifacts from the official [crates.io registry](https://crates.io/); the SBOM
 identified the graph but did not populate `licenseDeclared` for these Cargo
 packages in that recorded response.
 
-Normalized `Cargo.lock` SHA-256: `b214fea3b4251be6e0cf83658da2ed2b0b31c19427cc4661382219f29cdfe516`
+Normalized `Cargo.lock` SHA-256: `1380b52cce7f131ddbb2b502da90e48da99909b970ba6fbf653a6566d130baae`
 
-This historical fingerprint was computed after normalizing CRLF to LF. It is
+This fingerprint was computed after normalizing CRLF to LF. It is
 not recalculated by a repository-owned CI verifier. Direct or transitive
 dependency changes require review of the inventory and distribution obligations;
 the preserved fingerprint must not be presented as evidence for a changed graph.
@@ -127,7 +127,9 @@ exception, tracked in LCV-207.
 | tauri-build | 2.6.3 | Apache-2.0 OR MIT | build | No | https://crates.io/crates/tauri-build/2.6.3 |
 | base64 | 0.23.1 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/base64/0.23.1 |
 | chrono | 0.4.45 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/chrono/0.4.45 |
+| percent-encoding | 2.3.2 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/percent-encoding/2.3.2 |
 | portable-pty | 0.9.0 | MIT | runtime | No | https://crates.io/crates/portable-pty/0.9.0 |
+| pulldown-cmark | 0.13.4 | MIT | runtime | No | https://crates.io/crates/pulldown-cmark/0.13.4 |
 | regex | 1.13.1 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/regex/1.13.1 |
 | reqwest | 0.12.28 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/reqwest/0.12.28 |
 | serde | 1.0.229 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/serde/1.0.229 |
@@ -136,6 +138,26 @@ exception, tracked in LCV-207.
 | tauri | 2.11.5 | Apache-2.0 OR MIT | runtime | No | https://crates.io/crates/tauri/2.11.5 |
 | tokio | 1.53.1 | MIT | runtime | No | https://crates.io/crates/tokio/1.53.1 |
 | tokio-util | 0.7.19 | MIT | runtime | No | https://crates.io/crates/tokio-util/0.7.19 |
+
+For MAESTRO-34, the 25/09/2026 lockfile update added `pulldown-cmark 0.13.4`
+and its transitive `unicase 2.9.0` to the Windows runtime graph. Their exact
+crates.io artifacts declare MIT and MIT OR Apache-2.0 respectively; the MIT
+option is selected for `unicase`. The same Cargo resolution changed the
+`tauri-utils` edge from `toml 0.9.12` to `toml 1.1.6`. A current
+`cargo metadata --locked --filter-platform x86_64-pc-windows-msvc` traversal of
+normal dependencies found 301 reachable crates. Fourteen exact versions had
+entered since the prior legal snapshot without current-version headers,
+including `toml 1.1.6` and `toml_datetime 1.1.1`. The 25/09 addendum in
+`THIRD-PARTY-NOTICES.txt` now identifies each exact version, locked checksum,
+selected license and full upstream text. The historical snapshot remains
+preserved. Five direct npm versions above were also aligned with the current
+`package-lock.json`.
+
+The current MAESTRO-34 correction made the already locked `percent-encoding
+2.3.2` crate a direct runtime dependency for URL path validation. Cargo's
+locked metadata confirms the direct edge; the reachable package set and the
+existing exact-version license notice remain unchanged. The preceding lockfile
+fingerprint was `b214fea3b4251be6e0cf83658da2ed2b0b31c19427cc4661382219f29cdfe516`.
 
 ### Transitive Rust license review
 

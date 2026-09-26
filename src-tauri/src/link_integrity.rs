@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 use chrono::Utc;
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use regex::Regex;
 use reqwest::Url;
 use serde_json::json;
@@ -21,7 +22,8 @@ use crate::app_paths::{checked_data_child_path, data_dir};
 use crate::editorial_io::write_text_file;
 use crate::sanitize::{sanitize_short, sanitize_text};
 use crate::web_evidence::{
-    fetch_web_evidence_inner, search_web_evidence_inner, WebEvidenceFetchRequest,
+    fetch_web_evidence_inner, rejected_url_for_record, search_web_evidence_inner,
+    url_has_sensitive_parameters, WebEvidenceCacheState, WebEvidenceFetchRequest,
     WebEvidenceInteractionState, WebEvidenceMethod, WebEvidenceRecord, WebEvidenceSearchRequest,
     WebEvidenceState,
 };
@@ -44,6 +46,8 @@ static LINK_INTEGRITY_IO_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 #[derive(Clone, Debug)]
 struct ExtractedLink {
     start: usize,
+    url_start: usize,
+    url_end: usize,
     original_url: String,
     anchor_text: Option<String>,
     surrounding_text: String,
@@ -217,6 +221,25 @@ fn clean_url_tail(value: &str) -> String {
         .to_string()
 }
 
+fn clean_bare_url_tail(value: &str) -> &str {
+    let mut end = value.len();
+    let opens = value.bytes().filter(|byte| *byte == b'(').count();
+    let mut closes = value.bytes().filter(|byte| *byte == b')').count();
+    loop {
+        let candidate = &value[..end];
+        let last = candidate.chars().next_back();
+        let unmatched_close = last == Some(')') && closes > opens;
+        if unmatched_close || matches!(last, Some('.' | ',' | ';' | ':' | ']' | '}')) {
+            if last == Some(')') {
+                closes -= 1;
+            }
+            end -= last.expect("trimmed tail has a character").len_utf8();
+        } else {
+            return candidate;
+        }
+    }
+}
+
 fn overlaps(start: usize, end: usize, spans: &[(usize, usize)]) -> bool {
     spans
         .iter()
@@ -226,24 +249,73 @@ fn overlaps(start: usize, end: usize, spans: &[(usize, usize)]) -> bool {
 fn extract_links(text: &str) -> Vec<ExtractedLink> {
     let mut links = Vec::new();
     let mut covered = Vec::new();
-
-    if let Ok(markdown) = Regex::new(
-        r#"(?s)\[([^\]\n]{0,240})\]\(\s*((?:[a-zA-Z][a-zA-Z0-9+.-]*:)[^)\s]+)(?:\s+[\"'][^\"']*[\"'])?\s*\)"#,
-    ) {
-        for capture in markdown.captures_iter(text) {
-            let Some(whole) = capture.get(0) else { continue };
-            let Some(url) = capture.get(2) else { continue };
-            let anchor = capture
-                .get(1)
-                .map(|value| sanitize_text(value.as_str().trim(), 240))
-                .filter(|value| !value.is_empty());
-            links.push(ExtractedLink {
-                start: whole.start(),
-                original_url: clean_url_tail(url.as_str()),
-                anchor_text: anchor,
-                surrounding_text: surrounding_text(text, whole.start(), whole.end()),
-            });
-            covered.push((whole.start(), whole.end()));
+    let mut markdown_link: Option<(usize, String, String)> = None;
+    let mut code_block_start = None;
+    let parser = Parser::new(text);
+    covered.extend(
+        parser
+            .reference_definitions()
+            .iter()
+            .map(|(_, definition)| (definition.span.start, definition.span.end)),
+    );
+    for (event, range) in parser.into_offset_iter() {
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => code_block_start = Some(range.start),
+            Event::End(TagEnd::CodeBlock) => {
+                if let Some(start) = code_block_start.take() {
+                    covered.push((start, range.end));
+                }
+            }
+            Event::Code(label) => {
+                covered.push((range.start, range.end));
+                if let Some((_, _, anchor)) = markdown_link.as_mut() {
+                    anchor.push_str(&label);
+                }
+            }
+            Event::Html(_) | Event::InlineHtml(_) => {
+                let html = &text[range.clone()];
+                let mut cursor = 0;
+                while let Some(relative_start) = html[cursor..].find("<!--") {
+                    let start = cursor + relative_start;
+                    let end = html[start + 4..]
+                        .find("-->")
+                        .map(|close| start + 4 + close + 3)
+                        .unwrap_or(html.len());
+                    covered.push((range.start + start, range.start + end));
+                    cursor = end;
+                }
+            }
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                markdown_link = Some((range.start, dest_url.into_string(), String::new()));
+            }
+            Event::Text(label) => {
+                if let Some((_, _, anchor)) = markdown_link.as_mut() {
+                    anchor.push_str(&label);
+                }
+            }
+            Event::End(TagEnd::Link) => {
+                if let Some((start, url, anchor)) = markdown_link.take() {
+                    let end = range.end;
+                    let source = &text[start..end];
+                    let raw_range = source
+                        .find(&url)
+                        .map(|offset| (start + offset, start + offset + url.len()));
+                    let (url_start, url_end) = raw_range.unwrap_or((start, end));
+                    if !url.starts_with('#') {
+                        links.push(ExtractedLink {
+                            start,
+                            url_start,
+                            url_end,
+                            original_url: url,
+                            anchor_text: (!anchor.trim().is_empty())
+                                .then(|| sanitize_text(anchor.trim(), 240)),
+                            surrounding_text: surrounding_text(text, start, end),
+                        });
+                    }
+                    covered.push((start, end));
+                }
+            }
+            _ => {}
         }
     }
 
@@ -251,8 +323,16 @@ fn extract_links(text: &str) -> Vec<ExtractedLink> {
         r#"(?is)<a\b[^>]*\bhref\s*=\s*[\"']((?:[a-z][a-z0-9+.-]*:)[^\"']+)[\"'][^>]*>(.*?)</a>"#,
     ) {
         for capture in html.captures_iter(text) {
-            let Some(whole) = capture.get(0) else { continue };
-            if overlaps(whole.start(), whole.end(), &covered) {
+            let Some(whole) = capture.get(0) else {
+                continue;
+            };
+            // A comment inside an otherwise live anchor does not hide its href.
+            // Anchors that begin inside a comment, code example, or Markdown
+            // link are already represented by that enclosing span.
+            if covered
+                .iter()
+                .any(|(start, end)| whole.start() >= *start && whole.start() < *end)
+            {
                 continue;
             }
             let Some(url) = capture.get(1) else { continue };
@@ -262,6 +342,8 @@ fn extract_links(text: &str) -> Vec<ExtractedLink> {
                 .filter(|value| !value.is_empty());
             links.push(ExtractedLink {
                 start: whole.start(),
+                url_start: url.start(),
+                url_end: url.end(),
                 original_url: clean_url_tail(url.as_str()),
                 anchor_text: anchor,
                 surrounding_text: surrounding_text(text, whole.start(), whole.end()),
@@ -271,15 +353,18 @@ fn extract_links(text: &str) -> Vec<ExtractedLink> {
     }
 
     if let Ok(bare) = Regex::new(
-        r#"(?i)(?:https?://|mailto:|ftps?://|tel:|javascript:|data:|file:|blob:)[^\s<>\"')\]]+"#,
+        r#"(?i)(?:https?://|mailto:|ftps?://|tel:|javascript:|data:|file:|blob:)[^\s<>\"']+"#,
     ) {
         for matched in bare.find_iter(text) {
             if overlaps(matched.start(), matched.end(), &covered) {
                 continue;
             }
+            let url = clean_bare_url_tail(matched.as_str());
             links.push(ExtractedLink {
                 start: matched.start(),
-                original_url: clean_url_tail(matched.as_str()),
+                url_start: matched.start(),
+                url_end: matched.start() + url.len(),
+                original_url: clean_url_tail(url),
                 anchor_text: None,
                 surrounding_text: surrounding_text(text, matched.start(), matched.end()),
             });
@@ -315,6 +400,9 @@ fn normalize_url(value: &str) -> Result<(String, Vec<String>), String> {
             return Err("credenciais embutidas na URL sao proibidas".to_string());
         }
     }
+    if url_has_sensitive_parameters(&parsed) {
+        return Err("parametro de credencial na URL e proibido".to_string());
+    }
     let normalized = parsed.to_string();
     let mut changes = Vec::new();
     if trimmed != value {
@@ -324,6 +412,15 @@ fn normalize_url(value: &str) -> Result<(String, Vec<String>), String> {
         changes.push("url_parser_normalization".to_string());
     }
     Ok((normalized, changes))
+}
+
+fn same_network_url(left: &str, right: &str) -> bool {
+    let (Ok(mut left), Ok(mut right)) = (Url::parse(left), Url::parse(right)) else {
+        return false;
+    };
+    left.set_fragment(None);
+    right.set_fragment(None);
+    left == right
 }
 
 fn link_id(
@@ -371,6 +468,7 @@ fn base_row(
         checked_at: Utc::now().to_rfc3339(),
         claim_supported: None,
         classification: LinkClassification::VerifiedButWeak,
+        mechanical_classification: None,
         correction_candidates: Vec::new(),
         cross_review_status: LinkCrossReviewStatus::Pending,
         review_decision: None,
@@ -397,6 +495,11 @@ fn content_type_mismatch(url: &str, content_type: Option<&str>) -> bool {
 }
 
 fn mechanical_failure_class(record: &WebEvidenceRecord) -> Option<LinkClassification> {
+    if record.status == Some(403)
+        && record.interaction_state == WebEvidenceInteractionState::LoginRequired
+    {
+        return Some(LinkClassification::Forbidden);
+    }
     if record.interaction_state == WebEvidenceInteractionState::CaptchaRequired {
         return Some(LinkClassification::CaptchaRequired);
     }
@@ -406,6 +509,22 @@ fn mechanical_failure_class(record: &WebEvidenceRecord) -> Option<LinkClassifica
     if record.interaction_state == WebEvidenceInteractionState::Paywall {
         return Some(LinkClassification::Paywall);
     }
+    if !matches!(record.interaction_state, WebEvidenceInteractionState::None)
+        && !(record.interaction_state == WebEvidenceInteractionState::HumanResolved
+            && record.human_resolved)
+    {
+        return Some(LinkClassification::Quarantined);
+    }
+    if record.state == WebEvidenceState::Blocked {
+        return Some(LinkClassification::Quarantined);
+    }
+    if record.state != WebEvidenceState::Ready && record.state != WebEvidenceState::Failed {
+        return Some(LinkClassification::Quarantined);
+    }
+    if record.state == WebEvidenceState::Ready && record.cache_state != WebEvidenceCacheState::Fresh
+    {
+        return Some(LinkClassification::Quarantined);
+    }
     match record.status {
         Some(401) => Some(LinkClassification::AuthRequired),
         Some(403) => Some(LinkClassification::Forbidden),
@@ -413,7 +532,6 @@ fn mechanical_failure_class(record: &WebEvidenceRecord) -> Option<LinkClassifica
         Some(status) if !(200..=299).contains(&status) => {
             Some(LinkClassification::SuspectedHallucination)
         }
-        _ if record.state == WebEvidenceState::Blocked => Some(LinkClassification::Quarantined),
         _ if record.state == WebEvidenceState::Failed => {
             let notes = record.notes.join(" ").to_ascii_lowercase();
             if notes.contains("timed out") || notes.contains("timeout") {
@@ -426,6 +544,7 @@ fn mechanical_failure_class(record: &WebEvidenceRecord) -> Option<LinkClassifica
                 Some(LinkClassification::SuspectedHallucination)
             }
         }
+        _ if record.status.is_none() => Some(LinkClassification::Quarantined),
         _ => None,
     }
 }
@@ -451,6 +570,7 @@ fn apply_web_evidence(row: &mut LinkAuditRow, evidence: WebEvidenceRecord) {
 
     if let Some(classification) = mechanical_failure_class(&evidence) {
         row.classification = classification;
+        row.mechanical_classification = Some(classification);
         row.cross_review_status = LinkCrossReviewStatus::Pending;
         row.status = evidence
             .status
@@ -471,6 +591,7 @@ fn apply_web_evidence(row: &mut LinkAuditRow, evidence: WebEvidenceRecord) {
 
     if content_type_mismatch(&row.normalized_url, row.content_type.as_deref()) {
         row.classification = LinkClassification::ContentTypeMismatch;
+        row.mechanical_classification = Some(LinkClassification::ContentTypeMismatch);
         row.status = row
             .http_status
             .map(|status| format!("HTTP {status}"))
@@ -483,13 +604,14 @@ fn apply_web_evidence(row: &mut LinkAuditRow, evidence: WebEvidenceRecord) {
     let redirected = row
         .final_url
         .as_deref()
-        .map(|final_url| final_url != row.normalized_url)
+        .map(|final_url| !same_network_url(final_url, &row.normalized_url))
         .unwrap_or(false);
     row.classification = if redirected {
         LinkClassification::RedirectedVerified
     } else {
         LinkClassification::VerifiedButWeak
     };
+    row.mechanical_classification = Some(row.classification);
     row.cross_review_status = LinkCrossReviewStatus::Pending;
     row.status = row
         .http_status
@@ -508,8 +630,12 @@ fn apply_preserved_review(row: &mut LinkAuditRow, previous: &LinkAuditRow) {
         || previous.surrounding_text != row.surrounding_text
         || previous.anchor_text != row.anchor_text
         || previous.normalized_url != row.normalized_url
+        || previous.final_url != row.final_url
+        || previous.redirect_chain != row.redirect_chain
         || previous.sha256 != row.sha256
         || previous.review_decision.is_none()
+        || (previous.review_decision == Some(LinkReviewDecision::Accept)
+            && !mechanically_acceptable(row))
     {
         return;
     }
@@ -525,7 +651,7 @@ fn apply_preserved_review(row: &mut LinkAuditRow, previous: &LinkAuditRow) {
             row.classification = if row
                 .final_url
                 .as_deref()
-                .map(|value| value != row.normalized_url)
+                .map(|value| !same_network_url(value, &row.normalized_url))
                 .unwrap_or(false)
             {
                 LinkClassification::RedirectedVerified
@@ -554,6 +680,91 @@ fn apply_preserved_review(row: &mut LinkAuditRow, previous: &LinkAuditRow) {
     }
 }
 
+fn valid_content_hash(hash: Option<&str>) -> bool {
+    hash.is_some_and(|value| {
+        value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    })
+}
+
+fn mechanically_acceptable(row: &LinkAuditRow) -> bool {
+    if row.normalized_url.starts_with("mailto:") {
+        // An address can be syntactically valid, but it supplies no fetched
+        // content or hash that can support an editorial claim.
+        return false;
+    }
+    row.http_status
+        .is_some_and(|status| (200..=299).contains(&status))
+        && valid_content_hash(row.sha256.as_deref())
+        && matches!(
+            row.mechanical_classification,
+            Some(LinkClassification::VerifiedButWeak | LinkClassification::RedirectedVerified)
+        )
+}
+
+fn normalized_url_is_safe_to_collect(url: &str) -> bool {
+    sanitize_text(url, 1000) == url
+}
+
+fn redacted_extracted_link(extracted: &ExtractedLink) -> ExtractedLink {
+    ExtractedLink {
+        start: extracted.start,
+        url_start: extracted.url_start,
+        url_end: extracted.url_end,
+        original_url: rejected_url_for_record(&extracted.original_url),
+        anchor_text: None,
+        surrounding_text: "<redacted context>".to_string(),
+    }
+}
+
+fn source_with_rejected_urls_masked(text: &str, links: &[ExtractedLink]) -> String {
+    let mut bytes = text.as_bytes().to_vec();
+    for link in links {
+        let rejected = normalize_url(&link.original_url)
+            .map(|(normalized, _)| !normalized_url_is_safe_to_collect(&normalized))
+            .unwrap_or(true);
+        if rejected {
+            for byte in &mut bytes[link.url_start..link.url_end] {
+                if !matches!(*byte, b'\r' | b'\n') {
+                    *byte = b' ';
+                }
+            }
+        }
+    }
+    let literals = Regex::new(
+        r#"(?i)(?:https?://|mailto:|ftps?://|tel:|javascript:|data:|file:|blob:)[^\s<>\"']+"#,
+    )
+    .expect("static URL literal pattern must compile");
+    for found in literals.find_iter(text) {
+        let literal = clean_bare_url_tail(found.as_str());
+        let rejected = normalize_url(literal)
+            .map(|(normalized, _)| !normalized_url_is_safe_to_collect(&normalized))
+            .unwrap_or(true);
+        if rejected {
+            for byte in &mut bytes[found.start()..found.start() + literal.len()] {
+                if !matches!(*byte, b'\r' | b'\n') {
+                    *byte = b' ';
+                }
+            }
+        }
+    }
+    String::from_utf8(bytes).expect("complete URL ranges preserve UTF-8 when masked")
+}
+
+fn safe_context_link(extracted: &ExtractedLink, masked_links: &[ExtractedLink]) -> ExtractedLink {
+    masked_links
+        .iter()
+        .find(|candidate| {
+            candidate.start == extracted.start && candidate.original_url == extracted.original_url
+        })
+        .cloned()
+        .unwrap_or_else(|| {
+            let mut safe = extracted.clone();
+            safe.anchor_text = None;
+            safe.surrounding_text = "<redacted context>".to_string();
+            safe
+        })
+}
+
 fn malformed_row(
     extracted: &ExtractedLink,
     source_fingerprint: &str,
@@ -580,6 +791,8 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
     let mut occurrences = std::collections::BTreeMap::<String, usize>::new();
     let mut rows = Vec::new();
     let extracted_links = extract_links(text);
+    let masked_text = source_with_rejected_urls_masked(text, &extracted_links);
+    let masked_links = extract_links(&masked_text);
     if extracted_links.len() > LINK_INTEGRITY_MAX_OCCURRENCES {
         return Err(format!(
             "link-integrity capacity exceeded: found {} link occurrences; maximum is {}",
@@ -590,23 +803,50 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
 
     for extracted in extracted_links {
         let normalized = normalize_url(&extracted.original_url);
-        let occurrence_key = normalized
+        let rejected = normalized
             .as_ref()
-            .map(|(value, _)| value.clone())
-            .unwrap_or_else(|_| extracted.original_url.clone());
+            .map(|(url, _)| !normalized_url_is_safe_to_collect(url))
+            .unwrap_or(true);
+        let safe_extracted = if rejected {
+            redacted_extracted_link(&extracted)
+        } else {
+            safe_context_link(&extracted, &masked_links)
+        };
+        let occurrence_key = if rejected {
+            safe_extracted.original_url.clone()
+        } else {
+            normalized
+                .as_ref()
+                .map(|(value, _)| value.clone())
+                .unwrap_or_default()
+        };
         let occurrence = occurrences.entry(occurrence_key).or_insert(0);
         *occurrence += 1;
         let mut row = match normalized {
-            Ok((normalized_url, changes)) => base_row(
-                &extracted,
-                &source_fingerprint,
-                normalized_url,
-                changes,
-                *occurrence,
-            ),
+            Ok((normalized_url, changes)) => {
+                if !normalized_url_is_safe_to_collect(&normalized_url) {
+                    let rejected = redacted_extracted_link(&extracted);
+                    let row = save_audit_record(malformed_row(
+                        &rejected,
+                        &source_fingerprint,
+                        *occurrence,
+                        "normalized URL would change during sanitization",
+                    ))?;
+                    append_event("audit", &row)?;
+                    rows.push(row);
+                    continue;
+                }
+                base_row(
+                    &safe_extracted,
+                    &source_fingerprint,
+                    normalized_url,
+                    changes,
+                    *occurrence,
+                )
+            }
             Err(error) => {
                 let row = save_audit_record(malformed_row(
-                    &extracted,
+                    &safe_extracted,
                     &source_fingerprint,
                     *occurrence,
                     &error,
@@ -621,6 +861,7 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
             row.status = "mailto sintaticamente valido".to_string();
             row.invalidity = "destino mailto requer julgamento editorial explicito".to_string();
             row.classification = LinkClassification::VerifiedButWeak;
+            row.mechanical_classification = Some(LinkClassification::VerifiedButWeak);
             row.cross_review_status = LinkCrossReviewStatus::Pending;
             row.tone = "warn".to_string();
         } else {
@@ -645,6 +886,7 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
                         LinkClassification::SuspectedHallucination
                     };
                     row.status = "falha mecanica".to_string();
+                    row.mechanical_classification = Some(row.classification);
                     row.invalidity = sanitize_text(&error, 180);
                     row.tone = "error".to_string();
                 }
@@ -659,10 +901,7 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
         .iter()
         .filter(|row| row.cross_review_status == LinkCrossReviewStatus::Pending)
         .count();
-    let blocked = rows
-        .iter()
-        .filter(|row| row.tone == "blocked")
-        .count();
+    let blocked = rows.iter().filter(|row| row.tone == "blocked").count();
     let failed = rows
         .iter()
         .filter(|row| matches!(row.tone.as_str(), "error" | "blocked"))
@@ -700,7 +939,8 @@ pub(crate) fn list_link_integrity_records(
     for entry in fs::read_dir(records_dir()?)
         .map_err(|error| format!("failed to list link-integrity records: {error}"))?
     {
-        let entry = entry.map_err(|error| format!("failed to read link-integrity entry: {error}"))?;
+        let entry =
+            entry.map_err(|error| format!("failed to read link-integrity entry: {error}"))?;
         let Some(link_id) = entry
             .path()
             .file_stem()
@@ -724,8 +964,7 @@ pub(crate) fn list_link_integrity_records(
         {
             continue;
         }
-        if request.needs_review_only
-            && record.cross_review_status != LinkCrossReviewStatus::Pending
+        if request.needs_review_only && record.cross_review_status != LinkCrossReviewStatus::Pending
         {
             continue;
         }
@@ -794,27 +1033,16 @@ pub(crate) fn review_link_integrity(
     let expected_sha256 = request.expected_sha256;
     let decision = request.decision;
     let record = update_record(&link_id, move |record| {
-        if record.normalized_url != expected_normalized_url
-            || record.sha256 != expected_sha256
-        {
+        if record.normalized_url != expected_normalized_url || record.sha256 != expected_sha256 {
             return Err(
                 "link URL or content hash changed since it was read; reload before reviewing"
                     .to_string(),
             );
         }
         if decision == LinkReviewDecision::Accept {
-            let reachable_http = record
-                .http_status
-                .map(|status| (200..=299).contains(&status))
-                .unwrap_or(false);
-            if !reachable_http && !record.normalized_url.starts_with("mailto:") {
+            if !mechanically_acceptable(record) {
                 return Err(
                     "cannot accept a link that did not pass mechanical validation".to_string(),
-                );
-            }
-            if record.classification == LinkClassification::ContentTypeMismatch {
-                return Err(
-                    "content-type mismatch must be corrected before acceptance".to_string(),
                 );
             }
         }
@@ -829,7 +1057,7 @@ pub(crate) fn review_link_integrity(
                 record.classification = if record
                     .final_url
                     .as_deref()
-                    .map(|value| value != record.normalized_url)
+                    .map(|value| !same_network_url(value, &record.normalized_url))
                     .unwrap_or(false)
                 {
                     LinkClassification::RedirectedVerified
@@ -930,8 +1158,9 @@ pub(crate) fn propose_link_corrections(
         provider: "maestro".to_string(),
         query: None,
         web_evidence_id: None,
-        rationale: "remover o link ou a afirmacao quando nenhuma fonte confiavel sustentar o trecho"
-            .to_string(),
+        rationale:
+            "remover o link ou a afirmacao quando nenhuma fonte confiavel sustentar o trecho"
+                .to_string(),
         proposed_at: proposed_at.clone(),
     });
     candidates.push(LinkCorrectionCandidate {
@@ -972,13 +1201,143 @@ pub(crate) fn audit_requires_editorial_resolution(result: &LinkAuditResult) -> b
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::web_evidence::{
+        WebEvidenceAccessMode, WebEvidenceCacheState, WebEvidenceCopyrightState,
+        WebEvidenceRobotsState,
+    };
+
+    fn test_row() -> LinkAuditRow {
+        let extracted = ExtractedLink {
+            start: 0,
+            url_start: 0,
+            url_end: 26,
+            original_url: "https://example.com/source".to_string(),
+            anchor_text: Some("fonte".to_string()),
+            surrounding_text: "afirmacao com fonte".to_string(),
+        };
+        base_row(
+            &extracted,
+            &sha256("source"),
+            extracted.original_url.clone(),
+            Vec::new(),
+            1,
+        )
+    }
+
+    fn test_evidence() -> WebEvidenceRecord {
+        WebEvidenceRecord {
+            id: "evidence".to_string(),
+            schema_version: "web_evidence.v1".to_string(),
+            state: WebEvidenceState::Ready,
+            url: "https://example.com/source".to_string(),
+            method: WebEvidenceMethod::Get,
+            access_mode: WebEvidenceAccessMode::HttpFetch,
+            status: Some(200),
+            final_url: Some("https://example.com/source".to_string()),
+            title: None,
+            content_type: Some("text/html".to_string()),
+            sha256: Some("a".repeat(64)),
+            retrieved_at: None,
+            expires_at: None,
+            cache_ttl: "test".to_string(),
+            cache_state: WebEvidenceCacheState::Fresh,
+            robots_state: WebEvidenceRobotsState::Allowed,
+            copyright_state: WebEvidenceCopyrightState::Unknown,
+            interaction_state: WebEvidenceInteractionState::None,
+            human_resolved: false,
+            byte_count: None,
+            duration_ms: None,
+            redirect_chain: Vec::new(),
+            curl_command: None,
+            provider: None,
+            query: None,
+            artifact_name: None,
+            notes: Vec::new(),
+            created_at: "2026-09-25T00:00:00Z".to_string(),
+            updated_at: "2026-09-25T00:00:00Z".to_string(),
+        }
+    }
 
     #[test]
     fn extraction_preserves_markdown_anchor_and_context() {
-        let links = extract_links("A fonte [documento oficial](https://example.com/a) sustenta a frase.");
+        let links =
+            extract_links("A fonte [documento oficial](https://example.com/a) sustenta a frase.");
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].anchor_text.as_deref(), Some("documento oficial"));
         assert!(links[0].surrounding_text.contains("sustenta a frase"));
+    }
+
+    #[test]
+    fn markdown_code_examples_are_not_live_links() {
+        let text = "Example: `https://example.org/token`\n\n```text\nhttps://example.org/inside\n```\n\n<!-- https://example.org/hidden -->\n\n[real](https://example.org/live)";
+        let links = extract_links(text);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].original_url, "https://example.org/live");
+    }
+
+    #[test]
+    fn comment_before_same_line_html_anchor_does_not_hide_anchor() {
+        let text =
+            "<!-- https://example.org/hidden --> <a href=\"https://example.org/live\">fonte</a>";
+        let links = extract_links(text);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].original_url, "https://example.org/live");
+        let inside = "<a href=\"https://example.org/live\"><!-- nota -->fonte</a>";
+        let links = extract_links(inside);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].original_url, "https://example.org/live");
+    }
+
+    #[test]
+    fn extraction_preserves_balanced_parentheses_in_destinations() {
+        for text in [
+            "[fonte](https://example.org/article(v2))",
+            "Veja https://example.org/article(v2).",
+        ] {
+            let links = extract_links(text);
+            assert_eq!(links.len(), 1, "{text}");
+            assert_eq!(links[0].original_url, "https://example.org/article(v2)");
+        }
+    }
+
+    #[test]
+    fn long_unmatched_punctuation_tail_is_removed_without_repeated_scans() {
+        let text = format!("Veja https://example.org/article{}.", ")".repeat(20_000));
+        let links = extract_links(&text);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].original_url, "https://example.org/article");
+    }
+
+    #[test]
+    fn malformed_markdown_destination_remains_a_blocked_link() {
+        let result = run_link_integrity_audit("[fonte](http://)").unwrap();
+        assert_eq!(result.urls_found, 1);
+        assert_eq!(result.failed, 1);
+    }
+
+    #[test]
+    fn reference_style_link_is_counted_once_at_its_use() {
+        let text = "[fonte][manual]\n\n[manual]: https://example.org/article(v2)";
+        let links = extract_links(text);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].original_url, "https://example.org/article(v2)");
+    }
+
+    #[test]
+    fn changed_redirect_destination_cannot_keep_editorial_acceptance() {
+        let mut previous = test_row();
+        previous.final_url = Some("https://example.com/old".to_string());
+        previous.sha256 = Some("a".repeat(64));
+        previous.review_decision = Some(LinkReviewDecision::Accept);
+        let mut current = previous.clone();
+        current.final_url = Some("https://example.com/new".to_string());
+        current.review_decision = None;
+        apply_preserved_review(&mut current, &previous);
+        assert_eq!(current.review_decision, None);
+        assert!(same_network_url(
+            "https://example.com/source#monkey",
+            "https://example.com/source"
+        ));
     }
 
     #[test]
@@ -995,8 +1354,138 @@ mod tests {
         assert!(normalize_url("ftp://files.example.com/archive.zip").is_err());
         assert!(normalize_url("tel:+5511999999999").is_err());
         assert!(normalize_url("https://user:secret@example.com/").is_err());
+        assert!(normalize_url("https://example.com/a?access_token=secret").is_err());
+        assert!(normalize_url("https://example.com/a#access_token=secret").is_err());
+        assert!(normalize_url("https://example.com/a?utm_source=x;access_token=secret").is_err());
         assert!(normalize_url("https://example.com/a").is_ok());
         assert!(normalize_url("mailto:editor@example.com").is_ok());
+    }
+
+    #[test]
+    fn rejected_url_record_and_context_do_not_persist_credentials() {
+        for url in [
+            "https://user:secret@example.com/a?access_token=secret",
+            "https://example.com/a?access_token=secret",
+            "https://example.com/a#access_token=secret",
+            "https://example.com/a?utm_source=x;access_token=secret",
+        ] {
+            assert!(normalize_url(url).is_err());
+            let extracted = ExtractedLink {
+                start: 0,
+                url_start: 0,
+                url_end: url.len(),
+                original_url: url.to_string(),
+                anchor_text: Some(url.to_string()),
+                surrounding_text: format!("fonte {url}"),
+            };
+            let safe = redacted_extracted_link(&extracted);
+            let row = malformed_row(&safe, &sha256(url), 1, "URL bloqueada");
+            let serialized = serde_json::to_string(&row).unwrap();
+            assert!(!serialized.contains("secret"));
+            assert!(!serialized.contains("access_token"));
+            assert!(!serialized.contains("user:"));
+        }
+    }
+
+    #[test]
+    fn accepted_link_context_redacts_neighboring_rejected_url() {
+        let text = format!(
+            "https://example.com/{}?access_token=secret https://example.com/public",
+            "x".repeat(300)
+        );
+        let links = extract_links(&text);
+        let public = links
+            .iter()
+            .find(|link| link.original_url == "https://example.com/public")
+            .unwrap();
+        let masked = source_with_rejected_urls_masked(&text, &links);
+        let masked_links = extract_links(&masked);
+        let safe = safe_context_link(public, &masked_links);
+        let row = base_row(
+            &safe,
+            &sha256(&text),
+            safe.original_url.clone(),
+            Vec::new(),
+            1,
+        );
+        let serialized = serde_json::to_string(&row).unwrap();
+        assert!(!serialized.contains("secret"));
+        assert!(!serialized.contains("access_token"));
+    }
+
+    #[test]
+    fn accepted_markdown_link_masks_rejected_url_in_anchor() {
+        let text = "[https://example.com/private?access_token=secret](https://example.com/public)";
+        let links = extract_links(text);
+        assert_eq!(links.len(), 1);
+        let masked = source_with_rejected_urls_masked(text, &links);
+        let safe = safe_context_link(&links[0], &extract_links(&masked));
+        let row = base_row(
+            &safe,
+            &sha256(text),
+            safe.original_url.clone(),
+            Vec::new(),
+            1,
+        );
+        let serialized = serde_json::to_string(&row).unwrap();
+        assert!(!serialized.contains("secret"));
+        assert!(!serialized.contains("access_token"));
+    }
+
+    #[test]
+    fn rejected_links_from_one_origin_keep_distinct_occurrence_ids() {
+        let first = ExtractedLink {
+            start: 0,
+            url_start: 0,
+            url_end: "https://user:a@example.com/x".len(),
+            original_url: "https://user:a@example.com/x".to_string(),
+            anchor_text: None,
+            surrounding_text: "first".to_string(),
+        };
+        let mut second = first.clone();
+        second.original_url = "https://user:b@example.com/y".to_string();
+        let first = redacted_extracted_link(&first);
+        let second = redacted_extracted_link(&second);
+        assert_eq!(first.original_url, second.original_url);
+        let a = malformed_row(&first, &sha256("source"), 1, "blocked");
+        let b = malformed_row(&second, &sha256("source"), 2, "blocked");
+        assert_ne!(a.link_id, b.link_id);
+        let long_a = format!("https://example.com/{}a", "x".repeat(1_001));
+        let long_b = format!("https://example.com/{}b", "x".repeat(1_001));
+        assert!(!normalized_url_is_safe_to_collect(&long_a));
+        assert!(!normalized_url_is_safe_to_collect(&long_b));
+        let redacted_a = rejected_url_for_record(&long_a);
+        let redacted_b = rejected_url_for_record(&long_b);
+        assert_eq!(redacted_a, redacted_b);
+        let first = base_row(
+            &redacted_extracted_link(&ExtractedLink {
+                start: 0,
+                url_start: 0,
+                url_end: long_a.len(),
+                original_url: long_a,
+                anchor_text: None,
+                surrounding_text: String::new(),
+            }),
+            &sha256("source"),
+            redacted_a,
+            Vec::new(),
+            1,
+        );
+        let second = base_row(
+            &redacted_extracted_link(&ExtractedLink {
+                start: 0,
+                url_start: 0,
+                url_end: long_b.len(),
+                original_url: long_b,
+                anchor_text: None,
+                surrounding_text: String::new(),
+            }),
+            &sha256("source"),
+            redacted_b,
+            Vec::new(),
+            2,
+        );
+        assert_ne!(first.link_id, second.link_id);
     }
 
     #[test]
@@ -1026,6 +1515,8 @@ mod tests {
     fn link_identity_is_bound_to_the_exact_source_claim() {
         let extracted = ExtractedLink {
             start: 0,
+            url_start: 0,
+            url_end: 26,
             original_url: "https://example.com/source".to_string(),
             anchor_text: Some("fonte".to_string()),
             surrounding_text: "afirmacao A com fonte".to_string(),
@@ -1051,6 +1542,8 @@ mod tests {
     fn reachable_evidence_is_not_automatically_claim_support() {
         let extracted = ExtractedLink {
             start: 0,
+            url_start: 0,
+            url_end: 26,
             original_url: "https://example.com/source".to_string(),
             anchor_text: Some("fonte".to_string()),
             surrounding_text: "afirmacao com fonte".to_string(),
@@ -1065,5 +1558,108 @@ mod tests {
         assert_eq!(row.claim_supported, None);
         assert_eq!(row.classification, LinkClassification::VerifiedButWeak);
         assert_eq!(row.cross_review_status, LinkCrossReviewStatus::Pending);
+    }
+
+    #[test]
+    fn accept_and_preservation_require_current_mechanical_proof() {
+        let mut row = test_row();
+        apply_web_evidence(&mut row, test_evidence());
+        assert!(mechanically_acceptable(&row));
+        let mut previous = row.clone();
+        previous.review_decision = Some(LinkReviewDecision::Accept);
+        let mut refreshed = row.clone();
+        refreshed.mechanical_classification = Some(LinkClassification::Quarantined);
+        apply_preserved_review(&mut refreshed, &previous);
+        assert_eq!(refreshed.review_decision, None);
+
+        let mut blocked = test_evidence();
+        blocked.state = WebEvidenceState::Blocked;
+        let mut blocked_row = test_row();
+        apply_web_evidence(&mut blocked_row, blocked);
+        assert_eq!(
+            blocked_row.mechanical_classification,
+            Some(LinkClassification::Quarantined)
+        );
+        assert!(!mechanically_acceptable(&blocked_row));
+    }
+
+    #[test]
+    fn mailto_address_cannot_be_accepted_as_claim_evidence_without_content() {
+        let mut row = test_row();
+        row.normalized_url = "mailto:editor@example.com".to_string();
+        row.mechanical_classification = Some(LinkClassification::VerifiedButWeak);
+        row.sha256 = None;
+        assert!(!mechanically_acceptable(&row));
+    }
+
+    #[test]
+    fn collected_url_must_survive_sanitization_unchanged() {
+        assert!(normalized_url_is_safe_to_collect(
+            "https://example.com/source"
+        ));
+        assert!(!normalized_url_is_safe_to_collect(&format!(
+            "https://example.com/{}",
+            "a".repeat(1000)
+        )));
+    }
+
+    #[test]
+    fn http_accept_requires_valid_content_hash() {
+        let mut row = test_row();
+        apply_web_evidence(&mut row, test_evidence());
+        row.sha256 = None;
+        assert!(!mechanically_acceptable(&row));
+        let mut previous = row.clone();
+        previous.review_decision = Some(LinkReviewDecision::Accept);
+        let mut refreshed = row.clone();
+        apply_preserved_review(&mut refreshed, &previous);
+        assert_eq!(refreshed.review_decision, None);
+        row.sha256 = Some("short".to_string());
+        assert!(!mechanically_acceptable(&row));
+    }
+
+    #[test]
+    fn only_ready_resolved_evidence_is_mechanically_acceptable() {
+        let mut evidence = test_evidence();
+        for state in [
+            WebEvidenceState::Queued,
+            WebEvidenceState::Collecting,
+            WebEvidenceState::Stale,
+            WebEvidenceState::OperatorActionRequired,
+        ] {
+            evidence.state = state;
+            assert!(mechanical_failure_class(&evidence).is_some());
+        }
+        evidence.state = WebEvidenceState::Ready;
+        evidence.cache_state = WebEvidenceCacheState::Stale;
+        assert!(mechanical_failure_class(&evidence).is_some());
+        evidence.cache_state = WebEvidenceCacheState::Fresh;
+        for interaction in [
+            WebEvidenceInteractionState::ConsentRequired,
+            WebEvidenceInteractionState::DownloadConfirmation,
+            WebEvidenceInteractionState::HumanResolved,
+        ] {
+            evidence.interaction_state = interaction;
+            assert!(mechanical_failure_class(&evidence).is_some());
+        }
+        evidence.interaction_state = WebEvidenceInteractionState::HumanResolved;
+        evidence.human_resolved = true;
+        assert_eq!(mechanical_failure_class(&evidence), None);
+    }
+
+    #[test]
+    fn login_required_403_keeps_forbidden_classification() {
+        let mut evidence = test_evidence();
+        evidence.status = Some(403);
+        evidence.interaction_state = WebEvidenceInteractionState::LoginRequired;
+        assert_eq!(
+            mechanical_failure_class(&evidence),
+            Some(LinkClassification::Forbidden)
+        );
+        evidence.status = Some(401);
+        assert_eq!(
+            mechanical_failure_class(&evidence),
+            Some(LinkClassification::AuthRequired)
+        );
     }
 }

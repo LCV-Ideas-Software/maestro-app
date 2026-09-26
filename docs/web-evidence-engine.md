@@ -1,6 +1,6 @@
 # Web Evidence Engine
 
-Status: implemented; Rust compilation and native tests pending GitHub Actions validation.
+Status: implemented; Rust compilation and native tests run in GitHub Actions and may also run locally with an allowed toolchain.
 Date: 2026-08-21.
 
 Maestro must compensate for the weak browsing/fetching capabilities of AI agents by collecting, checking, and packaging evidence itself.
@@ -17,6 +17,31 @@ Implemented on the active release branch:
 - Persistent evidence records and content under `./data/evidence`, with SHA-256,
   TTL, stale-state projection, conditional revalidation, replay, pagination, and
   sanitized provenance.
+- HTTP 304 revalidates ready body-backed evidence and ready bodyless GET/HEAD
+  records only when a validator was sent, the final URL is unchanged, and the
+  cached artifact still matches its stored byte count and SHA-256. Fresh cache
+  reads also verify the artifact; a robots.txt refusal retains the validated canonical URL for exact
+  operator handoff, including ordinary query parameters.
+- Public URLs are kept byte-complete through the record, redirect chain, replay,
+  and browser handoff. Credential-bearing userinfo, query, fragment, and path
+  forms are rejected before collection or persistence. Bare names ending in
+  `key` or `sig` are treated as sensitive except for a small explicit set of
+  ordinary words such as `monkey`; response `Location` values are not copied
+  into the final metadata allowlist.
+- Automated fetch checks robots policy before the first request and again at
+  each redirect destination. Unreachable robots policy and HTTP 429 rate
+  limiting suspend automated collection. Other 4xx responses follow RFC 9309's
+  unavailable-robots rule. Matching follows the applicable user-agent group, longest rule,
+  wildcard and end anchor, and URI path plus query, including encoded octets.
+  Versioned `MaestroEditorialAI/…` user-agent groups retain the same specific
+  policy precedence as the unversioned product token.
+  The robots contract is [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html); the rate-limit signal is [RFC 6585](https://www.rfc-editor.org/rfc/rfc6585.html#section-4).
+- Ready projections verify the exact byte count and SHA-256 of every persisted
+  artifact, including official API and operator-imported evidence. Search API
+  responses must finish on the configured provider origin before their results
+  can be attributed to that provider. A 304 response with an unusable cache
+  triggers an unconditional fetch; if that fetch fails or repeats 304, the
+  record is persisted as Failed instead of retaining a stale Ready state.
 - Public-network-only HTTP `GET`/`HEAD`, bounded bodies, proxy bypass, DNS-to-
   connection binding, and manual per-hop redirect validation.
 - Reproducible `curl.exe` recipes that disable ambient proxies and automatic
@@ -40,7 +65,7 @@ Current boundaries:
 - PDFs are detected, stored, and hashed; no PDF text extractor is bundled yet.
 - The public-network guard covers top-level WebView navigation. Page subresources
   remain governed by WebView2 networking and browser security controls.
-- Rust compilation and native tests are intentionally deferred to GitHub Actions.
+- Rust compilation and native tests are required in GitHub Actions; local validation is also permitted by the operator's 25/09/2026 decision.
 
 The engine is for verification, citation support, and provenance. It should behave like a careful human researcher using a browser, with automation for repetitive checks and clear handoff to the operator whenever human interaction is required.
 
