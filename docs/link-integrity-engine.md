@@ -90,6 +90,9 @@ Rejected links with embedded credentials or credential-like path, query, or frag
 For MainSite-compatible HTML, Maestro must:
 
 - Preserve safe `http`, `https`, and `mailto` links.
+- A `mailto:` address can be syntactically valid, but cannot receive editorial
+  `Accept` as evidence supporting a factual claim because no fetched content
+  or SHA-256 exists for it. It remains visibly pending in the evidence gate.
 - Reject `javascript:`, unsafe data URLs, malformed URLs, and suspicious control characters.
 - Normalize internal LCV-family links according to the MainSite reader behavior.
 - Add `target="_blank"` and `rel="noopener noreferrer"` to external non-YouTube links before save.

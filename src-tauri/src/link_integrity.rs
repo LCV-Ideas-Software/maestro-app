@@ -688,7 +688,9 @@ fn valid_content_hash(hash: Option<&str>) -> bool {
 
 fn mechanically_acceptable(row: &LinkAuditRow) -> bool {
     if row.normalized_url.starts_with("mailto:") {
-        return row.mechanical_classification == Some(LinkClassification::VerifiedButWeak);
+        // An address can be syntactically valid, but it supplies no fetched
+        // content or hash that can support an editorial claim.
+        return false;
     }
     row.http_status
         .is_some_and(|status| (200..=299).contains(&status))
@@ -1579,6 +1581,15 @@ mod tests {
             Some(LinkClassification::Quarantined)
         );
         assert!(!mechanically_acceptable(&blocked_row));
+    }
+
+    #[test]
+    fn mailto_address_cannot_be_accepted_as_claim_evidence_without_content() {
+        let mut row = test_row();
+        row.normalized_url = "mailto:editor@example.com".to_string();
+        row.mechanical_classification = Some(LinkClassification::VerifiedButWeak);
+        row.sha256 = None;
+        assert!(!mechanically_acceptable(&row));
     }
 
     #[test]
