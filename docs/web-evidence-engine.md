@@ -1,6 +1,6 @@
 # Web Evidence Engine
 
-Status: implemented; Rust compilation and native tests pending GitHub Actions validation.
+Status: implemented; Rust compilation and native tests run in GitHub Actions and may also run locally with an allowed toolchain.
 Date: 2026-08-21.
 
 Maestro must compensate for the weak browsing/fetching capabilities of AI agents by collecting, checking, and packaging evidence itself.
@@ -40,7 +40,7 @@ Current boundaries:
 - PDFs are detected, stored, and hashed; no PDF text extractor is bundled yet.
 - The public-network guard covers top-level WebView navigation. Page subresources
   remain governed by WebView2 networking and browser security controls.
-- Rust compilation and native tests are intentionally deferred to GitHub Actions.
+- Rust compilation and native tests are required in GitHub Actions; local validation is also permitted by the operator's 25/09/2026 decision.
 
 The engine is for verification, citation support, and provenance. It should behave like a careful human researcher using a browser, with automation for repetitive checks and clear handoff to the operator whenever human interaction is required.
 

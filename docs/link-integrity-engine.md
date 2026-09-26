@@ -122,4 +122,4 @@ The final-release gate remains blocked until every link is mechanically valid an
 - Candidate lookup updates only the candidate list under an atomic read-modify-write lock; it cannot erase or overwrite a concurrent editorial decision.
 - More than 30 link occurrences fail closed before any partial network audit; the engine never reports a truncated set as complete.
 - Rendered/browser-assisted evidence stays in the Web Evidence workflow and requires explicit operator custody.
-- Rust compilation, Clippy, native tests, and Windows portable validation run only in GitHub Actions for this workstream.
+- Rust compilation, Clippy, native tests, and Windows portable validation run in GitHub Actions; local Rust validation is also permitted by the operator's 25/09/2026 decision.

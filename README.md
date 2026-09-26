@@ -24,7 +24,8 @@ The version history at a glance:
 
 | Release | Scope |
 | --- | --- |
-| **`v0.5.66` (source)** | Reject growth when multiple received blocks change in one region: revised blocks lack provenance IDs, so a distant addition permission cannot authorize new text. Revise the blocks first and add new text in a separate serial turn. |
+| **`v0.5.68` (source)** | MAESTRO-34: final citation and link audits require current mechanical evidence, preserve source URLs during fetch, reject incomplete manifest coverage, and keep sensitive rejected URL data out of persisted records. |
+| **`v0.5.66`** | Reject growth when multiple received blocks change in one region: revised blocks lack provenance IDs, so a distant addition permission cannot authorize new text. Revise the blocks first and add new text in a separate serial turn. |
 | **`v0.5.65`** | MAESTRO-30: every serial revision report requires JSON without duplicate fields; block permissions and insertion anchors are validated from received IDs, with compound reorder/addition declarations. Whitespace-only separator lines and five-digit block IDs are supported. |
 | **`v0.5.60`** | Ships the complete MAESTRO-17/20/22/23 release set, including the official Linear writer, fail-closed dependency inventory, source-qualified third-party licence evidence, complete portable legal notices, and the bounded release-gate wait. |
 | **`v0.5.58`** | Completes the active Maestro implementation set: modularized code, secure runtime bootstrap, web-evidence acquisition, deterministic ABNT and link-integrity gates, bounded corrective retries, MainSite-compatible durable drafts, safe shared-chat import and Markdown/HTML/PDF export, and operator-confirmed Cloudflare D1 publication with optimistic concurrency and readback. |
@@ -181,11 +182,11 @@ Prompt-to-consensus sessions export separate final text and session minutes. Int
 
 Public ChatGPT, Gemini, and Claude shares can be imported through a fail-closed native extractor that rebuilds safe content and stores separate provenance. Final content can be exported as Markdown, MainSite-compatible HTML, or through the system PDF print dialog. Cloudflare D1 publication is read-only during preview and writes only after explicit confirmation; see `docs/import-export-cloudflare.md`.
 
-Web fetch, curl-compatible replay, web search, isolated WebView2 rendering, and human-assisted browser capture are implemented under `docs/web-evidence-engine.md`; native Rust validation runs in GitHub Actions.
+Web fetch, curl-compatible replay, web search, isolated WebView2 rendering, and human-assisted browser capture are implemented under `docs/web-evidence-engine.md`; native Rust validation runs in GitHub Actions and is permitted locally with an allowed toolchain.
 
 ABNT citation/reference formatting and Maestro's deterministic fourth-peer release gate are implemented under `docs/abnt-citation-engine.md`; structured source verification is supplied through a session `citation_manifest.v1` attachment, can start from `docs/examples/citation-manifest.example.json`, and is never inferred.
 
-Persistent link checking, MainSite-safe sanitization, explicit editorial decisions, correction proposals, and final-release escalation are implemented under `docs/link-integrity-engine.md`; native Rust validation runs in GitHub Actions.
+Persistent link checking, MainSite-safe sanitization, explicit editorial decisions, correction proposals, and final-release escalation are implemented under `docs/link-integrity-engine.md`; native Rust validation runs in GitHub Actions and is permitted locally with an allowed toolchain.
 
 ## Repository conventions
 

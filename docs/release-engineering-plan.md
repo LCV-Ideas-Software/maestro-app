@@ -7,8 +7,9 @@ Target platform: Windows 11+.
 
 Frontend CI runs tests, Biome, the build, public HTML formatting, dependency
 audit and the in-repository PostEditor parity snapshot. Rust checks, tests and
-Clippy run with locked dependencies on GitHub-hosted Windows runners. Do not
-run `cargo` or `rustc` on the operator's local machine.
+Clippy run with locked dependencies on GitHub-hosted Windows runners. The
+operator's 25/09/2026 decision also permits local Rust validation when Windows
+Application Control allows the toolchain executables.
 
 - Secret Scanning.
 - Code Scanning with GitHub's official CodeQL Default Setup for Actions,
