@@ -1087,8 +1087,9 @@ fn conditional_headers(stored: Option<&StoredWebEvidence>) -> Vec<(HeaderName, H
     result
 }
 
-fn ready_cached_evidence_for_304(stored: &StoredWebEvidence) -> bool {
-    stored.record.state == WebEvidenceState::Ready
+fn ready_cached_evidence_for_304(stored: &StoredWebEvidence, sent_validator: bool) -> bool {
+    sent_validator
+        && stored.record.state == WebEvidenceState::Ready
         && stored.record.access_mode == WebEvidenceAccessMode::HttpFetch
         && stored
             .record
@@ -1321,8 +1322,11 @@ pub(crate) fn fetch_web_evidence_inner(
         let Some(mut stored) = existing else {
             return Err("received HTTP 304 without a cached evidence record".to_string());
         };
-        if !ready_cached_evidence_for_304(&stored) {
-            return Err("received HTTP 304 without a ready cached evidence record".to_string());
+        if !ready_cached_evidence_for_304(&stored, !headers.is_empty()) {
+            return Err(
+                "received HTTP 304 without a sent validator and ready cached evidence record"
+                    .to_string(),
+            );
         }
         let retrieved_at = Utc::now();
         stored.record.state = WebEvidenceState::Ready;
@@ -3706,24 +3710,25 @@ mod tests {
             "test ready record",
             Utc::now(),
         );
-        assert!(!ready_cached_evidence_for_304(&stored));
+        assert!(!ready_cached_evidence_for_304(&stored, true));
         stored.record.status = Some(200);
         stored.record.byte_count = Some(4);
         stored.content_path = Some("content/test-id.html".to_string());
         stored.record.sha256 = Some("a".repeat(64));
-        assert!(ready_cached_evidence_for_304(&stored));
+        assert!(!ready_cached_evidence_for_304(&stored, false));
+        assert!(ready_cached_evidence_for_304(&stored, true));
         stored.content_path = None;
         stored.record.sha256 = None;
-        assert!(!ready_cached_evidence_for_304(&stored));
+        assert!(!ready_cached_evidence_for_304(&stored, true));
         stored.record.byte_count = Some(0);
-        assert!(ready_cached_evidence_for_304(&stored));
+        assert!(ready_cached_evidence_for_304(&stored, true));
         stored.record.method = WebEvidenceMethod::Head;
-        assert!(ready_cached_evidence_for_304(&stored));
+        assert!(ready_cached_evidence_for_304(&stored, true));
         stored.record.status = Some(404);
-        assert!(!ready_cached_evidence_for_304(&stored));
+        assert!(!ready_cached_evidence_for_304(&stored, true));
         stored.record.status = Some(200);
         stored.record.state = WebEvidenceState::Failed;
-        assert!(!ready_cached_evidence_for_304(&stored));
+        assert!(!ready_cached_evidence_for_304(&stored, true));
     }
 
     #[test]

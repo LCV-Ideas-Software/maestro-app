@@ -314,6 +314,16 @@ fn is_blocked_link_audit_ipv6(ip: Ipv6Addr) -> bool {
     }
 
     let segments = ip.segments();
+    // RFC 6145 IPv4-translatable ::ffff:0:0/96 also embeds IPv4 in the
+    // final 32 bits, distinct from Rust's IPv4-mapped address helper.
+    if segments[0..4].iter().all(|segment| *segment == 0)
+        && segments[4] == 0xffff
+        && segments[5] == 0
+    {
+        let [a, b] = segments[6].to_be_bytes();
+        let [c, d] = segments[7].to_be_bytes();
+        return is_blocked_link_audit_ipv4(Ipv4Addr::new(a, b, c, d));
+    }
     // RFC 8215 local-use NAT64 permits several RFC 6052 layouts; the
     // address alone does not identify which embedded IPv4 bits to trust.
     if segments[0] == 0x0064 && segments[1] == 0xff9b && segments[2] == 0x0001 {
@@ -490,5 +500,11 @@ mod ip_regression_tests {
                 "{address}"
             );
         }
+        assert!(is_blocked_link_audit_ipv6(
+            "::ffff:0:a00:1".parse().unwrap()
+        ));
+        assert!(!is_blocked_link_audit_ipv6(
+            "::ffff:0:808:808".parse().unwrap()
+        ));
     }
 }

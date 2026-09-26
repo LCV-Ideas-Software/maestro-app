@@ -128,6 +128,7 @@ exception, tracked in LCV-207.
 | base64 | 0.23.1 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/base64/0.23.1 |
 | chrono | 0.4.45 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/chrono/0.4.45 |
 | portable-pty | 0.9.0 | MIT | runtime | No | https://crates.io/crates/portable-pty/0.9.0 |
+| pulldown-cmark | 0.13.4 | MIT | runtime | No | https://crates.io/crates/pulldown-cmark/0.13.4 |
 | regex | 1.13.1 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/regex/1.13.1 |
 | reqwest | 0.12.28 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/reqwest/0.12.28 |
 | serde | 1.0.229 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/serde/1.0.229 |
@@ -136,6 +137,14 @@ exception, tracked in LCV-207.
 | tauri | 2.11.5 | Apache-2.0 OR MIT | runtime | No | https://crates.io/crates/tauri/2.11.5 |
 | tokio | 1.53.1 | MIT | runtime | No | https://crates.io/crates/tokio/1.53.1 |
 | tokio-util | 0.7.19 | MIT | runtime | No | https://crates.io/crates/tokio-util/0.7.19 |
+
+For MAESTRO-34, the 25/09/2026 lockfile update added `pulldown-cmark 0.13.4`
+and its transitive `unicase 2.9.0` to the Windows runtime graph. Their exact
+crates.io artifacts declare MIT and MIT OR Apache-2.0 respectively. The
+`unicase` MIT option is selected. Their complete upstream license texts were
+appended to `THIRD-PARTY-NOTICES.txt`; the earlier snapshot remains historical.
+The same Cargo resolution changed the existing `tauri-utils` edge from the
+already locked `toml 0.9.12` to the already locked `toml 1.1.6`.
 
 ### Transitive Rust license review
 

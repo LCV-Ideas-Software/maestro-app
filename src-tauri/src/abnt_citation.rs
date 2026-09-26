@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::Utc;
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -373,12 +374,10 @@ fn raw_citations(text: &str) -> Vec<CitationAuditCitation> {
     let mut seen = BTreeSet::new();
     let patterns = [
         r"(?i)\(([\p{L}][\p{L}\s.'’\-]{1,80}),\s*((?:18|19|20)\d{2}[a-z]?)(?:,\s*([^)]+))?\)",
-        r"\b([A-ZÁÀÃÂÉÊÍÓÔÕÚÇ][\p{L}'’\-]+(?:\s+(?:e|da|de|do|dos|das|[A-ZÁÀÃÂÉÊÍÓÔÕÚÇ][\p{L}'’\-]+)){0,3})\s+\(((?:18|19|20)\d{2}[a-z]?)(?:,\s*([^)]+))?\)",
+        r"\b([\p{Lu}\p{Lo}][\p{L}'’\-]*(?:\s+(?:e|da|de|do|dos|das|[\p{Lu}\p{Lo}][\p{L}'’\-]*)){0,3})\s+\(((?:18|19|20)\d{2}[a-z]?)(?:,\s*([^)]+))?\)",
     ];
     for raw_pattern in patterns {
-        let Ok(pattern) = Regex::new(raw_pattern) else {
-            continue;
-        };
+        let pattern = Regex::new(raw_pattern).expect("static citation pattern must compile");
         for capture in pattern.captures_iter(text) {
             let Some(whole) = capture.get(0) else {
                 continue;
@@ -552,113 +551,30 @@ fn capacity_blocker(reader: &str) -> CitationAuditBlocker {
     )
 }
 
+fn mask_code_bytes(visible: &mut [u8], range: std::ops::Range<usize>) {
+    for byte in &mut visible[range] {
+        if !matches!(*byte, b'\r' | b'\n') {
+            *byte = b' ';
+        }
+    }
+}
+
 fn markdown_without_code(text: &str) -> String {
     let mut visible = text.as_bytes().to_vec();
-    let mut fence: Option<(u8, usize)> = None;
-    let mut indented_code_can_start = true;
-    let mut offset = 0;
-    for line in text.split_inclusive('\n') {
-        let bytes = line.as_bytes();
-        let blank = line.trim().is_empty();
-        let indent = bytes.iter().take_while(|byte| **byte == b' ').count();
-        let marker = if indent <= 3 {
-            bytes
-                .get(indent)
-                .copied()
-                .filter(|byte| matches!(*byte, b'`' | b'~'))
-        } else {
-            None
-        };
-        let run = marker
-            .map(|byte| {
-                bytes[indent..]
-                    .iter()
-                    .take_while(|item| **item == byte)
-                    .count()
-            })
-            .unwrap_or(0);
-        let closes_fence = fence.is_some_and(|(byte, length)| {
-            marker == Some(byte)
-                && run >= length
-                && bytes[indent + run..]
-                    .iter()
-                    .all(|item| matches!(*item, b' ' | b'\t' | b'\r' | b'\n'))
-        });
-        let opens_fence = fence.is_none()
-            && run >= 3
-            && (marker != Some(b'`') || !bytes[indent + run..].contains(&b'`'));
-        let indented_code =
-            indented_code_can_start && (indent >= 4 || bytes.first() == Some(&b'\t'));
-        if fence.is_some() || opens_fence || indented_code {
-            for byte in &mut visible[offset..offset + bytes.len()] {
-                if !matches!(*byte, b'\r' | b'\n') {
-                    *byte = b' ';
+    let mut code_block_start = None;
+    for (event, range) in Parser::new(text).into_offset_iter() {
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => code_block_start = Some(range.start),
+            Event::End(TagEnd::CodeBlock) => {
+                if let Some(start) = code_block_start.take() {
+                    mask_code_bytes(&mut visible, start..range.end);
                 }
             }
-        }
-        if closes_fence {
-            fence = None;
-        } else if opens_fence {
-            fence = marker.map(|byte| (byte, run));
-        }
-        if blank || closes_fence || opens_fence {
-            indented_code_can_start = true;
-        } else {
-            indented_code_can_start = indented_code;
-        }
-        offset += bytes.len();
-    }
-
-    let mut index = 0;
-    while index < visible.len() {
-        if visible[index] != b'`' {
-            index += 1;
-            continue;
-        }
-        let escaped = visible[..index]
-            .iter()
-            .rev()
-            .take_while(|byte| **byte == b'\\')
-            .count()
-            % 2
-            == 1;
-        let run = visible[index..]
-            .iter()
-            .take_while(|byte| **byte == b'`')
-            .count();
-        if escaped {
-            index += run;
-            continue;
-        }
-        let mut closing = index + run;
-        let mut end = None;
-        while closing < visible.len() {
-            if visible[closing] != b'`' {
-                closing += 1;
-                continue;
-            }
-            let length = visible[closing..]
-                .iter()
-                .take_while(|byte| **byte == b'`')
-                .count();
-            if length == run {
-                end = Some(closing + run);
-                break;
-            }
-            closing += length;
-        }
-        if let Some(end) = end {
-            for byte in &mut visible[index..end] {
-                if !matches!(*byte, b'\r' | b'\n') {
-                    *byte = b' ';
-                }
-            }
-            index = end;
-        } else {
-            index += run;
+            Event::Code(_) => mask_code_bytes(&mut visible, range),
+            _ => {}
         }
     }
-    String::from_utf8(visible).expect("masking complete code ranges preserves UTF-8")
+    String::from_utf8(visible).expect("masking complete parser ranges preserves UTF-8")
 }
 
 fn document_policy_blockers(
@@ -666,23 +582,21 @@ fn document_policy_blockers(
     citations: &[CitationAuditCitation],
 ) -> Vec<CitationAuditBlocker> {
     let mut blockers = quote_blockers(text, citations);
-    // CommonMark raw HTML is disallowed in the final editorial text. A plain
-    // less-than sign in prose (for example `2 < 3`) is not an HTML opener.
-    let raw_html =
-        Regex::new(r"(?is)<(?:/?[a-z][a-z0-9-]*(?:\s+[^<>]*)?\s*/?>|!--|!\[CDATA\[|![a-z]|\?)");
-    if let Ok(pattern) = raw_html {
-        let visible = markdown_without_code(text);
-        if let Some(found) = pattern.find(&visible) {
-            blockers.push(blocker(
-                "raw_html_in_final_text",
-                "O texto final contem HTML cru; substitua por texto ou Markdown.",
-                "error",
-                None,
-                None,
-                text.get(found.start()..found.end()),
-                false,
-            ));
-        }
+    // The maintained CommonMark parser distinguishes rendered HTML from
+    // examples inside code spans and blocks, and from prose such as `2 < 3`.
+    if let Some((_, range)) = Parser::new(text)
+        .into_offset_iter()
+        .find(|(event, _)| matches!(event, Event::Html(_) | Event::InlineHtml(_)))
+    {
+        blockers.push(blocker(
+            "raw_html_in_final_text",
+            "O texto final contem HTML cru; substitua por texto ou Markdown.",
+            "error",
+            None,
+            None,
+            text.get(range),
+            false,
+        ));
     }
     let folded = ascii_fold(text);
     if folded.contains("wikipediaorg") || folded.contains("ptwikipediaorg") {
@@ -1514,9 +1428,8 @@ fn validate_manifest(
         }
     }
     let mut available = (0..citations.len()).collect::<BTreeSet<_>>();
-    for raw in raw_citations {
-        let represented = available.iter().copied().find(|index| {
-            let structured = &citations[*index];
+    let same_author_year_locator =
+        |structured: &CitationAuditCitation, raw: &CitationAuditCitation| {
             equivalent_value(&structured.author_key, &raw.author_key)
                 && structured.year.trim() == raw.year.trim()
                 && match (structured.locator.as_deref(), raw.locator.as_deref()) {
@@ -1524,7 +1437,12 @@ fn validate_manifest(
                     (Some(left), Some(right)) => equivalent_value(left, right),
                     _ => false,
                 }
-        });
+        };
+    for raw in raw_citations {
+        let represented = available
+            .iter()
+            .copied()
+            .find(|index| same_author_year_locator(&citations[*index], raw));
         if let Some(index) = represented {
             available.remove(&index);
         }
@@ -1537,6 +1455,23 @@ fn validate_manifest(
                 Some(&raw.source_id),
                 raw.original_text.as_deref(),
                 true,
+            ));
+        }
+    }
+    for index in available {
+        let structured = &citations[index];
+        if raw_citations
+            .iter()
+            .any(|raw| same_author_year_locator(structured, raw))
+        {
+            blockers.push(blocker(
+                "manifest_citation_without_body_occurrence",
+                "Uma entrada do manifesto nao possui ocorrencia distinta no corpo do texto.",
+                "error",
+                Some(&structured.claim_id),
+                Some(&structured.source_id),
+                structured.original_text.as_deref(),
+                false,
             ));
         }
     }
@@ -2109,6 +2044,55 @@ mod tests {
             .blockers
             .iter()
             .any(|item| item.code == "manifest_capacity_exceeded"));
+    }
+
+    #[test]
+    fn unlisted_narrative_citations_in_other_scripts_block_release() {
+        for citation in ["Иванов (2020)", "王 (2020)"] {
+            let raw = raw_citations(&format!("Texto cita {citation} sem entrada no manifesto."));
+            assert_eq!(raw.len(), 1, "{citation}");
+            assert_eq!(raw[0].author_display, citation.split(' ').next().unwrap());
+            let result = audit_abnt_citations_inner(AbntAuditRequest {
+                text: format!("Texto cita {citation} sem entrada no manifesto."),
+                protocol_hash: Some("protocol-sha256".to_string()),
+                manifest: Some(empty_citation_manifest("protocol-sha256")),
+                previous_manifest: None,
+            })
+            .unwrap();
+            assert_ne!(
+                result.maestro_peer_status,
+                MaestroPeerStatus::Ready,
+                "{citation}"
+            );
+            assert!(
+                result
+                    .blockers
+                    .iter()
+                    .any(|item| item.code == "body_citation_not_in_manifest"),
+                "{citation}"
+            );
+        }
+    }
+
+    #[test]
+    fn surplus_manifest_entry_cannot_reuse_one_body_occurrence() {
+        let mut manifest = verified_manifest();
+        let mut duplicate = manifest.citations[0].clone();
+        duplicate.claim_id = "claim-2".to_string();
+        manifest.citations.push(duplicate);
+        let reference = format_reference(&manifest.sources[0]);
+        let result = audit_abnt_citations_inner(AbntAuditRequest {
+            text: format!("“Trecho direto com mais de quatro palavras” (Silva, 2026, p. 12).\n\n## Referencias\n{reference}"),
+            protocol_hash: Some("protocol-sha256".to_string()),
+            manifest: Some(manifest),
+            previous_manifest: None,
+        })
+        .unwrap();
+        assert_ne!(result.maestro_peer_status, MaestroPeerStatus::Ready);
+        assert!(result
+            .blockers
+            .iter()
+            .any(|item| item.code == "manifest_citation_without_body_occurrence"));
     }
 
     #[test]
