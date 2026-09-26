@@ -22,6 +22,22 @@ Implemented on the active release branch:
   cached artifact still matches its stored byte count and SHA-256. Fresh cache
   reads also verify the artifact; a robots.txt refusal retains the validated canonical URL for exact
   operator handoff, including ordinary query parameters.
+- Public URLs are kept byte-complete through the record, redirect chain, replay,
+  and browser handoff. Credential-bearing userinfo, query, fragment, and path
+  forms are rejected before collection or persistence. Response `Location`
+  values are not copied into the final metadata allowlist.
+- Automated fetch checks robots policy before the first request and again at
+  each redirect destination. Unreachable robots policy and HTTP 429 rate
+  limiting suspend automated collection. Other 4xx responses follow RFC 9309's
+  unavailable-robots rule. Matching follows the applicable user-agent group, longest rule,
+  wildcard and end anchor, and URI path plus query, including encoded octets.
+  The robots contract is [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html); the rate-limit signal is [RFC 6585](https://www.rfc-editor.org/rfc/rfc6585.html#section-4).
+- Ready projections verify the exact byte count and SHA-256 of every persisted
+  artifact, including official API and operator-imported evidence. Search API
+  responses must finish on the configured provider origin before their results
+  can be attributed to that provider. A 304 response with an unusable cache
+  triggers an unconditional fetch; if that fetch fails or repeats 304, the
+  record is persisted as Failed instead of retaining a stale Ready state.
 - Public-network-only HTTP `GET`/`HEAD`, bounded bodies, proxy bypass, DNS-to-
   connection binding, and manual per-hop redirect validation.
 - Reproducible `curl.exe` recipes that disable ambient proxies and automatic

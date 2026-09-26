@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 use chrono::Utc;
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use regex::Regex;
 use reqwest::Url;
 use serde_json::json;
@@ -220,6 +221,25 @@ fn clean_url_tail(value: &str) -> String {
         .to_string()
 }
 
+fn clean_bare_url_tail(value: &str) -> &str {
+    let mut end = value.len();
+    let opens = value.bytes().filter(|byte| *byte == b'(').count();
+    let mut closes = value.bytes().filter(|byte| *byte == b')').count();
+    loop {
+        let candidate = &value[..end];
+        let last = candidate.chars().next_back();
+        let unmatched_close = last == Some(')') && closes > opens;
+        if unmatched_close || matches!(last, Some('.' | ',' | ';' | ':' | ']' | '}')) {
+            if last == Some(')') {
+                closes -= 1;
+            }
+            end -= last.expect("trimmed tail has a character").len_utf8();
+        } else {
+            return candidate;
+        }
+    }
+}
+
 fn overlaps(start: usize, end: usize, spans: &[(usize, usize)]) -> bool {
     spans
         .iter()
@@ -229,28 +249,73 @@ fn overlaps(start: usize, end: usize, spans: &[(usize, usize)]) -> bool {
 fn extract_links(text: &str) -> Vec<ExtractedLink> {
     let mut links = Vec::new();
     let mut covered = Vec::new();
-
-    if let Ok(markdown) = Regex::new(
-        r#"(?s)\[([^\]\n]{0,240})\]\(\s*((?:[a-zA-Z][a-zA-Z0-9+.-]*:)[^)\s]+)(?:\s+[\"'][^\"']*[\"'])?\s*\)"#,
-    ) {
-        for capture in markdown.captures_iter(text) {
-            let Some(whole) = capture.get(0) else {
-                continue;
-            };
-            let Some(url) = capture.get(2) else { continue };
-            let anchor = capture
-                .get(1)
-                .map(|value| sanitize_text(value.as_str().trim(), 240))
-                .filter(|value| !value.is_empty());
-            links.push(ExtractedLink {
-                start: whole.start(),
-                url_start: url.start(),
-                url_end: url.end(),
-                original_url: clean_url_tail(url.as_str()),
-                anchor_text: anchor,
-                surrounding_text: surrounding_text(text, whole.start(), whole.end()),
-            });
-            covered.push((whole.start(), whole.end()));
+    let mut markdown_link: Option<(usize, String, String)> = None;
+    let mut code_block_start = None;
+    let parser = Parser::new(text);
+    covered.extend(
+        parser
+            .reference_definitions()
+            .iter()
+            .map(|(_, definition)| (definition.span.start, definition.span.end)),
+    );
+    for (event, range) in parser.into_offset_iter() {
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => code_block_start = Some(range.start),
+            Event::End(TagEnd::CodeBlock) => {
+                if let Some(start) = code_block_start.take() {
+                    covered.push((start, range.end));
+                }
+            }
+            Event::Code(label) => {
+                covered.push((range.start, range.end));
+                if let Some((_, _, anchor)) = markdown_link.as_mut() {
+                    anchor.push_str(&label);
+                }
+            }
+            Event::Html(_) | Event::InlineHtml(_) => {
+                let html = &text[range.clone()];
+                let mut cursor = 0;
+                while let Some(relative_start) = html[cursor..].find("<!--") {
+                    let start = cursor + relative_start;
+                    let end = html[start + 4..]
+                        .find("-->")
+                        .map(|close| start + 4 + close + 3)
+                        .unwrap_or(html.len());
+                    covered.push((range.start + start, range.start + end));
+                    cursor = end;
+                }
+            }
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                markdown_link = Some((range.start, dest_url.into_string(), String::new()));
+            }
+            Event::Text(label) => {
+                if let Some((_, _, anchor)) = markdown_link.as_mut() {
+                    anchor.push_str(&label);
+                }
+            }
+            Event::End(TagEnd::Link) => {
+                if let Some((start, url, anchor)) = markdown_link.take() {
+                    let end = range.end;
+                    let source = &text[start..end];
+                    let raw_range = source
+                        .find(&url)
+                        .map(|offset| (start + offset, start + offset + url.len()));
+                    let (url_start, url_end) = raw_range.unwrap_or((start, end));
+                    if !url.starts_with('#') {
+                        links.push(ExtractedLink {
+                            start,
+                            url_start,
+                            url_end,
+                            original_url: url,
+                            anchor_text: (!anchor.trim().is_empty())
+                                .then(|| sanitize_text(anchor.trim(), 240)),
+                            surrounding_text: surrounding_text(text, start, end),
+                        });
+                    }
+                    covered.push((start, end));
+                }
+            }
+            _ => {}
         }
     }
 
@@ -261,7 +326,13 @@ fn extract_links(text: &str) -> Vec<ExtractedLink> {
             let Some(whole) = capture.get(0) else {
                 continue;
             };
-            if overlaps(whole.start(), whole.end(), &covered) {
+            // A comment inside an otherwise live anchor does not hide its href.
+            // Anchors that begin inside a comment, code example, or Markdown
+            // link are already represented by that enclosing span.
+            if covered
+                .iter()
+                .any(|(start, end)| whole.start() >= *start && whole.start() < *end)
+            {
                 continue;
             }
             let Some(url) = capture.get(1) else { continue };
@@ -282,17 +353,18 @@ fn extract_links(text: &str) -> Vec<ExtractedLink> {
     }
 
     if let Ok(bare) = Regex::new(
-        r#"(?i)(?:https?://|mailto:|ftps?://|tel:|javascript:|data:|file:|blob:)[^\s<>\"')\]]+"#,
+        r#"(?i)(?:https?://|mailto:|ftps?://|tel:|javascript:|data:|file:|blob:)[^\s<>\"']+"#,
     ) {
         for matched in bare.find_iter(text) {
             if overlaps(matched.start(), matched.end(), &covered) {
                 continue;
             }
+            let url = clean_bare_url_tail(matched.as_str());
             links.push(ExtractedLink {
                 start: matched.start(),
                 url_start: matched.start(),
-                url_end: matched.end(),
-                original_url: clean_url_tail(matched.as_str()),
+                url_end: matched.start() + url.len(),
+                original_url: clean_url_tail(url),
                 anchor_text: None,
                 surrounding_text: surrounding_text(text, matched.start(), matched.end()),
             });
@@ -340,6 +412,15 @@ fn normalize_url(value: &str) -> Result<(String, Vec<String>), String> {
         changes.push("url_parser_normalization".to_string());
     }
     Ok((normalized, changes))
+}
+
+fn same_network_url(left: &str, right: &str) -> bool {
+    let (Ok(mut left), Ok(mut right)) = (Url::parse(left), Url::parse(right)) else {
+        return false;
+    };
+    left.set_fragment(None);
+    right.set_fragment(None);
+    left == right
 }
 
 fn link_id(
@@ -523,7 +604,7 @@ fn apply_web_evidence(row: &mut LinkAuditRow, evidence: WebEvidenceRecord) {
     let redirected = row
         .final_url
         .as_deref()
-        .map(|final_url| final_url != row.normalized_url)
+        .map(|final_url| !same_network_url(final_url, &row.normalized_url))
         .unwrap_or(false);
     row.classification = if redirected {
         LinkClassification::RedirectedVerified
@@ -549,6 +630,8 @@ fn apply_preserved_review(row: &mut LinkAuditRow, previous: &LinkAuditRow) {
         || previous.surrounding_text != row.surrounding_text
         || previous.anchor_text != row.anchor_text
         || previous.normalized_url != row.normalized_url
+        || previous.final_url != row.final_url
+        || previous.redirect_chain != row.redirect_chain
         || previous.sha256 != row.sha256
         || previous.review_decision.is_none()
         || (previous.review_decision == Some(LinkReviewDecision::Accept)
@@ -568,7 +651,7 @@ fn apply_preserved_review(row: &mut LinkAuditRow, previous: &LinkAuditRow) {
             row.classification = if row
                 .final_url
                 .as_deref()
-                .map(|value| value != row.normalized_url)
+                .map(|value| !same_network_url(value, &row.normalized_url))
                 .unwrap_or(false)
             {
                 LinkClassification::RedirectedVerified
@@ -646,15 +729,16 @@ fn source_with_rejected_urls_masked(text: &str, links: &[ExtractedLink]) -> Stri
         }
     }
     let literals = Regex::new(
-        r#"(?i)(?:https?://|mailto:|ftps?://|tel:|javascript:|data:|file:|blob:)[^\s<>\"')\]]+"#,
+        r#"(?i)(?:https?://|mailto:|ftps?://|tel:|javascript:|data:|file:|blob:)[^\s<>\"']+"#,
     )
     .expect("static URL literal pattern must compile");
     for found in literals.find_iter(text) {
-        let rejected = normalize_url(found.as_str())
+        let literal = clean_bare_url_tail(found.as_str());
+        let rejected = normalize_url(literal)
             .map(|(normalized, _)| !normalized_url_is_safe_to_collect(&normalized))
             .unwrap_or(true);
         if rejected {
-            for byte in &mut bytes[found.start()..found.end()] {
+            for byte in &mut bytes[found.start()..found.start() + literal.len()] {
                 if !matches!(*byte, b'\r' | b'\n') {
                     *byte = b' ';
                 }
@@ -971,7 +1055,7 @@ pub(crate) fn review_link_integrity(
                 record.classification = if record
                     .final_url
                     .as_deref()
-                    .map(|value| value != record.normalized_url)
+                    .map(|value| !same_network_url(value, &record.normalized_url))
                     .unwrap_or(false)
                 {
                     LinkClassification::RedirectedVerified
@@ -1179,6 +1263,79 @@ mod tests {
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].anchor_text.as_deref(), Some("documento oficial"));
         assert!(links[0].surrounding_text.contains("sustenta a frase"));
+    }
+
+    #[test]
+    fn markdown_code_examples_are_not_live_links() {
+        let text = "Example: `https://example.org/token`\n\n```text\nhttps://example.org/inside\n```\n\n<!-- https://example.org/hidden -->\n\n[real](https://example.org/live)";
+        let links = extract_links(text);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].original_url, "https://example.org/live");
+    }
+
+    #[test]
+    fn comment_before_same_line_html_anchor_does_not_hide_anchor() {
+        let text =
+            "<!-- https://example.org/hidden --> <a href=\"https://example.org/live\">fonte</a>";
+        let links = extract_links(text);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].original_url, "https://example.org/live");
+        let inside = "<a href=\"https://example.org/live\"><!-- nota -->fonte</a>";
+        let links = extract_links(inside);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].original_url, "https://example.org/live");
+    }
+
+    #[test]
+    fn extraction_preserves_balanced_parentheses_in_destinations() {
+        for text in [
+            "[fonte](https://example.org/article(v2))",
+            "Veja https://example.org/article(v2).",
+        ] {
+            let links = extract_links(text);
+            assert_eq!(links.len(), 1, "{text}");
+            assert_eq!(links[0].original_url, "https://example.org/article(v2)");
+        }
+    }
+
+    #[test]
+    fn long_unmatched_punctuation_tail_is_removed_without_repeated_scans() {
+        let text = format!("Veja https://example.org/article{}.", ")".repeat(20_000));
+        let links = extract_links(&text);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].original_url, "https://example.org/article");
+    }
+
+    #[test]
+    fn malformed_markdown_destination_remains_a_blocked_link() {
+        let result = run_link_integrity_audit("[fonte](http://)").unwrap();
+        assert_eq!(result.urls_found, 1);
+        assert_eq!(result.failed, 1);
+    }
+
+    #[test]
+    fn reference_style_link_is_counted_once_at_its_use() {
+        let text = "[fonte][manual]\n\n[manual]: https://example.org/article(v2)";
+        let links = extract_links(text);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].original_url, "https://example.org/article(v2)");
+    }
+
+    #[test]
+    fn changed_redirect_destination_cannot_keep_editorial_acceptance() {
+        let mut previous = test_row();
+        previous.final_url = Some("https://example.com/old".to_string());
+        previous.sha256 = Some("a".repeat(64));
+        previous.review_decision = Some(LinkReviewDecision::Accept);
+        let mut current = previous.clone();
+        current.final_url = Some("https://example.com/new".to_string());
+        current.review_decision = None;
+        apply_preserved_review(&mut current, &previous);
+        assert_eq!(current.review_decision, None);
+        assert!(same_network_url(
+            "https://example.com/source#monkey",
+            "https://example.com/source"
+        ));
     }
 
     #[test]

@@ -25,3 +25,4 @@ tauri = { version = "2.11.2", default-features = false, features = ["common-cont
 tokio = { version = "1", default-features = false, features = ["macros", "time", "sync", "rt"] }
 tokio-util = { version = "0.7", default-features = false }
 pulldown-cmark = { version = "=0.13.4", default-features = false }
+percent-encoding = "=2.3.2"

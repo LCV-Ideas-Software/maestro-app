@@ -104,9 +104,9 @@ artifacts from the official [crates.io registry](https://crates.io/); the SBOM
 identified the graph but did not populate `licenseDeclared` for these Cargo
 packages in that recorded response.
 
-Normalized `Cargo.lock` SHA-256: `b214fea3b4251be6e0cf83658da2ed2b0b31c19427cc4661382219f29cdfe516`
+Normalized `Cargo.lock` SHA-256: `1380b52cce7f131ddbb2b502da90e48da99909b970ba6fbf653a6566d130baae`
 
-This historical fingerprint was computed after normalizing CRLF to LF. It is
+This fingerprint was computed after normalizing CRLF to LF. It is
 not recalculated by a repository-owned CI verifier. Direct or transitive
 dependency changes require review of the inventory and distribution obligations;
 the preserved fingerprint must not be presented as evidence for a changed graph.
@@ -127,6 +127,7 @@ exception, tracked in LCV-207.
 | tauri-build | 2.6.3 | Apache-2.0 OR MIT | build | No | https://crates.io/crates/tauri-build/2.6.3 |
 | base64 | 0.23.1 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/base64/0.23.1 |
 | chrono | 0.4.45 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/chrono/0.4.45 |
+| percent-encoding | 2.3.2 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/percent-encoding/2.3.2 |
 | portable-pty | 0.9.0 | MIT | runtime | No | https://crates.io/crates/portable-pty/0.9.0 |
 | pulldown-cmark | 0.13.4 | MIT | runtime | No | https://crates.io/crates/pulldown-cmark/0.13.4 |
 | regex | 1.13.1 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/regex/1.13.1 |
@@ -151,6 +152,12 @@ including `toml 1.1.6` and `toml_datetime 1.1.1`. The 25/09 addendum in
 selected license and full upstream text. The historical snapshot remains
 preserved. Five direct npm versions above were also aligned with the current
 `package-lock.json`.
+
+The current MAESTRO-34 correction made the already locked `percent-encoding
+2.3.2` crate a direct runtime dependency for URL path validation. Cargo's
+locked metadata confirms the direct edge; the reachable package set and the
+existing exact-version license notice remain unchanged. The preceding lockfile
+fingerprint was `b214fea3b4251be6e0cf83658da2ed2b0b31c19427cc4661382219f29cdfe516`.
 
 ### Transitive Rust license review
 
