@@ -1088,11 +1088,11 @@ fn robots_disallows_path(robots: &str, target_path: &str) -> bool {
     }
     let has_specific = groups
         .iter()
-        .any(|(agents, _)| agents.iter().any(|agent| agent == "maestroeditorialai"));
+        .any(|(agents, _)| agents.iter().any(|agent| maestro_robots_agent(agent)));
     let mut best_match: Option<(usize, bool)> = None;
     for (agents, rules) in groups {
         let selected = if has_specific {
-            agents.iter().any(|agent| agent == "maestroeditorialai")
+            agents.iter().any(|agent| maestro_robots_agent(agent))
         } else {
             agents.iter().any(|agent| agent == "*")
         };
@@ -1120,6 +1120,10 @@ fn robots_disallows_path(robots: &str, target_path: &str) -> bool {
         }
     }
     matches!(best_match, Some((_, false)))
+}
+
+fn maestro_robots_agent(agent: &str) -> bool {
+    agent == "maestroeditorialai" || agent.starts_with("maestroeditorialai/")
 }
 
 fn normalize_robots_octets(value: &str) -> String {
@@ -4073,6 +4077,10 @@ mod tests {
 
     #[test]
     fn robots_specificity_wildcards_and_query_are_respected() {
+        assert!(robots_disallows_path(
+            "User-agent: MaestroEditorialAI/1.0\nDisallow: /private",
+            "/private"
+        ));
         assert!(robots_disallows_path(
             "User-agent: MaestroEditorialAI\nDisallow: /private\nUser-agent: *\nAllow: /private",
             "/private"

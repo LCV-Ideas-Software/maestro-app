@@ -811,60 +811,28 @@ fn write_rendered_text(visible: &mut [u8], range: std::ops::Range<usize>, render
     }
 }
 
-fn markdown_without_code(text: &str) -> String {
+fn rendered_visible_text(text: &str) -> String {
     let mut visible = text.as_bytes().to_vec();
+    mask_code_bytes(&mut visible, 0..text.len());
     let parser = Parser::new(text);
-    let definitions = parser
-        .reference_definitions()
-        .iter()
-        .map(|(_, definition)| definition.span.clone())
-        .collect::<Vec<_>>();
-    for range in definitions {
-        mask_code_bytes(&mut visible, range);
+    let mut definition_bytes = vec![false; text.len()];
+    for (_, definition) in parser.reference_definitions().iter() {
+        definition_bytes[definition.span.clone()].fill(true);
     }
-    let mut code_block_start = None;
-    let mut link_start = None;
-    let mut link_text_ranges = Vec::new();
-    let mut image_start = None;
+    let mut in_code_block = false;
+    let mut in_image = false;
     for (event, range) in parser.into_offset_iter() {
         match event {
-            Event::Start(Tag::CodeBlock(_)) => code_block_start = Some(range.start),
-            Event::End(TagEnd::CodeBlock) => {
-                if let Some(start) = code_block_start.take() {
-                    mask_code_bytes(&mut visible, start..range.end);
-                }
-            }
-            Event::Code(_) => mask_code_bytes(&mut visible, range),
-            Event::Html(_) | Event::InlineHtml(_) => mask_code_bytes(&mut visible, range),
-            Event::Start(Tag::Link { .. }) => {
-                link_start = Some(range.start);
-                link_text_ranges.clear();
-            }
-            Event::Text(rendered) if link_start.is_some() && image_start.is_none() => {
-                if range.start > 0 && text.as_bytes()[range.start - 1] == b'\\' {
-                    visible[range.start - 1] = b' ';
-                }
-                link_text_ranges.push((range, rendered.into_string()));
-            }
-            Event::Text(rendered) if image_start.is_none() => {
-                if range.start > 0 && text.as_bytes()[range.start - 1] == b'\\' {
-                    visible[range.start - 1] = b' ';
-                }
+            Event::Start(Tag::CodeBlock(_)) => in_code_block = true,
+            Event::End(TagEnd::CodeBlock) => in_code_block = false,
+            Event::Start(Tag::Image { .. }) => in_image = true,
+            Event::End(TagEnd::Image) => in_image = false,
+            Event::Text(rendered)
+                if !in_code_block
+                    && !in_image
+                    && !definition_bytes[range.clone()].contains(&true) =>
+            {
                 write_rendered_text(&mut visible, range, &rendered);
-            }
-            Event::End(TagEnd::Link) => {
-                if let Some(start) = link_start.take() {
-                    mask_code_bytes(&mut visible, start..range.end);
-                    for (source_range, rendered) in link_text_ranges.drain(..) {
-                        write_rendered_text(&mut visible, source_range, &rendered);
-                    }
-                }
-            }
-            Event::Start(Tag::Image { .. }) => image_start = Some(range.start),
-            Event::End(TagEnd::Image) => {
-                if let Some(start) = image_start.take() {
-                    mask_code_bytes(&mut visible, start..range.end);
-                }
             }
             _ => {}
         }
@@ -876,7 +844,7 @@ fn document_policy_blockers(
     text: &str,
     citations: &[CitationAuditCitation],
 ) -> Vec<CitationAuditBlocker> {
-    let visible = markdown_without_code(text);
+    let visible = rendered_visible_text(text);
     let body = citation_body_text(text, &visible);
     let mut blockers = quote_blockers(&body, citations);
     // The maintained CommonMark parser distinguishes rendered HTML from
@@ -2328,7 +2296,7 @@ pub(crate) fn audit_abnt_citations_inner(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| sanitize_short(value, 128));
-    let visible_text = markdown_without_code(&request.text);
+    let visible_text = rendered_visible_text(&request.text);
     let raw_references = reference_section(&request.text, &visible_text);
     let body = citation_body_text(&request.text, &visible_text);
     let raw_citation_rows = raw_citations(&body);
@@ -2742,6 +2710,71 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn markdown_emphasis_delimiters_cannot_hide_rendered_citations() {
+        for text in [
+            "Texto (*Silva*, 2020).",
+            "Texto (**SILVA**, 2020).",
+            "Texto (***Silva***, 2020).",
+            "Texto (__Silva__, 2020).",
+            "Silva *et al.* (2020) descrevem o resultado.",
+            "(Silva *et al.*, 2020).",
+            "Silva _et al._ (2020) descrevem o resultado.",
+            "*Silva* (2020) escreveu.",
+            "Silva (*2020*) escreveu.",
+        ] {
+            let result = audit_abnt_citations_inner(request(text)).unwrap();
+            assert!(
+                result
+                    .blockers
+                    .iter()
+                    .any(|item| item.code == "structured_manifest_missing"),
+                "{text}"
+            );
+        }
+        let mut manifest = verified_manifest();
+        manifest.citations[0].citation_type = CitationType::IndirectQuote;
+        manifest.citations[0].locator = None;
+        manifest.citations[0].original_text = Some("(Silva, 2026)".to_string());
+        let reference = format_reference(&manifest.sources[0]);
+        let result = audit_abnt_citations_inner(AbntAuditRequest {
+            text: format!("Texto (*Silva*, 2026).\n\n## Referencias\n{reference}"),
+            protocol_hash: Some(manifest.protocol_hash.clone()),
+            manifest: Some(manifest),
+            previous_manifest: None,
+        })
+        .unwrap();
+        assert!(!result
+            .blockers
+            .iter()
+            .any(|item| item.code == "manifest_citation_without_body_occurrence"));
+
+        let mut manifest = verified_manifest();
+        manifest.citations[0].citation_type = CitationType::IndirectQuote;
+        manifest.citations[0].locator = None;
+        manifest.citations[0].original_text = Some("Silva et al. (2026)".to_string());
+        for name in ["Souza", "Pereira", "Costa"] {
+            manifest.sources[0].authors.push(CitationAuthor {
+                author_display: format!("{name}, Ana"),
+                author_key: name.to_uppercase(),
+            });
+        }
+        let reference = format_reference(&manifest.sources[0]);
+        let result = audit_abnt_citations_inner(AbntAuditRequest {
+            text: format!(
+                "Silva *et al.* (2026) descrevem o resultado.\n\n## Referencias\n{reference}"
+            ),
+            protocol_hash: Some(manifest.protocol_hash.clone()),
+            manifest: Some(manifest),
+            previous_manifest: None,
+        })
+        .unwrap();
+        assert!(!result
+            .blockers
+            .iter()
+            .any(|item| item.code == "manifest_citation_without_body_occurrence"));
     }
 
     #[test]

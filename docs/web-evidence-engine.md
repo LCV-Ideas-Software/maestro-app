@@ -33,6 +33,8 @@ Implemented on the active release branch:
   limiting suspend automated collection. Other 4xx responses follow RFC 9309's
   unavailable-robots rule. Matching follows the applicable user-agent group, longest rule,
   wildcard and end anchor, and URI path plus query, including encoded octets.
+  Versioned `MaestroEditorialAI/…` user-agent groups retain the same specific
+  policy precedence as the unversioned product token.
   The robots contract is [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html); the rate-limit signal is [RFC 6585](https://www.rfc-editor.org/rfc/rfc6585.html#section-4).
 - Ready projections verify the exact byte count and SHA-256 of every persisted
   artifact, including official API and operator-imported evidence. Search API
