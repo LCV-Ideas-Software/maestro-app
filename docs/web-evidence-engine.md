@@ -24,8 +24,10 @@ Implemented on the active release branch:
   operator handoff, including ordinary query parameters.
 - Public URLs are kept byte-complete through the record, redirect chain, replay,
   and browser handoff. Credential-bearing userinfo, query, fragment, and path
-  forms are rejected before collection or persistence. Response `Location`
-  values are not copied into the final metadata allowlist.
+  forms are rejected before collection or persistence. Bare names ending in
+  `key` or `sig` are treated as sensitive except for a small explicit set of
+  ordinary words such as `monkey`; response `Location` values are not copied
+  into the final metadata allowlist.
 - Automated fetch checks robots policy before the first request and again at
   each redirect destination. Unreachable robots policy and HTTP 429 rate
   limiting suspend automated collection. Other 4xx responses follow RFC 9309's

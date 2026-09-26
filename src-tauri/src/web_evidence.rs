@@ -738,29 +738,11 @@ fn sensitive_parameter_name(value: &str) -> bool {
         .next()
         .unwrap_or_default()
         .to_ascii_lowercase();
-    let credential_key_suffix = normalized.strip_suffix("key").is_some_and(|stem| {
-        [
-            "access",
-            "api",
-            "app",
-            "auth",
-            "client",
-            "consumer",
-            "developer",
-            "hmac",
-            "pass",
-            "private",
-            "secret",
-            "service",
-            "session",
-            "signing",
-            "stream",
-            "subscription",
-        ]
-        .iter()
-        .any(|kind| stem.ends_with(kind))
-    });
-    if credential_key_suffix || normalized.ends_with("sig") {
+    let ordinary_key_word = matches!(
+        normalized.as_str(),
+        "monkey" | "donkey" | "turkey" | "hockey" | "jockey" | "whiskey" | "hotkey"
+    );
+    if (normalized.ends_with("key") && !ordinary_key_word) || normalized.ends_with("sig") {
         return true;
     }
     [
@@ -4016,6 +3998,15 @@ mod tests {
             "https://example.org/article?myapikey=secret-value",
             "https://example.org/article?sessionkey=secret-value",
             "https://example.org/article?mysessionkey=secret-value",
+            "https://example.org/article?masterkey=secret-value",
+            "https://example.org/article?licensekey=secret-value",
+            "https://example.org/article?securitykey=secret-value",
+            "https://example.org/article?encryptionkey=secret-value",
+            "https://example.org/article?authenticationkey=secret-value",
+            "https://example.org/article?adminkey=secret-value",
+            "https://example.org/article?accountkey=secret-value",
+            "https://example.org/article?mykey=secret-value",
+            "https://example.org/download/masterkey/secret-value",
             "https://example.org/article?myaccesskey=secret-value",
             "https://example.org/article?mysecretkey=secret-value",
             "https://example.org/article?myapi_key=secret-value",
@@ -4038,6 +4029,8 @@ mod tests {
             "https://example.org/article#monkey",
             "https://example.org/article?monkey=1",
             "https://example.org/article?donkey=1",
+            "https://example.org/article?turkey=1",
+            "https://example.org/article?hockey=1",
         ] {
             assert!(validate_public_url(url).is_ok(), "{url}");
         }

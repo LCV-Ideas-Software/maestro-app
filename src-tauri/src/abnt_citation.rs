@@ -604,24 +604,31 @@ fn reference_heading_bounds(text: &str) -> Option<(usize, usize, usize)> {
     let mut heading_start = None;
     let mut heading_title = String::new();
     let mut reference = None;
+    let mut depth = 0usize;
     for (event, range) in Parser::new(text).into_offset_iter() {
         match event {
-            Event::Start(Tag::Heading { .. }) => {
-                if let Some((start, end)) = reference {
-                    return Some((start, end, range.start));
+            Event::Start(tag) => {
+                if matches!(tag, Tag::Heading { .. }) && depth == 0 {
+                    if let Some((start, end)) = reference {
+                        return Some((start, end, range.start));
+                    }
+                    heading_start = Some(range.start);
+                    heading_title.clear();
                 }
-                heading_start = Some(range.start);
-                heading_title.clear();
+                depth += 1;
             }
             Event::Text(value) | Event::Code(value) if heading_start.is_some() => {
                 heading_title.push_str(&value);
             }
-            Event::End(TagEnd::Heading(_)) => {
-                if let Some(start) = heading_start.take() {
-                    if title_pattern.is_match(heading_title.trim()) {
-                        reference = Some((start, range.end));
+            Event::End(tag) => {
+                if matches!(tag, TagEnd::Heading(_)) && depth == 1 {
+                    if let Some(start) = heading_start.take() {
+                        if title_pattern.is_match(heading_title.trim()) {
+                            reference = Some((start, range.end));
+                        }
                     }
                 }
+                depth = depth.saturating_sub(1);
             }
             _ => {}
         }
@@ -751,7 +758,6 @@ fn quote_blockers(text: &str, citations: &[CitationAuditCitation]) -> Vec<Citati
 }
 
 fn unstructured_citation_signals(text: &str) -> (Vec<(usize, String)>, bool) {
-    let visible = markdown_without_code(text);
     let patterns = [
         r"(?i)<(?:cite|blockquote|q)\b[^>]*>",
         r"(?m)\[\^[^\]\r\n]{1,80}\]",
@@ -763,7 +769,7 @@ fn unstructured_citation_signals(text: &str) -> (Vec<(usize, String)>, bool) {
         let Ok(pattern) = Regex::new(raw_pattern) else {
             continue;
         };
-        for found in pattern.find_iter(&visible) {
+        for found in pattern.find_iter(text) {
             count += 1;
             if count > MAX_CITATIONS {
                 return (signals, true);
@@ -2424,10 +2430,10 @@ pub(crate) fn audit_abnt_citations_inner(
             &citations,
             &raw_references,
         ));
-        if !citations.is_empty() {
+        if !citations.is_empty() || reference_heading_bounds(&request.text).is_some() {
             blockers.push(blocker(
                 "structured_manifest_missing",
-                "Citacoes foram detectadas em texto livre; forneca citation_manifest.v1 para provar metadados, acesso e verificacao.",
+                "Citacoes ou referencias foram detectadas em texto livre; forneca citation_manifest.v1 para provar metadados, acesso e verificacao.",
                 "error",
                 None,
                 None,
@@ -2687,6 +2693,64 @@ mod tests {
                 "{label}"
             );
         }
+    }
+
+    #[test]
+    fn nested_reference_headings_cannot_hide_body_citations() {
+        for heading in ["> ## Referencias", "- ## Referencias"] {
+            let text = format!(
+                "{heading}\n\n“Frase longa entre aspas sem fonte” (Silva, 2020) e (Souza, 2021)."
+            );
+            let result = audit_abnt_citations_inner(request(&text)).unwrap();
+            assert!(
+                result
+                    .blockers
+                    .iter()
+                    .any(|item| item.code == "structured_manifest_missing"),
+                "{heading}"
+            );
+            assert!(
+                result
+                    .blockers
+                    .iter()
+                    .any(|item| item.code.starts_with("direct_quote_")),
+                "{heading}"
+            );
+        }
+    }
+
+    #[test]
+    fn rendered_entity_and_escaped_backticks_cannot_hide_apud_signal() {
+        for text in [
+            "Texto (Silva, 2020 &#96;apud&#96; Souza, 2021).",
+            "Texto (Silva, 2020 \\`apud\\` Souza, 2021).",
+        ] {
+            for with_manifest in [false, true] {
+                let result = audit_abnt_citations_inner(AbntAuditRequest {
+                    text: text.to_string(),
+                    protocol_hash: Some("protocol-sha256".to_string()),
+                    manifest: with_manifest.then(|| empty_citation_manifest("protocol-sha256")),
+                    previous_manifest: None,
+                })
+                .unwrap();
+                assert!(
+                    result
+                        .blockers
+                        .iter()
+                        .any(|item| item.code == "unstructured_citation_signal"),
+                    "{text}; manifest={with_manifest}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reference_heading_without_manifest_does_not_pass_ready() {
+        let result = audit_abnt_citations_inner(request("## Referencias")).unwrap();
+        assert!(result
+            .blockers
+            .iter()
+            .any(|item| item.code == "structured_manifest_missing"));
     }
 
     #[test]
