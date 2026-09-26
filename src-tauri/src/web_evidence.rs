@@ -1089,10 +1089,20 @@ fn conditional_headers(stored: Option<&StoredWebEvidence>) -> Vec<(HeaderName, H
 
 fn ready_cached_evidence_for_304(stored: &StoredWebEvidence) -> bool {
     stored.record.state == WebEvidenceState::Ready
-        && stored.content_path.is_some()
-        && stored.record.sha256.as_deref().is_some_and(|hash| {
-            hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-        })
+        && stored.record.access_mode == WebEvidenceAccessMode::HttpFetch
+        && stored
+            .record
+            .status
+            .is_some_and(|status| (200..=299).contains(&status))
+        && if stored.content_path.is_some() {
+            stored.record.sha256.as_deref().is_some_and(|hash| {
+                hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+        } else {
+            // HEAD and successful bodyless GET responses have no content file
+            // or hash, but can still be revalidated from their HTTP metadata.
+            stored.record.sha256.is_none() && stored.record.byte_count == Some(0)
+        }
 }
 
 fn persist_content(
@@ -1250,7 +1260,7 @@ pub(crate) fn fetch_web_evidence_inner(
         let mut stored = failed_fetch_record(
             existing.as_ref(),
             &id,
-            &rejected_url_for_record(&canonical_url),
+            &canonical_url,
             request.method,
             WebEvidenceState::Blocked,
             "robots.txt disallows automatic collection for this path",
@@ -3686,7 +3696,7 @@ mod tests {
     }
 
     #[test]
-    fn not_modified_requires_a_ready_cached_body_and_hash() {
+    fn not_modified_requires_a_ready_cached_body_or_bodyless_response() {
         let mut stored = failed_fetch_record(
             None,
             "test-id",
@@ -3697,11 +3707,47 @@ mod tests {
             Utc::now(),
         );
         assert!(!ready_cached_evidence_for_304(&stored));
+        stored.record.status = Some(200);
+        stored.record.byte_count = Some(4);
         stored.content_path = Some("content/test-id.html".to_string());
         stored.record.sha256 = Some("a".repeat(64));
         assert!(ready_cached_evidence_for_304(&stored));
+        stored.content_path = None;
+        stored.record.sha256 = None;
+        assert!(!ready_cached_evidence_for_304(&stored));
+        stored.record.byte_count = Some(0);
+        assert!(ready_cached_evidence_for_304(&stored));
+        stored.record.method = WebEvidenceMethod::Head;
+        assert!(ready_cached_evidence_for_304(&stored));
+        stored.record.status = Some(404);
+        assert!(!ready_cached_evidence_for_304(&stored));
+        stored.record.status = Some(200);
         stored.record.state = WebEvidenceState::Failed;
         assert!(!ready_cached_evidence_for_304(&stored));
+    }
+
+    #[test]
+    fn robots_disallowed_record_keeps_validated_query_for_handoff() {
+        let url = "https://example.com/document?id=42";
+        let stored = failed_fetch_record(
+            None,
+            "robots-test-id",
+            url,
+            WebEvidenceMethod::Get,
+            WebEvidenceState::Blocked,
+            "robots.txt disallows automatic collection for this path",
+            Utc::now(),
+        );
+        assert_eq!(stored.record.url, url);
+        assert!(
+            matches!(stored.replay, ReplayRecipe::HttpFetch { url: replay, .. } if replay == url)
+        );
+        assert!(stored
+            .record
+            .curl_command
+            .as_deref()
+            .unwrap_or_default()
+            .contains("id=42"));
     }
 
     #[test]

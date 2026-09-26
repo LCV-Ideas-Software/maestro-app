@@ -17,6 +17,9 @@ Implemented on the active release branch:
 - Persistent evidence records and content under `./data/evidence`, with SHA-256,
   TTL, stale-state projection, conditional revalidation, replay, pagination, and
   sanitized provenance.
+- HTTP 304 revalidates ready body-backed evidence and ready bodyless GET/HEAD
+  records; a robots.txt refusal retains the validated canonical URL for exact
+  operator handoff, including ordinary query parameters.
 - Public-network-only HTTP `GET`/`HEAD`, bounded bodies, proxy bypass, DNS-to-
   connection binding, and manual per-hop redirect validation.
 - Reproducible `curl.exe` recipes that disable ambient proxies and automatic

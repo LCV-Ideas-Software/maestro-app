@@ -270,8 +270,8 @@ fn faithful_fold(value: &str) -> Option<String> {
 fn equivalent_value(left: &str, right: &str) -> bool {
     if left.trim().is_empty()
         || right.trim().is_empty()
-        || ascii_fold(left).is_empty()
-        || ascii_fold(right).is_empty()
+        || !left.chars().any(char::is_alphanumeric)
+        || !right.chars().any(char::is_alphanumeric)
     {
         return false;
     }
@@ -282,7 +282,7 @@ fn equivalent_value(left: &str, right: &str) -> bool {
 }
 
 fn contains_value(haystack: &str, needle: &str) -> bool {
-    if needle.trim().is_empty() || ascii_fold(needle).is_empty() {
+    if needle.trim().is_empty() || !needle.chars().any(char::is_alphanumeric) {
         return false;
     }
     if let Some(folded_needle) = faithful_fold(needle) {
@@ -517,6 +517,7 @@ fn quote_blockers(text: &str, citations: &[CitationAuditCitation]) -> Vec<Citati
 }
 
 fn unstructured_citation_signals(text: &str) -> (Vec<String>, bool) {
+    let visible = markdown_without_code(text);
     let patterns = [
         r"(?i)<(?:cite|blockquote|q)\b[^>]*>",
         r"(?m)\[\^[^\]\r\n]{1,80}\]",
@@ -528,7 +529,7 @@ fn unstructured_citation_signals(text: &str) -> (Vec<String>, bool) {
         let Ok(pattern) = Regex::new(raw_pattern) else {
             continue;
         };
-        for found in pattern.find_iter(text) {
+        for found in pattern.find_iter(&visible) {
             count += 1;
             if count > MAX_CITATIONS {
                 return (signals.into_iter().collect(), true);
@@ -551,6 +552,115 @@ fn capacity_blocker(reader: &str) -> CitationAuditBlocker {
     )
 }
 
+fn markdown_without_code(text: &str) -> String {
+    let mut visible = text.as_bytes().to_vec();
+    let mut fence: Option<(u8, usize)> = None;
+    let mut indented_code_can_start = true;
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let bytes = line.as_bytes();
+        let blank = line.trim().is_empty();
+        let indent = bytes.iter().take_while(|byte| **byte == b' ').count();
+        let marker = if indent <= 3 {
+            bytes
+                .get(indent)
+                .copied()
+                .filter(|byte| matches!(*byte, b'`' | b'~'))
+        } else {
+            None
+        };
+        let run = marker
+            .map(|byte| {
+                bytes[indent..]
+                    .iter()
+                    .take_while(|item| **item == byte)
+                    .count()
+            })
+            .unwrap_or(0);
+        let closes_fence = fence.is_some_and(|(byte, length)| {
+            marker == Some(byte)
+                && run >= length
+                && bytes[indent + run..]
+                    .iter()
+                    .all(|item| matches!(*item, b' ' | b'\t' | b'\r' | b'\n'))
+        });
+        let opens_fence = fence.is_none()
+            && run >= 3
+            && (marker != Some(b'`') || !bytes[indent + run..].contains(&b'`'));
+        let indented_code =
+            indented_code_can_start && (indent >= 4 || bytes.first() == Some(&b'\t'));
+        if fence.is_some() || opens_fence || indented_code {
+            for byte in &mut visible[offset..offset + bytes.len()] {
+                if !matches!(*byte, b'\r' | b'\n') {
+                    *byte = b' ';
+                }
+            }
+        }
+        if closes_fence {
+            fence = None;
+        } else if opens_fence {
+            fence = marker.map(|byte| (byte, run));
+        }
+        if blank || closes_fence || opens_fence {
+            indented_code_can_start = true;
+        } else {
+            indented_code_can_start = indented_code;
+        }
+        offset += bytes.len();
+    }
+
+    let mut index = 0;
+    while index < visible.len() {
+        if visible[index] != b'`' {
+            index += 1;
+            continue;
+        }
+        let escaped = visible[..index]
+            .iter()
+            .rev()
+            .take_while(|byte| **byte == b'\\')
+            .count()
+            % 2
+            == 1;
+        let run = visible[index..]
+            .iter()
+            .take_while(|byte| **byte == b'`')
+            .count();
+        if escaped {
+            index += run;
+            continue;
+        }
+        let mut closing = index + run;
+        let mut end = None;
+        while closing < visible.len() {
+            if visible[closing] != b'`' {
+                closing += 1;
+                continue;
+            }
+            let length = visible[closing..]
+                .iter()
+                .take_while(|byte| **byte == b'`')
+                .count();
+            if length == run {
+                end = Some(closing + run);
+                break;
+            }
+            closing += length;
+        }
+        if let Some(end) = end {
+            for byte in &mut visible[index..end] {
+                if !matches!(*byte, b'\r' | b'\n') {
+                    *byte = b' ';
+                }
+            }
+            index = end;
+        } else {
+            index += run;
+        }
+    }
+    String::from_utf8(visible).expect("masking complete code ranges preserves UTF-8")
+}
+
 fn document_policy_blockers(
     text: &str,
     citations: &[CitationAuditCitation],
@@ -561,14 +671,15 @@ fn document_policy_blockers(
     let raw_html =
         Regex::new(r"(?is)<(?:/?[a-z][a-z0-9-]*(?:\s+[^<>]*)?\s*/?>|!--|!\[CDATA\[|![a-z]|\?)");
     if let Ok(pattern) = raw_html {
-        if let Some(found) = pattern.find(text) {
+        let visible = markdown_without_code(text);
+        if let Some(found) = pattern.find(&visible) {
             blockers.push(blocker(
                 "raw_html_in_final_text",
                 "O texto final contem HTML cru; substitua por texto ou Markdown.",
                 "error",
                 None,
                 None,
-                Some(found.as_str()),
+                text.get(found.start()..found.end()),
                 false,
             ));
         }
@@ -2129,6 +2240,81 @@ mod tests {
         let html = audit_abnt_citations_inner(request("Texto <cite>fonte</cite> e <!-- nota -->."))
             .unwrap();
         assert!(html
+            .blockers
+            .iter()
+            .any(|item| item.code == "raw_html_in_final_text"));
+    }
+
+    #[test]
+    fn unicode_authors_match_without_erasing_their_letters() {
+        assert!(equivalent_value("Иванов", "ИВАНОВ"));
+        assert!(equivalent_value("王", "王"));
+        assert!(contains_value("Fonte: ИВАНОВ, 2026.", "Иванов"));
+        assert!(contains_value("Fonte: 王, 2026.", "王"));
+        assert!(!equivalent_value("Ωμέγα, 2020", "2020"));
+        assert!(!contains_value("Fonte de 2020.", "Ωμέγα, 2020"));
+        assert!(!equivalent_value(".", "."));
+
+        let mut manifest = verified_manifest();
+        manifest.citations[0].author_display = "王".to_string();
+        manifest.citations[0].author_key = "王".to_string();
+        manifest.citations[0].original_text = Some("(王, 2026, p. 12)".to_string());
+        manifest.sources[0].authors[0].author_display = "王".to_string();
+        manifest.sources[0].authors[0].author_key = "王".to_string();
+        let reference = format_reference(&manifest.sources[0]);
+        let result = audit_abnt_citations_inner(AbntAuditRequest {
+            text: format!(
+                "“Trecho direto com mais de quatro palavras” (王, 2026, p. 12).\n\n## Referencias\n{reference}"
+            ),
+            protocol_hash: Some("protocol-sha256".to_string()),
+            manifest: Some(manifest),
+            previous_manifest: None,
+        })
+        .unwrap();
+        assert!(!result.blockers.iter().any(|item| {
+            matches!(
+                item.code.as_str(),
+                "citation_canonical_author_mismatch"
+                    | "canonical_author_display_mismatch"
+                    | "reference_not_normalized"
+            )
+        }));
+    }
+
+    #[test]
+    fn markdown_code_examples_do_not_count_as_raw_html() {
+        for text in [
+            "Exemplo `<div class=\"example\">` em prosa.",
+            "Exemplo `` `<cite>fonte</cite>` `` em prosa.",
+            "Exemplo:\n```html\n<div class=\"example\">\n```\nFim.",
+            "Exemplo:\n~~~html\n<cite>fonte</cite>\n~~~\nFim.",
+            "Exemplo:\n\n    <div>codigo</div>\nFim.",
+        ] {
+            let result = audit_abnt_citations_inner(request(text)).unwrap();
+            assert!(
+                !result
+                    .blockers
+                    .iter()
+                    .any(|item| item.code == "raw_html_in_final_text"),
+                "{text}"
+            );
+            assert!(
+                !result
+                    .blockers
+                    .iter()
+                    .any(|item| item.code == "unstructured_citation_signal"),
+                "{text}"
+            );
+        }
+        let real = audit_abnt_citations_inner(request("Use `<div>` e depois <cite>fonte</cite>."))
+            .unwrap();
+        assert!(real
+            .blockers
+            .iter()
+            .any(|item| item.code == "raw_html_in_final_text"));
+        let continued =
+            audit_abnt_citations_inner(request("Prosa\n    <cite>fonte</cite>.")).unwrap();
+        assert!(continued
             .blockers
             .iter()
             .any(|item| item.code == "raw_html_in_final_text"));

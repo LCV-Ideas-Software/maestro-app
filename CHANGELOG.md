@@ -7,6 +7,7 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 ### Fixed
 
 - **MAESTRO-34:** Require current mechanical proof, content hash and ready evidence before a link can be accepted or its approval preserved; keep the fetched URL identical to the source text. Fail closed on unstructured or excess citations, preserve citation context during session resume, and match body citations per occurrence. Block local IPv6 translation ranges and restore safe HTTP 304 revalidation without persisting credentials or sensitive query values in rejected URL records.
+- **MAESTRO-34 review follow-up:** Preserve validated query parameters when robots.txt blocks collection; compare non-Latin author names without dropping their letters; ignore Markdown code examples when checking raw HTML and citation signals; revalidate ready HEAD and bodyless HTTP records with 304.
 
 - **MAESTRO-33:** Move the Perplexity desktop peer to the Agent API with a documented `provider/model` pin, typed response parsing, and source metadata. Preserve model override separators, require search evidence before accepting a response, reserve the web-search fee in cost guards, and account for incomplete responses using provider-reported totals or estimated token usage. Reject legacy Sonar model IDs before dispatch.
 

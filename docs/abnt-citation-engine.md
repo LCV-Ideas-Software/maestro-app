@@ -114,4 +114,4 @@ Golden fixtures must cover:
 - Markdown export.
 - MainSite HTML export.
 
-Frontend command/panel coverage runs locally without invoking the Rust toolchain. Rust unit, clippy, and build validation are reserved for GitHub Actions on the consolidated PR.
+Frontend command/panel coverage runs locally. Rust unit, Clippy, and build validation run in GitHub Actions; the operator's 25/09/2026 decision also permits local Rust validation with an allowed toolchain. The final audit compares non-Latin author keys without discarding their letters and excludes Markdown code examples from raw-HTML and unstructured-citation signals.
