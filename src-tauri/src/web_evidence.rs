@@ -11,7 +11,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -567,6 +567,29 @@ fn project_record(mut record: WebEvidenceRecord, now: DateTime<Utc>) -> WebEvide
     record
 }
 
+fn project_stored_with_root(
+    stored: &StoredWebEvidence,
+    now: DateTime<Utc>,
+    root: &Path,
+) -> WebEvidenceRecord {
+    let mut record = project_record(stored.record.clone(), now);
+    if record.state == WebEvidenceState::Ready
+        && record.access_mode == WebEvidenceAccessMode::HttpFetch
+        && !cached_artifact_is_valid(stored, root)
+    {
+        record.state = WebEvidenceState::Stale;
+        record.cache_state = WebEvidenceCacheState::Stale;
+    }
+    record
+}
+
+fn project_stored(
+    stored: &StoredWebEvidence,
+    now: DateTime<Utc>,
+) -> Result<WebEvidenceRecord, String> {
+    Ok(project_stored_with_root(stored, now, &evidence_dir()?))
+}
+
 fn base_record(
     id: String,
     url: &str,
@@ -668,10 +691,7 @@ fn validate_public_url(value: &str) -> Result<Url, String> {
     if !url.username().is_empty() || url.password().is_some() {
         return Err("URLs with embedded credentials are blocked".to_string());
     }
-    if url
-        .query_pairs()
-        .any(|(key, _)| sensitive_query_key(key.as_ref()))
-    {
+    if url_has_sensitive_parameters(&url) {
         return Err(
             "URLs with credential-like query parameters are blocked; use an environment-backed connector or operator capture"
                 .to_string(),
@@ -681,7 +701,7 @@ fn validate_public_url(value: &str) -> Result<Url, String> {
     Ok(url)
 }
 
-fn rejected_url_for_record(value: &str) -> String {
+pub(crate) fn rejected_url_for_record(value: &str) -> String {
     let Ok(mut url) = Url::parse(value) else {
         return "<blocked URL>".to_string();
     };
@@ -695,11 +715,17 @@ fn rejected_url_for_record(value: &str) -> String {
     // nonstandard delimiters that query_pairs would not recognize.
     url.set_query(None);
     url.set_fragment(None);
+    url.set_path("/");
     sanitize_text(url.as_str(), 2_048)
 }
 
-fn sensitive_query_key(value: &str) -> bool {
-    let normalized = value.to_ascii_lowercase();
+pub(crate) fn sensitive_query_key(value: &str) -> bool {
+    let normalized = value
+        .trim_start_matches('/')
+        .split('=')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     [
         "access_token",
         "api_key",
@@ -717,6 +743,21 @@ fn sensitive_query_key(value: &str) -> bool {
     ]
     .iter()
     .any(|candidate| normalized == *candidate || normalized.ends_with(candidate))
+}
+
+pub(crate) fn url_has_sensitive_parameters(url: &Url) -> bool {
+    let mut probe =
+        Url::parse("https://example.invalid/").expect("static parameter parsing URL must be valid");
+    [url.query(), url.fragment()]
+        .into_iter()
+        .flatten()
+        .flat_map(|part| part.split([';', '?', '#']))
+        .any(|part| {
+            probe.set_query(Some(part));
+            probe
+                .query_pairs()
+                .any(|(key, _)| sensitive_query_key(key.as_ref()))
+        })
 }
 
 fn build_public_http_client() -> Result<Client, String> {
@@ -833,7 +874,7 @@ fn execute_public_request(
         if method == WebEvidenceMethod::Head || status == StatusCode::NOT_MODIFIED {
             return Ok(RawHttpResponse {
                 status: status.as_u16(),
-                final_url: sanitize_text(current.as_str(), 2_048),
+                final_url: current.as_str().to_string(),
                 headers,
                 body: Vec::new(),
                 duration_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
@@ -868,7 +909,7 @@ fn execute_public_request(
 
         return Ok(RawHttpResponse {
             status: status.as_u16(),
-            final_url: sanitize_text(current.as_str(), 2_048),
+            final_url: current.as_str().to_string(),
             headers,
             body,
             duration_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
@@ -1087,23 +1128,70 @@ fn conditional_headers(stored: Option<&StoredWebEvidence>) -> Vec<(HeaderName, H
     result
 }
 
-fn ready_cached_evidence_for_304(stored: &StoredWebEvidence, sent_validator: bool) -> bool {
+fn cached_artifact_is_valid(stored: &StoredWebEvidence, root: &Path) -> bool {
+    if stored.record.access_mode != WebEvidenceAccessMode::HttpFetch
+        || !stored
+            .record
+            .status
+            .is_some_and(|status| (200..=299).contains(&status))
+    {
+        return false;
+    }
+    let Some(relative) = stored.content_path.as_deref() else {
+        return stored.record.sha256.is_none() && stored.record.byte_count == Some(0);
+    };
+    let relative = Path::new(relative);
+    if !relative
+        .components()
+        .all(|component| matches!(component, Component::Normal(_)))
+    {
+        return false;
+    }
+    let Some(expected_hash) = stored.record.sha256.as_deref() else {
+        return false;
+    };
+    if expected_hash.len() != 64 || !expected_hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return false;
+    }
+    let Ok(canonical_root) = fs::canonicalize(root) else {
+        return false;
+    };
+    let Ok(path) = fs::canonicalize(root.join(relative)) else {
+        return false;
+    };
+    if !path.starts_with(&canonical_root) {
+        return false;
+    }
+    let Ok(metadata) = fs::metadata(&path) else {
+        return false;
+    };
+    if !metadata.is_file()
+        || metadata.len() == 0
+        || metadata.len() > MAX_HTTP_BODY_BYTES as u64
+        || stored.record.byte_count != Some(metadata.len())
+    {
+        return false;
+    }
+    fs::read(path)
+        .ok()
+        .is_some_and(|bytes| sha256_bytes(&bytes).eq_ignore_ascii_case(expected_hash))
+}
+
+fn ready_cached_evidence_for_304(
+    stored: &StoredWebEvidence,
+    sent_validator: bool,
+    final_url: &str,
+    root: &Path,
+) -> bool {
     sent_validator
+        && stored.record.final_url.as_deref() == Some(final_url)
         && stored.record.state == WebEvidenceState::Ready
         && stored.record.access_mode == WebEvidenceAccessMode::HttpFetch
         && stored
             .record
             .status
             .is_some_and(|status| (200..=299).contains(&status))
-        && if stored.content_path.is_some() {
-            stored.record.sha256.as_deref().is_some_and(|hash| {
-                hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-            })
-        } else {
-            // HEAD and successful bodyless GET responses have no content file
-            // or hash, but can still be revalidated from their HTTP metadata.
-            stored.record.sha256.is_none() && stored.record.byte_count == Some(0)
-        }
+        && cached_artifact_is_valid(stored, root)
 }
 
 fn persist_content(
@@ -1218,6 +1306,7 @@ pub(crate) fn fetch_web_evidence_inner(
             let record = project_record(stored.record.clone(), now);
             if record.state == WebEvidenceState::Ready
                 && record.cache_state == WebEvidenceCacheState::Fresh
+                && cached_artifact_is_valid(stored, &evidence_dir()?)
             {
                 emit_progress(
                     app,
@@ -1287,8 +1376,13 @@ pub(crate) fn fetch_web_evidence_inner(
         "requesting",
         "Coletando evidencia HTTP",
     );
+    let evidence_root = evidence_dir()?;
     let headers = if request.force_revalidate {
-        conditional_headers(existing.as_ref())
+        conditional_headers(
+            existing
+                .as_ref()
+                .filter(|stored| cached_artifact_is_valid(stored, &evidence_root)),
+        )
     } else {
         Vec::new()
     };
@@ -1322,9 +1416,14 @@ pub(crate) fn fetch_web_evidence_inner(
         let Some(mut stored) = existing else {
             return Err("received HTTP 304 without a cached evidence record".to_string());
         };
-        if !ready_cached_evidence_for_304(&stored, !headers.is_empty()) {
+        if !ready_cached_evidence_for_304(
+            &stored,
+            !headers.is_empty(),
+            &raw.final_url,
+            &evidence_root,
+        ) {
             return Err(
-                "received HTTP 304 without a sent validator and ready cached evidence record"
+                "received HTTP 304 without a matching final URL, sent validator, and intact cached evidence"
                     .to_string(),
             );
         }
@@ -1459,7 +1558,7 @@ pub(crate) async fn fetch_web_evidence(
 #[tauri::command]
 pub(crate) fn get_web_evidence(evidence_id: String) -> Result<WebEvidenceRecord, String> {
     let stored = load_stored(&evidence_id)?;
-    Ok(project_record(stored.record, Utc::now()))
+    project_stored(&stored, Utc::now())
 }
 
 #[tauri::command]
@@ -1492,7 +1591,7 @@ pub(crate) fn list_web_evidence(
             continue;
         }
         let stored = load_stored(&stem)?;
-        let record = project_record(stored.record, now.clone());
+        let record = project_stored(&stored, now.clone())?;
         if !request.states.is_empty() && !request.states.contains(&record.state) {
             continue;
         }
@@ -3701,6 +3800,12 @@ mod tests {
 
     #[test]
     fn not_modified_requires_a_ready_cached_body_or_bodyless_response() {
+        let root = std::env::temp_dir().join(format!(
+            "maestro-304-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        fs::create_dir_all(root.join("content")).unwrap();
         let mut stored = failed_fetch_record(
             None,
             "test-id",
@@ -3710,25 +3815,105 @@ mod tests {
             "test ready record",
             Utc::now(),
         );
-        assert!(!ready_cached_evidence_for_304(&stored, true));
+        assert!(!ready_cached_evidence_for_304(
+            &stored,
+            true,
+            "https://example.com/source",
+            &root
+        ));
         stored.record.status = Some(200);
+        stored.record.final_url = Some("https://example.com/source".to_string());
+        stored.record.expires_at = Some((Utc::now() + ChronoDuration::days(1)).to_rfc3339());
         stored.record.byte_count = Some(4);
         stored.content_path = Some("content/test-id.html".to_string());
-        stored.record.sha256 = Some("a".repeat(64));
-        assert!(!ready_cached_evidence_for_304(&stored, false));
-        assert!(ready_cached_evidence_for_304(&stored, true));
+        stored.record.sha256 = Some(sha256_bytes(b"body"));
+        assert!(!ready_cached_evidence_for_304(
+            &stored,
+            true,
+            "https://example.com/source",
+            &root
+        ));
+        fs::write(root.join("content/test-id.html"), b"body").unwrap();
+        assert!(!ready_cached_evidence_for_304(
+            &stored,
+            false,
+            "https://example.com/source",
+            &root
+        ));
+        assert!(ready_cached_evidence_for_304(
+            &stored,
+            true,
+            "https://example.com/source",
+            &root
+        ));
+        assert_eq!(
+            project_stored_with_root(&stored, Utc::now(), &root).state,
+            WebEvidenceState::Ready
+        );
+        assert!(!ready_cached_evidence_for_304(
+            &stored,
+            true,
+            "https://example.com/other",
+            &root
+        ));
+        let long_a = format!("https://example.com/{}a", "x".repeat(2_100));
+        let long_b = format!("https://example.com/{}b", "x".repeat(2_100));
+        stored.record.final_url = Some(long_a.clone());
+        assert!(ready_cached_evidence_for_304(&stored, true, &long_a, &root));
+        assert!(!ready_cached_evidence_for_304(
+            &stored, true, &long_b, &root
+        ));
+        stored.record.final_url = Some("https://example.com/source".to_string());
+        fs::write(root.join("content/test-id.html"), b"evil").unwrap();
+        assert_eq!(
+            project_stored_with_root(&stored, Utc::now(), &root).state,
+            WebEvidenceState::Stale
+        );
+        assert!(!ready_cached_evidence_for_304(
+            &stored,
+            true,
+            "https://example.com/source",
+            &root
+        ));
+        fs::remove_file(root.join("content/test-id.html")).unwrap();
         stored.content_path = None;
         stored.record.sha256 = None;
-        assert!(!ready_cached_evidence_for_304(&stored, true));
+        assert!(!ready_cached_evidence_for_304(
+            &stored,
+            true,
+            "https://example.com/source",
+            &root
+        ));
         stored.record.byte_count = Some(0);
-        assert!(ready_cached_evidence_for_304(&stored, true));
+        assert!(ready_cached_evidence_for_304(
+            &stored,
+            true,
+            "https://example.com/source",
+            &root
+        ));
         stored.record.method = WebEvidenceMethod::Head;
-        assert!(ready_cached_evidence_for_304(&stored, true));
+        assert!(ready_cached_evidence_for_304(
+            &stored,
+            true,
+            "https://example.com/source",
+            &root
+        ));
         stored.record.status = Some(404);
-        assert!(!ready_cached_evidence_for_304(&stored, true));
+        assert!(!ready_cached_evidence_for_304(
+            &stored,
+            true,
+            "https://example.com/source",
+            &root
+        ));
         stored.record.status = Some(200);
         stored.record.state = WebEvidenceState::Failed;
-        assert!(!ready_cached_evidence_for_304(&stored, true));
+        assert!(!ready_cached_evidence_for_304(
+            &stored,
+            true,
+            "https://example.com/source",
+            &root
+        ));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -3759,7 +3944,7 @@ mod tests {
     fn rejected_url_never_persists_credentials_or_sensitive_query_values() {
         let original = "https://user:senha@example.com/path?access_token=valor-super-secreto;sig=outra-senha#fragmento-secreto";
         let safe = rejected_url_for_record(original);
-        assert_eq!(safe, "https://example.com/path");
+        assert_eq!(safe, "https://example.com/");
         assert_eq!(
             rejected_url_for_record("not a URL?access_token=senha"),
             "<blocked URL>"
@@ -3783,7 +3968,12 @@ mod tests {
         assert!(!reason.contains("valor-super-secreto"));
         assert_eq!(
             rejected_url_for_record("https://example.com/path?q=segredo-operacional"),
-            "https://example.com/path"
+            "https://example.com/"
+        );
+        assert!(validate_public_url("https://example.com/path#access_token=secret").is_err());
+        assert!(
+            validate_public_url("https://example.com/path?utm_source=x;access_token=secret")
+                .is_err()
         );
         let fetched = fetch_web_evidence_inner(
             None,

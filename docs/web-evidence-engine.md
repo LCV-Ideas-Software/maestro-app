@@ -18,7 +18,9 @@ Implemented on the active release branch:
   TTL, stale-state projection, conditional revalidation, replay, pagination, and
   sanitized provenance.
 - HTTP 304 revalidates ready body-backed evidence and ready bodyless GET/HEAD
-  records; a robots.txt refusal retains the validated canonical URL for exact
+  records only when a validator was sent, the final URL is unchanged, and the
+  cached artifact still matches its stored byte count and SHA-256. Fresh cache
+  reads also verify the artifact; a robots.txt refusal retains the validated canonical URL for exact
   operator handoff, including ordinary query parameters.
 - Public-network-only HTTP `GET`/`HEAD`, bounded bodies, proxy bypass, DNS-to-
   connection binding, and manual per-hop redirect validation.

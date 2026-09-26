@@ -21,9 +21,10 @@ use crate::app_paths::{checked_data_child_path, data_dir};
 use crate::editorial_io::write_text_file;
 use crate::sanitize::{sanitize_short, sanitize_text};
 use crate::web_evidence::{
-    fetch_web_evidence_inner, search_web_evidence_inner, WebEvidenceCacheState,
-    WebEvidenceFetchRequest, WebEvidenceInteractionState, WebEvidenceMethod, WebEvidenceRecord,
-    WebEvidenceSearchRequest, WebEvidenceState,
+    fetch_web_evidence_inner, rejected_url_for_record, search_web_evidence_inner,
+    url_has_sensitive_parameters, WebEvidenceCacheState, WebEvidenceFetchRequest,
+    WebEvidenceInteractionState, WebEvidenceMethod, WebEvidenceRecord, WebEvidenceSearchRequest,
+    WebEvidenceState,
 };
 use crate::{
     LinkAuditResult, LinkAuditRow, LinkClassification, LinkCorrectionAction,
@@ -44,6 +45,8 @@ static LINK_INTEGRITY_IO_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 #[derive(Clone, Debug)]
 struct ExtractedLink {
     start: usize,
+    url_start: usize,
+    url_end: usize,
     original_url: String,
     anchor_text: Option<String>,
     surrounding_text: String,
@@ -241,6 +244,8 @@ fn extract_links(text: &str) -> Vec<ExtractedLink> {
                 .filter(|value| !value.is_empty());
             links.push(ExtractedLink {
                 start: whole.start(),
+                url_start: url.start(),
+                url_end: url.end(),
                 original_url: clean_url_tail(url.as_str()),
                 anchor_text: anchor,
                 surrounding_text: surrounding_text(text, whole.start(), whole.end()),
@@ -266,6 +271,8 @@ fn extract_links(text: &str) -> Vec<ExtractedLink> {
                 .filter(|value| !value.is_empty());
             links.push(ExtractedLink {
                 start: whole.start(),
+                url_start: url.start(),
+                url_end: url.end(),
                 original_url: clean_url_tail(url.as_str()),
                 anchor_text: anchor,
                 surrounding_text: surrounding_text(text, whole.start(), whole.end()),
@@ -283,6 +290,8 @@ fn extract_links(text: &str) -> Vec<ExtractedLink> {
             }
             links.push(ExtractedLink {
                 start: matched.start(),
+                url_start: matched.start(),
+                url_end: matched.end(),
                 original_url: clean_url_tail(matched.as_str()),
                 anchor_text: None,
                 surrounding_text: surrounding_text(text, matched.start(), matched.end()),
@@ -318,6 +327,9 @@ fn normalize_url(value: &str) -> Result<(String, Vec<String>), String> {
         if !parsed.username().is_empty() || parsed.password().is_some() {
             return Err("credenciais embutidas na URL sao proibidas".to_string());
         }
+    }
+    if url_has_sensitive_parameters(&parsed) {
+        return Err("parametro de credencial na URL e proibido".to_string());
     }
     let normalized = parsed.to_string();
     let mut changes = Vec::new();
@@ -608,6 +620,65 @@ fn normalized_url_is_safe_to_collect(url: &str) -> bool {
     sanitize_text(url, 1000) == url
 }
 
+fn redacted_extracted_link(extracted: &ExtractedLink) -> ExtractedLink {
+    ExtractedLink {
+        start: extracted.start,
+        url_start: extracted.url_start,
+        url_end: extracted.url_end,
+        original_url: rejected_url_for_record(&extracted.original_url),
+        anchor_text: None,
+        surrounding_text: "<redacted context>".to_string(),
+    }
+}
+
+fn source_with_rejected_urls_masked(text: &str, links: &[ExtractedLink]) -> String {
+    let mut bytes = text.as_bytes().to_vec();
+    for link in links {
+        let rejected = normalize_url(&link.original_url)
+            .map(|(normalized, _)| !normalized_url_is_safe_to_collect(&normalized))
+            .unwrap_or(true);
+        if rejected {
+            for byte in &mut bytes[link.url_start..link.url_end] {
+                if !matches!(*byte, b'\r' | b'\n') {
+                    *byte = b' ';
+                }
+            }
+        }
+    }
+    let literals = Regex::new(
+        r#"(?i)(?:https?://|mailto:|ftps?://|tel:|javascript:|data:|file:|blob:)[^\s<>\"')\]]+"#,
+    )
+    .expect("static URL literal pattern must compile");
+    for found in literals.find_iter(text) {
+        let rejected = normalize_url(found.as_str())
+            .map(|(normalized, _)| !normalized_url_is_safe_to_collect(&normalized))
+            .unwrap_or(true);
+        if rejected {
+            for byte in &mut bytes[found.start()..found.end()] {
+                if !matches!(*byte, b'\r' | b'\n') {
+                    *byte = b' ';
+                }
+            }
+        }
+    }
+    String::from_utf8(bytes).expect("complete URL ranges preserve UTF-8 when masked")
+}
+
+fn safe_context_link(extracted: &ExtractedLink, masked_links: &[ExtractedLink]) -> ExtractedLink {
+    masked_links
+        .iter()
+        .find(|candidate| {
+            candidate.start == extracted.start && candidate.original_url == extracted.original_url
+        })
+        .cloned()
+        .unwrap_or_else(|| {
+            let mut safe = extracted.clone();
+            safe.anchor_text = None;
+            safe.surrounding_text = "<redacted context>".to_string();
+            safe
+        })
+}
+
 fn malformed_row(
     extracted: &ExtractedLink,
     source_fingerprint: &str,
@@ -634,6 +705,8 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
     let mut occurrences = std::collections::BTreeMap::<String, usize>::new();
     let mut rows = Vec::new();
     let extracted_links = extract_links(text);
+    let masked_text = source_with_rejected_urls_masked(text, &extracted_links);
+    let masked_links = extract_links(&masked_text);
     if extracted_links.len() > LINK_INTEGRITY_MAX_OCCURRENCES {
         return Err(format!(
             "link-integrity capacity exceeded: found {} link occurrences; maximum is {}",
@@ -644,17 +717,31 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
 
     for extracted in extracted_links {
         let normalized = normalize_url(&extracted.original_url);
-        let occurrence_key = normalized
+        let rejected = normalized
             .as_ref()
-            .map(|(value, _)| value.clone())
-            .unwrap_or_else(|_| extracted.original_url.clone());
+            .map(|(url, _)| !normalized_url_is_safe_to_collect(url))
+            .unwrap_or(true);
+        let safe_extracted = if rejected {
+            redacted_extracted_link(&extracted)
+        } else {
+            safe_context_link(&extracted, &masked_links)
+        };
+        let occurrence_key = if rejected {
+            safe_extracted.original_url.clone()
+        } else {
+            normalized
+                .as_ref()
+                .map(|(value, _)| value.clone())
+                .unwrap_or_default()
+        };
         let occurrence = occurrences.entry(occurrence_key).or_insert(0);
         *occurrence += 1;
         let mut row = match normalized {
             Ok((normalized_url, changes)) => {
                 if !normalized_url_is_safe_to_collect(&normalized_url) {
+                    let rejected = redacted_extracted_link(&extracted);
                     let row = save_audit_record(malformed_row(
-                        &extracted,
+                        &rejected,
                         &source_fingerprint,
                         *occurrence,
                         "normalized URL would change during sanitization",
@@ -664,7 +751,7 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
                     continue;
                 }
                 base_row(
-                    &extracted,
+                    &safe_extracted,
                     &source_fingerprint,
                     normalized_url,
                     changes,
@@ -673,7 +760,7 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
             }
             Err(error) => {
                 let row = save_audit_record(malformed_row(
-                    &extracted,
+                    &safe_extracted,
                     &source_fingerprint,
                     *occurrence,
                     &error,
@@ -1036,6 +1123,8 @@ mod tests {
     fn test_row() -> LinkAuditRow {
         let extracted = ExtractedLink {
             start: 0,
+            url_start: 0,
+            url_end: 26,
             original_url: "https://example.com/source".to_string(),
             anchor_text: Some("fonte".to_string()),
             surrounding_text: "afirmacao com fonte".to_string(),
@@ -1106,8 +1195,138 @@ mod tests {
         assert!(normalize_url("ftp://files.example.com/archive.zip").is_err());
         assert!(normalize_url("tel:+5511999999999").is_err());
         assert!(normalize_url("https://user:secret@example.com/").is_err());
+        assert!(normalize_url("https://example.com/a?access_token=secret").is_err());
+        assert!(normalize_url("https://example.com/a#access_token=secret").is_err());
+        assert!(normalize_url("https://example.com/a?utm_source=x;access_token=secret").is_err());
         assert!(normalize_url("https://example.com/a").is_ok());
         assert!(normalize_url("mailto:editor@example.com").is_ok());
+    }
+
+    #[test]
+    fn rejected_url_record_and_context_do_not_persist_credentials() {
+        for url in [
+            "https://user:secret@example.com/a?access_token=secret",
+            "https://example.com/a?access_token=secret",
+            "https://example.com/a#access_token=secret",
+            "https://example.com/a?utm_source=x;access_token=secret",
+        ] {
+            assert!(normalize_url(url).is_err());
+            let extracted = ExtractedLink {
+                start: 0,
+                url_start: 0,
+                url_end: url.len(),
+                original_url: url.to_string(),
+                anchor_text: Some(url.to_string()),
+                surrounding_text: format!("fonte {url}"),
+            };
+            let safe = redacted_extracted_link(&extracted);
+            let row = malformed_row(&safe, &sha256(url), 1, "URL bloqueada");
+            let serialized = serde_json::to_string(&row).unwrap();
+            assert!(!serialized.contains("secret"));
+            assert!(!serialized.contains("access_token"));
+            assert!(!serialized.contains("user:"));
+        }
+    }
+
+    #[test]
+    fn accepted_link_context_redacts_neighboring_rejected_url() {
+        let text = format!(
+            "https://example.com/{}?access_token=secret https://example.com/public",
+            "x".repeat(300)
+        );
+        let links = extract_links(&text);
+        let public = links
+            .iter()
+            .find(|link| link.original_url == "https://example.com/public")
+            .unwrap();
+        let masked = source_with_rejected_urls_masked(&text, &links);
+        let masked_links = extract_links(&masked);
+        let safe = safe_context_link(public, &masked_links);
+        let row = base_row(
+            &safe,
+            &sha256(&text),
+            safe.original_url.clone(),
+            Vec::new(),
+            1,
+        );
+        let serialized = serde_json::to_string(&row).unwrap();
+        assert!(!serialized.contains("secret"));
+        assert!(!serialized.contains("access_token"));
+    }
+
+    #[test]
+    fn accepted_markdown_link_masks_rejected_url_in_anchor() {
+        let text = "[https://example.com/private?access_token=secret](https://example.com/public)";
+        let links = extract_links(text);
+        assert_eq!(links.len(), 1);
+        let masked = source_with_rejected_urls_masked(text, &links);
+        let safe = safe_context_link(&links[0], &extract_links(&masked));
+        let row = base_row(
+            &safe,
+            &sha256(text),
+            safe.original_url.clone(),
+            Vec::new(),
+            1,
+        );
+        let serialized = serde_json::to_string(&row).unwrap();
+        assert!(!serialized.contains("secret"));
+        assert!(!serialized.contains("access_token"));
+    }
+
+    #[test]
+    fn rejected_links_from_one_origin_keep_distinct_occurrence_ids() {
+        let first = ExtractedLink {
+            start: 0,
+            url_start: 0,
+            url_end: "https://user:a@example.com/x".len(),
+            original_url: "https://user:a@example.com/x".to_string(),
+            anchor_text: None,
+            surrounding_text: "first".to_string(),
+        };
+        let mut second = first.clone();
+        second.original_url = "https://user:b@example.com/y".to_string();
+        let first = redacted_extracted_link(&first);
+        let second = redacted_extracted_link(&second);
+        assert_eq!(first.original_url, second.original_url);
+        let a = malformed_row(&first, &sha256("source"), 1, "blocked");
+        let b = malformed_row(&second, &sha256("source"), 2, "blocked");
+        assert_ne!(a.link_id, b.link_id);
+        let long_a = format!("https://example.com/{}a", "x".repeat(1_001));
+        let long_b = format!("https://example.com/{}b", "x".repeat(1_001));
+        assert!(!normalized_url_is_safe_to_collect(&long_a));
+        assert!(!normalized_url_is_safe_to_collect(&long_b));
+        let redacted_a = rejected_url_for_record(&long_a);
+        let redacted_b = rejected_url_for_record(&long_b);
+        assert_eq!(redacted_a, redacted_b);
+        let first = base_row(
+            &redacted_extracted_link(&ExtractedLink {
+                start: 0,
+                url_start: 0,
+                url_end: long_a.len(),
+                original_url: long_a,
+                anchor_text: None,
+                surrounding_text: String::new(),
+            }),
+            &sha256("source"),
+            redacted_a,
+            Vec::new(),
+            1,
+        );
+        let second = base_row(
+            &redacted_extracted_link(&ExtractedLink {
+                start: 0,
+                url_start: 0,
+                url_end: long_b.len(),
+                original_url: long_b,
+                anchor_text: None,
+                surrounding_text: String::new(),
+            }),
+            &sha256("source"),
+            redacted_b,
+            Vec::new(),
+            2,
+        );
+        assert_ne!(first.link_id, second.link_id);
     }
 
     #[test]
@@ -1137,6 +1356,8 @@ mod tests {
     fn link_identity_is_bound_to_the_exact_source_claim() {
         let extracted = ExtractedLink {
             start: 0,
+            url_start: 0,
+            url_end: 26,
             original_url: "https://example.com/source".to_string(),
             anchor_text: Some("fonte".to_string()),
             surrounding_text: "afirmacao A com fonte".to_string(),
@@ -1162,6 +1383,8 @@ mod tests {
     fn reachable_evidence_is_not_automatically_claim_support() {
         let extracted = ExtractedLink {
             start: 0,
+            url_start: 0,
+            url_end: 26,
             original_url: "https://example.com/source".to_string(),
             anchor_text: Some("fonte".to_string()),
             surrounding_text: "afirmacao com fonte".to_string(),

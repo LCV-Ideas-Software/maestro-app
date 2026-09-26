@@ -73,6 +73,8 @@ Only `verified_supports_claim` and explicitly accepted `redirected_verified` lin
 
 Records are stored under `data/evidence/link-integrity/`. Review writeback is append-only in `events.ndjson`, requires an allowed reviewer identity and a substantive note, and uses optimistic checks against the normalized URL and content SHA-256. Link identity includes the complete source fingerprint and local claim context, so a decision cannot migrate to a different assertion that reuses the same URL. A later mechanical audit preserves a decision only while the source, assertion, URL, and content hash remain unchanged.
 
+Rejected links with embedded credentials or credential-like query or fragment keys are stored with only the URL origin; the raw URL, anchor and surrounding text are omitted from persisted records and events. The same redaction covers their appearance in neighboring link context.
+
 ## Sanitization
 
 For MainSite-compatible HTML, Maestro must:

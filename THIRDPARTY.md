@@ -68,24 +68,24 @@ declared explicitly in this inventory and the applicable distribution notices.
 | @tiptap/suggestion | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/suggestion |
 | dompurify | 3.4.15 | (MPL-2.0 OR Apache-2.0) | runtime | No | https://www.npmjs.com/package/dompurify |
 | lowlight | 3.3.0 | MIT | runtime | No | https://www.npmjs.com/package/lowlight |
-| lucide-react | 1.45.0 | ISC AND MIT | runtime | No | https://www.npmjs.com/package/lucide-react |
+| lucide-react | 1.47.0 | ISC AND MIT | runtime | No | https://www.npmjs.com/package/lucide-react |
 | mammoth | 1.12.3 | BSD-2-Clause | runtime | No | https://www.npmjs.com/package/mammoth |
 | marked | 18.0.13 | MIT AND BSD-3-Clause | runtime | No | https://www.npmjs.com/package/marked |
 | prosemirror-model | 1.25.11 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-model |
 | prosemirror-state | 1.4.4 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-state |
-| prosemirror-view | 1.42.3 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-view |
+| prosemirror-view | 1.42.4 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-view |
 | react | 19.3.0 | MIT | runtime | No | https://www.npmjs.com/package/react |
 | react-dom | 19.3.0 | MIT | runtime | No | https://www.npmjs.com/package/react-dom |
 | tiptap-markdown | 0.9.0 | MIT | runtime | No | https://www.npmjs.com/package/tiptap-markdown |
-| @biomejs/biome | 2.5.13 | MIT OR Apache-2.0 | development | No | https://www.npmjs.com/package/@biomejs/biome |
+| @biomejs/biome | 2.5.14 | MIT OR Apache-2.0 | development | No | https://www.npmjs.com/package/@biomejs/biome |
 | @tauri-apps/cli | 2.11.4 | Apache-2.0 OR MIT | development | No | https://www.npmjs.com/package/@tauri-apps/cli |
 | @testing-library/jest-dom | 7.0.1 | MIT | development | No | https://www.npmjs.com/package/@testing-library/jest-dom |
 | @testing-library/react | 16.3.3 | MIT | development | No | https://www.npmjs.com/package/@testing-library/react |
 | @types/react | 19.3.0 | MIT | development | No | https://www.npmjs.com/package/@types/react |
 | @types/react-dom | 19.3.0 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
 | @vitejs/plugin-react | 6.1.1 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
-| jsdom | 30.0.1 | MIT | development | No | https://www.npmjs.com/package/jsdom |
-| prettier | 3.9.6 | MIT | development | No | https://www.npmjs.com/package/prettier |
+| jsdom | 30.1.0 | MIT | development | No | https://www.npmjs.com/package/jsdom |
+| prettier | 3.9.8 | MIT | development | No | https://www.npmjs.com/package/prettier |
 | typescript | 7.0.2 | Apache-2.0 | development | No | https://www.npmjs.com/package/typescript |
 | vite | 8.3.0 | MIT | development | No | https://www.npmjs.com/package/vite |
 | vitest | 5.0.1 | MIT | development | No | https://www.npmjs.com/package/vitest |
@@ -140,11 +140,17 @@ exception, tracked in LCV-207.
 
 For MAESTRO-34, the 25/09/2026 lockfile update added `pulldown-cmark 0.13.4`
 and its transitive `unicase 2.9.0` to the Windows runtime graph. Their exact
-crates.io artifacts declare MIT and MIT OR Apache-2.0 respectively. The
-`unicase` MIT option is selected. Their complete upstream license texts were
-appended to `THIRD-PARTY-NOTICES.txt`; the earlier snapshot remains historical.
-The same Cargo resolution changed the existing `tauri-utils` edge from the
-already locked `toml 0.9.12` to the already locked `toml 1.1.6`.
+crates.io artifacts declare MIT and MIT OR Apache-2.0 respectively; the MIT
+option is selected for `unicase`. The same Cargo resolution changed the
+`tauri-utils` edge from `toml 0.9.12` to `toml 1.1.6`. A current
+`cargo metadata --locked --filter-platform x86_64-pc-windows-msvc` traversal of
+normal dependencies found 301 reachable crates. Fourteen exact versions had
+entered since the prior legal snapshot without current-version headers,
+including `toml 1.1.6` and `toml_datetime 1.1.1`. The 25/09 addendum in
+`THIRD-PARTY-NOTICES.txt` now identifies each exact version, locked checksum,
+selected license and full upstream text. The historical snapshot remains
+preserved. Five direct npm versions above were also aligned with the current
+`package-lock.json`.
 
 ### Transitive Rust license review
 
