@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 
 use crate::app_paths::{checked_data_child_path, data_dir};
 use crate::editorial_io::{read_text_file, write_text_file};
+use crate::mainsite_citation::{require_mainsite_citations_ready, MainSiteCitationContext};
 
 pub(crate) const MAINSITE_DRAFT_SCHEMA_VERSION: &str = "mainsite_draft.v1";
 pub(crate) const MAINSITE_SANITIZER_PROFILE: &str = "mainsite_post_html.v1";
@@ -41,6 +42,8 @@ pub(crate) struct SaveMainSiteDraftRequest {
     pub(crate) is_published: bool,
     pub(crate) is_about_site: bool,
     pub(crate) sanitizer_profile: String,
+    #[serde(default)]
+    pub(crate) citation_context: Option<MainSiteCitationContext>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -56,6 +59,8 @@ pub(crate) struct MainSiteDraft {
     pub(crate) is_published: bool,
     pub(crate) is_about_site: bool,
     pub(crate) sanitizer_profile: String,
+    #[serde(default)]
+    pub(crate) citation_context: Option<MainSiteCitationContext>,
     pub(crate) content_sha256: String,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
@@ -171,6 +176,7 @@ pub(crate) fn validate_stored_draft(draft: &MainSiteDraft) -> Result<(), String>
         is_published: draft.is_published,
         is_about_site: draft.is_about_site,
         sanitizer_profile: draft.sanitizer_profile.clone(),
+        citation_context: draft.citation_context.clone(),
     };
     validate_editable_fields(&editable)?;
     let expected_hash = content_sha256(&draft.content);
@@ -204,6 +210,7 @@ fn load_from_path(path: &Path) -> Result<Option<MainSiteDraft>, String> {
 
 fn save_to_path(path: &Path, request: SaveMainSiteDraftRequest) -> Result<MainSiteDraft, String> {
     validate_editable_fields(&request)?;
+    require_mainsite_citations_ready(&request.content, request.citation_context.as_ref())?;
 
     // A corrupt existing draft is never overwritten silently. The operator
     // must first recover or explicitly remove it outside this command.
@@ -216,6 +223,7 @@ fn save_to_path(path: &Path, request: SaveMainSiteDraftRequest) -> Result<MainSi
         author: request.author.trim().to_string(),
         content_sha256: content_sha256(&request.content),
         content: request.content,
+        citation_context: request.citation_context,
         is_pinned: false,
         display_order: 0,
         is_published: request.is_published,
@@ -270,6 +278,11 @@ mod tests {
             is_published: false,
             is_about_site: false,
             sanitizer_profile: MAINSITE_SANITIZER_PROFILE.to_string(),
+            citation_context: Some(MainSiteCitationContext {
+                protocol_hash: None,
+                manifest: None,
+                previous_manifest: None,
+            }),
         }
     }
 
@@ -305,6 +318,21 @@ mod tests {
     }
 
     #[test]
+    fn native_save_cannot_persist_without_a_ready_citation_audit() {
+        let missing = valid_request("<p>Texto autoral.</p>");
+        let mut missing = missing;
+        missing.citation_context = None;
+        assert_eq!(
+            save_to_path(Path::new("not-created.json"), missing).unwrap_err(),
+            "MAINSITE_CITATION_CONTEXT_REQUIRED"
+        );
+        let blocked = valid_request("<p>Silva (2026) descreve o resultado.</p>");
+        assert!(save_to_path(Path::new("not-created.json"), blocked)
+            .unwrap_err()
+            .starts_with("MAINSITE_CITATION_GATE_BLOCKED"));
+    }
+
+    #[test]
     fn stored_hash_is_fail_closed() {
         let now = Utc::now().to_rfc3339();
         let draft = MainSiteDraft {
@@ -318,6 +346,7 @@ mod tests {
             is_published: false,
             is_about_site: false,
             sanitizer_profile: MAINSITE_SANITIZER_PROFILE.to_string(),
+            citation_context: None,
             content_sha256: "0".repeat(64),
             created_at: now.clone(),
             updated_at: now,

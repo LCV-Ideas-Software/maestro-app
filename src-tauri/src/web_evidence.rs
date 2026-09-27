@@ -13,7 +13,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
@@ -56,6 +56,21 @@ const MAX_SHARED_CHAT_TURN_BYTES: usize = 512 * 1024;
 const MAX_SHARED_CHAT_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
 
 static EVIDENCE_IO_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static EVIDENCE_FETCH_LOCKS: OnceLock<Mutex<BTreeMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
+
+fn fetch_lock(id: &str) -> Result<Arc<Mutex<()>>, String> {
+    let mut locks = EVIDENCE_FETCH_LOCKS
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+        .map_err(|_| "web evidence fetch-lock registry poisoned".to_string())?;
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(id).and_then(Weak::upgrade) {
+        return Ok(lock);
+    }
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(id.to_string(), Arc::downgrade(&lock));
+    Ok(lock)
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
@@ -1481,6 +1496,12 @@ pub(crate) fn fetch_web_evidence_inner(
         request.method.as_str(),
         canonical_url
     ));
+    // Keep the cache read, body write, and record write for this identity in
+    // one critical section. Other URLs can still be collected concurrently.
+    let fetch_lock = fetch_lock(&id)?;
+    let _fetch_guard = fetch_lock
+        .lock()
+        .map_err(|_| "web evidence fetch lock poisoned".to_string())?;
     let existing = if record_path(&id)?.exists() {
         Some(load_stored(&id)?)
     } else {
@@ -4010,6 +4031,15 @@ pub(crate) async fn import_shared_chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fetches_share_a_lock_only_for_the_same_evidence_id() {
+        let first = fetch_lock("same-evidence").unwrap();
+        let second = fetch_lock("same-evidence").unwrap();
+        let unrelated = fetch_lock("other-evidence").unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(!Arc::ptr_eq(&first, &unrelated));
+    }
 
     #[test]
     fn credential_paths_are_rejected_without_blocking_plain_anchors() {

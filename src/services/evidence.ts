@@ -3,6 +3,7 @@ import type {
   CitationAuditRequest,
   CitationAuditResult,
   LinkAuditResult,
+  LinkAuditSourceArtifact,
   LinkCorrectionProposalRequest,
   LinkIntegrityListRequest,
   LinkIntegrityListResult,
@@ -17,8 +18,20 @@ import type {
   WebEvidenceSearchResult,
 } from "../types";
 
-export const auditLinks = (text: string) =>
-  invoke<LinkAuditResult>("audit_links", { request: { text } });
+export const auditLinks = (text: string, sourceArtifact?: LinkAuditSourceArtifact) =>
+  invoke<LinkAuditResult>("audit_links", {
+    request: { text, ...(sourceArtifact ? { source_artifact: sourceArtifact } : {}) },
+  });
+
+export async function auditLinkSourcesSequentially(
+  sources: ReadonlyArray<{ text: string; sourceArtifact: LinkAuditSourceArtifact }>,
+): Promise<LinkAuditResult[]> {
+  const audits: LinkAuditResult[] = [];
+  for (const source of sources) {
+    audits.push(await auditLinks(source.text, source.sourceArtifact));
+  }
+  return audits;
+}
 
 export const auditAbntCitations = (request: CitationAuditRequest) =>
   invoke<CitationAuditResult>("audit_abnt_citations", { request });

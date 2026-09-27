@@ -334,6 +334,11 @@ export type LinkIntegrityRecord = {
 
 export type LinkAuditRow = LinkIntegrityRecord;
 
+export type LinkAuditSourceArtifact =
+  | "operator/current-editor"
+  | "operator/prompt-protocol"
+  | "operator/mainsite-posteditor";
+
 export type LinkAuditResult = {
   urls_found: number;
   checked: number;
@@ -371,6 +376,8 @@ export type LinkIntegrityReviewRequest = {
   reviewer: "operator";
   expected_normalized_url: string;
   expected_sha256: string | null;
+  expected_final_url: string | null;
+  expected_redirect_chain: LinkIntegrityRedirect[];
 };
 
 export type LinkCorrectionProposalRequest = {
@@ -465,6 +472,8 @@ export type CitationAuditRequest = {
   manifest?: CitationManifest | null;
   previous_manifest?: CitationManifest | null;
 };
+
+export type MainSiteCitationContext = Omit<CitationAuditRequest, "text">;
 
 export type CitationAuditResult = {
   schema_version: string;
@@ -687,6 +696,7 @@ export type MainSiteDraft = {
   is_published: boolean;
   is_about_site: boolean;
   sanitizer_profile: string;
+  citation_context: MainSiteCitationContext | null;
   content_sha256: string;
   created_at: string;
   updated_at: string;
@@ -701,6 +711,7 @@ export type SaveMainSiteDraftRequest = Pick<
   | "is_published"
   | "is_about_site"
   | "sanitizer_profile"
+  | "citation_context"
 >;
 
 export type MainSiteD1Target = {

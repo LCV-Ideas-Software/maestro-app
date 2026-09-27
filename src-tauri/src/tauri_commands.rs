@@ -58,7 +58,8 @@ use crate::config_persistence::{
 use crate::link_integrity::{
     list_link_integrity_records as list_link_integrity_records_inner,
     propose_link_corrections as propose_link_corrections_inner,
-    review_link_integrity as review_link_integrity_inner, run_link_integrity_audit,
+    review_link_integrity as review_link_integrity_inner, run_link_integrity_audit_for_source,
+    SOURCE_ARTIFACT,
 };
 use crate::logging::{write_log_record, LogEventInput, LogSession, LogWriteResult};
 use crate::provider_config::{
@@ -248,9 +249,15 @@ pub(crate) fn verify_ai_provider_credentials(config: AiProviderConfig) -> AiProv
 
 #[tauri::command]
 pub(crate) async fn audit_links(request: LinkAuditRequest) -> Result<LinkAuditResult, String> {
-    tauri::async_runtime::spawn_blocking(move || run_link_integrity_audit(&request.text))
-        .await
-        .map_err(|error| format!("link-integrity audit worker failed: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let source_artifact = request
+            .source_artifact
+            .as_deref()
+            .unwrap_or(SOURCE_ARTIFACT);
+        run_link_integrity_audit_for_source(&request.text, source_artifact)
+    })
+    .await
+    .map_err(|error| format!("link-integrity audit worker failed: {error}"))?
 }
 
 #[tauri::command]

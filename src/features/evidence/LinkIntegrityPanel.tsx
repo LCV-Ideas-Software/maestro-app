@@ -6,6 +6,7 @@ import {
   reviewLinkIntegrity,
 } from "../../services/evidence";
 import type {
+  LinkAuditSourceArtifact,
   LinkClassification,
   LinkCrossReviewStatus,
   LinkIntegrityRecord,
@@ -47,6 +48,16 @@ const reviewDecisionLabels: Record<LinkReviewDecision, string> = {
   quarantine: "Colocar em quarentena",
 };
 
+const sourceArtifactLabels: Record<LinkAuditSourceArtifact, string> = {
+  "operator/current-editor": "Editor (registro anterior)",
+  "operator/prompt-protocol": "Prompt e protocolo",
+  "operator/mainsite-posteditor": "MainSite PostEditor",
+};
+
+function sourceArtifactLabel(value: string): string {
+  return sourceArtifactLabels[value as LinkAuditSourceArtifact] ?? value;
+}
+
 function formatDate(value: string | null) {
   if (!value) return "não informado";
   const instant = new Date(value);
@@ -82,6 +93,7 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState("");
   const [classification, setClassification] = useState<LinkClassification | "">("");
+  const [sourceArtifact, setSourceArtifact] = useState<LinkAuditSourceArtifact | "">("");
   const [crossReviewStatus, setCrossReviewStatus] = useState<LinkCrossReviewStatus | "">("");
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
   const [busy, setBusy] = useState<string | null>("inventory");
@@ -91,9 +103,13 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
   const [candidateProvider, setCandidateProvider] = useState("crossref");
   const [candidateQuery, setCandidateQuery] = useState("");
 
+  const visibleRecords = useMemo(
+    () => records.filter((record) => !sourceArtifact || record.source_artifact === sourceArtifact),
+    [records, sourceArtifact],
+  );
   const selected = useMemo(
-    () => records.find((record) => record.link_id === selectedId) ?? null,
-    [records, selectedId],
+    () => visibleRecords.find((record) => record.link_id === selectedId) ?? null,
+    [visibleRecords, selectedId],
   );
 
   useEffect(() => {
@@ -148,6 +164,7 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
       const result = await listLinkIntegrityRecords({
         ...(query.trim() ? { query: query.trim() } : {}),
         ...(classification ? { classifications: [classification] } : {}),
+        ...(sourceArtifact ? { source_artifact: sourceArtifact } : {}),
         ...(crossReviewStatus ? { cross_review_statuses: [crossReviewStatus] } : {}),
         ...(needsReviewOnly ? { needs_review_only: true } : {}),
         limit: 30,
@@ -212,6 +229,8 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
         reviewer: "operator",
         expected_normalized_url: selected.normalized_url,
         expected_sha256: selected.sha256,
+        expected_final_url: selected.final_url,
+        expected_redirect_chain: selected.redirect_chain,
       });
       storeRecord(record);
       setReviewDecision(null);
@@ -266,6 +285,20 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
               placeholder="Âncora, contexto, URL ou artefato"
             />
             <select
+              aria-label="Filtrar por origem do link"
+              value={sourceArtifact}
+              onChange={(event) =>
+                setSourceArtifact(event.target.value as LinkAuditSourceArtifact | "")
+              }
+            >
+              <option value="">Todas as origens</option>
+              {Object.entries(sourceArtifactLabels).map(([value, label]) => (
+                <option value={value} key={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <select
               aria-label="Filtrar por classificação"
               value={classification}
               onChange={(event) => setClassification(event.target.value as LinkClassification | "")}
@@ -314,8 +347,10 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
           </p>
 
           <div className="link-integrity-records" aria-label="Inventário de links auditados">
-            {records.length === 0 && <p className="empty-state">Nenhum link no filtro atual.</p>}
-            {records.map((record) => (
+            {visibleRecords.length === 0 && (
+              <p className="empty-state">Nenhum link no filtro atual.</p>
+            )}
+            {visibleRecords.map((record) => (
               <button
                 className={`link-integrity-record ${record.tone} ${selectedId === record.link_id ? "selected" : ""}`}
                 type="button"
@@ -326,6 +361,7 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
                 <span>
                   <strong>{record.anchor_text || record.original_url}</strong>
                   <small>{record.surrounding_text || "Sem contexto textual preservado"}</small>
+                  <small>Origem: {sourceArtifactLabel(record.source_artifact)}</small>
                 </span>
                 <span className="link-integrity-record-state">
                   <strong>{classificationLabels[record.classification]}</strong>
@@ -407,7 +443,8 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
                 <div>
                   <dt>Origem</dt>
                   <dd>
-                    {selected.source_artifact} · <code>{selected.source_fingerprint}</code>
+                    {sourceArtifactLabel(selected.source_artifact)} ·{" "}
+                    <code>{selected.source_fingerprint}</code>
                   </dd>
                 </div>
                 {selected.web_evidence_id && (

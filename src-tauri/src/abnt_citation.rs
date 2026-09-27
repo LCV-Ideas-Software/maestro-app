@@ -79,7 +79,7 @@ pub(crate) enum CitationSourceType {
     Other,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) struct CitationAuditCitation {
     pub(crate) schema_version: String,
     pub(crate) claim_id: String,
@@ -104,13 +104,13 @@ pub(crate) struct CitationAuditCitation {
     raw_start: Option<usize>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) struct CitationAuthor {
     pub(crate) author_display: String,
     pub(crate) author_key: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) struct CitationSource {
     pub(crate) source_id: String,
     pub(crate) source_type: CitationSourceType,
@@ -149,7 +149,7 @@ pub(crate) struct CitationSource {
     pub(crate) quarantine_reason: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) struct CitationManifest {
     pub(crate) schema_version: String,
     pub(crate) protocol_hash: String,

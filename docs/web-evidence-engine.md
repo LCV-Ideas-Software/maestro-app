@@ -22,6 +22,8 @@ Implemented on the active release branch:
   cached artifact still matches its stored byte count and SHA-256. Fresh cache
   reads also verify the artifact; a robots.txt refusal retains the validated canonical URL for exact
   operator handoff, including ordinary query parameters.
+- Concurrent HTTP fetches for one evidence ID serialize the cache read, body
+  write, and record write. Different evidence IDs may be fetched concurrently.
 - Public URLs are kept byte-complete through the record, redirect chain, replay,
   and browser handoff. Credential-bearing userinfo, query, fragment, and path
   forms are rejected before collection or persistence. Bare names ending in

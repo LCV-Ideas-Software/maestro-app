@@ -59752,3 +59752,97 @@ Cargo.lock archive checksum: 6fa5bacdb9bbad5954af3d1bd6cf6ae9192cab1b2e270f4a07f
 LICENSE_MIT SHA-256: 9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d
 LICENSE_APACHE-2.0 SHA-256: 0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594
 Full identical license texts: tauri 2.11.5 entry above.
+
+=============================================================================
+
+MAESTRO-34 addendum - 27/09/2026 - native citation HTML parser
+Exact archives below match Cargo.lock. License text references point to identical
+upstream bytes in the existing notice bundle; the two new ISC texts follow in full.
+
+cssparser 0.37.0  (cargo)
+Source: https://crates.io/crates/cssparser/0.37.0
+License declared: MPL-2.0
+Cargo.lock archive checksum: 8c9cdaae01d5ed7882b04d795e7f752f46ff52d2fa3b50a20d28c464510bba98
+LICENSE SHA-256: fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85
+Full identical license text: cssparser 0.36.0 entry above.
+
+cssparser-macros 0.7.1  (cargo)
+Source: https://crates.io/crates/cssparser-macros/0.7.1
+License declared: MPL-2.0
+Cargo.lock archive checksum: d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a
+LICENSE SHA-256: fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85
+Full identical license text: cssparser-macros 0.6.1 entry above.
+
+ego-tree 0.11.0  (cargo)
+Source: https://crates.io/crates/ego-tree/0.11.0
+License declared: ISC
+Cargo.lock archive checksum: b04dc5a38e4f151a79d9f2451ae6037fb6eaf5cba34771f44781f80e508498e3
+LICENSE SHA-256: ddea4e94a1c35ed9826e54e13a5b50b8f81b21665a00ca07c8861f1859e56b6b
+
+--- LICENSE (full upstream text) ---
+
+Copyright © 2016, June McEnroe <june@causal.agency>
+Copyright © 2024-2025, rust-scraper Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+html5ever 0.39.0  (cargo)
+Source: https://crates.io/crates/html5ever/0.39.0
+License declared: MIT OR Apache-2.0 (MIT selected)
+Cargo.lock archive checksum: 46a1761807faccc9a19e86944bbf40610014066306f96edcdedc2fb714bcb7b8
+LICENSE-MIT SHA-256: 86dd7f026f916daf7511e39951ad8ea8cf55a8db67ae64060dacf829761c18f3
+Full identical license text: html5ever 0.38.0 entry above.
+
+markup5ever 0.39.0  (cargo)
+Source: https://crates.io/crates/markup5ever/0.39.0
+License declared: MIT OR Apache-2.0 (MIT selected)
+Cargo.lock archive checksum: 7122d987ec5f704ee56f6e5b41a7d93722e9aae27ae07cafa4036c4d3f9757de
+LICENSE-MIT SHA-256: 86dd7f026f916daf7511e39951ad8ea8cf55a8db67ae64060dacf829761c18f3
+Full identical license text: markup5ever 0.38.0 entry above.
+
+scraper 0.27.0  (cargo)
+Source: https://crates.io/crates/scraper/0.27.0
+License declared: ISC
+Cargo.lock archive checksum: bdd0be4d296f048bfb06dd01bbc80ef789ddd2e55583e8d2e6b804942abfabc2
+LICENSE SHA-256: 1f485f0d6125658861351e3d6084ea90fefe78f89450be9915044b7c56d5a75a
+
+--- LICENSE (full upstream text) ---
+
+Copyright © 2016, June McEnroe <june@causal.agency>
+Copyright © 2017, Vivek Kushwaha <yoursvivek@gmail.com>
+Copyright © 2024-2025, rust-scraper Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+selectors 0.38.0  (cargo)
+Source: https://crates.io/crates/selectors/0.38.0
+License declared: MPL-2.0
+Cargo.lock archive checksum: 8adfa1c298912827b8a28b223b3b874357397ae706e6190acd9bf28cee99114d
+Full MPL-2.0 text: selectors 0.36.1 entry above and scripts/legal/selectors-mpl-2.0.txt. All 16 Rust source files in this exact archive carry the MPL-2.0 Exhibit A header.
+
+syn 3.0.6  (cargo)
+Source: https://crates.io/crates/syn/3.0.6
+License declared: MIT OR Apache-2.0 (MIT selected)
+Cargo.lock archive checksum: 8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee
+LICENSE-MIT SHA-256: 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3
+Full identical license text: syn 2.0.119 entry above.

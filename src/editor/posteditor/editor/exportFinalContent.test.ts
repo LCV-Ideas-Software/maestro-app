@@ -37,6 +37,22 @@ describe("htmlToCitationAuditMarkdown", () => {
     expect(result).toContain("https://example.org/article?a=1&b=2");
     expect(result).not.toContain("&amp;b=2");
   });
+
+  it("keeps embedded backtick runs inside code during citation audit", () => {
+    expect(htmlToCitationAuditMarkdown("<p><code>example`` (Silva, 2026)</code></p>")).toBe(
+      "```example`` (Silva, 2026)```",
+    );
+    expect(htmlToCitationAuditMarkdown("<p><code>``(Silva, 2026)``</code></p>")).toBe(
+      "``` ``(Silva, 2026)`` ```",
+    );
+    expect(htmlToCitationAuditMarkdown("<pre>```\n(Silva, 2026)</pre>")).toContain(
+      "````\n```\n(Silva, 2026)\n````",
+    );
+    expect(htmlToCitationAuditMarkdown("<p><code>abc\n``def</code></p>")).toBe("```abc ``def```");
+    expect(htmlToCitationAuditMarkdown("<p><code>\n``x</code></p><p>(Silva, 2026)</p>")).toBe(
+      "``` ``x```\n\n(Silva, 2026)",
+    );
+  });
 });
 
 describe("htmlToLinkAuditMarkdown", () => {

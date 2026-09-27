@@ -43,6 +43,7 @@ mod link_audit;
 mod link_integrity;
 mod logging;
 mod mainsite_d1;
+mod mainsite_citation;
 mod mainsite_draft;
 mod provider_config;
 mod provider_deepseek;
@@ -285,6 +286,8 @@ pub(crate) struct AiProviderProbeResult {
 #[derive(Deserialize)]
 pub(crate) struct LinkAuditRequest {
     pub(crate) text: String,
+    #[serde(default)]
+    pub(crate) source_artifact: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -435,6 +438,8 @@ pub(crate) struct LinkIntegrityReviewRequest {
     pub(crate) reviewer: String,
     pub(crate) expected_normalized_url: String,
     pub(crate) expected_sha256: Option<String>,
+    pub(crate) expected_final_url: Option<String>,
+    pub(crate) expected_redirect_chain: Vec<LinkEvidenceRedirect>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

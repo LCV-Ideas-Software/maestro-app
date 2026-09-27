@@ -41,7 +41,7 @@
     "src/editor/posteditor/editor/sanitizeFinalHtml.ts": "a346780ebf1adb7f4c03608c867af1ffa7325c5545f250203281499827c53f15",
     "src/editor/posteditor/editor/finalHtmlFixtures.ts": "6700eac7871a1febe04fe9657ae05bac4351a11f49a051f679718ba976977670",
     "src/editor/posteditor/editor/sharedChatImport.ts": "ef2c31b2ee2b81b030803e9acf479c9a923ef57219a490ac7a8e6e7c35e7806e",
-    "src/editor/posteditor/editor/exportFinalContent.ts": "4c87ee14ecb08491d6a49b7b49f2d0fc181551bf3341a32fc47fdf4c95e81c53"
+    "src/editor/posteditor/editor/exportFinalContent.ts": "28f33aaadb68c7e5903c69ca23b220b00466a1387d9170a4b1d344d510c28675"
   },
   "intentional_divergences": [
     "All imported or AI-produced HTML is sanitized before entering TipTap.",

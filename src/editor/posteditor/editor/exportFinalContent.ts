@@ -111,12 +111,24 @@ function serializeMarkdownNode(node: Node, forCitationAudit = false): string {
     case "sup":
       return forCitationAudit ? children : element.outerHTML;
     case "code": {
-      const value = element.textContent ?? "";
-      const delimiter = value.includes("`") ? "``" : "`";
-      return `${delimiter}${value}${delimiter}`;
+      const value = (element.textContent ?? "").replace(/\r\n?|\n/g, " ");
+      const longestRun = (value.match(/`+/g) ?? []).reduce(
+        (longest, run) => Math.max(longest, run.length),
+        0,
+      );
+      const delimiter = "`".repeat(longestRun + 1);
+      const padding = value.startsWith("`") || value.endsWith("`") ? " " : "";
+      return `${delimiter}${padding}${value}${padding}${delimiter}`;
     }
-    case "pre":
-      return `\n\`\`\`\n${element.textContent ?? ""}\n\`\`\`\n\n`;
+    case "pre": {
+      const value = element.textContent ?? "";
+      const longestRun = (value.match(/`+/g) ?? []).reduce(
+        (longest, run) => Math.max(longest, run.length),
+        0,
+      );
+      const fence = "`".repeat(Math.max(3, longestRun + 1));
+      return `\n${fence}\n${value}\n${fence}\n\n`;
+    }
     case "blockquote":
       return `${children
         .trim()
