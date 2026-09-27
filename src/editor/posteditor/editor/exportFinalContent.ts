@@ -105,6 +105,7 @@ function serializeMarkdownNode(node: Node, forCitationAudit = false): string {
       return `*${children}*`;
     case "s":
     case "del":
+      if (forCitationAudit) return children;
       return children.trim() ? `~~${children}~~` : "";
     case "u":
     case "sub":
@@ -183,11 +184,11 @@ function serializeMarkdownNode(node: Node, forCitationAudit = false): string {
 
 function htmlToMarkdown(html: string, forCitationAudit = false): string {
   const document = new DOMParser().parseFromString(html, "text/html");
-  return [...document.body.childNodes]
+  const markdown = [...document.body.childNodes]
     .map((node) => serializeMarkdownNode(node, forCitationAudit))
     .join("")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+    .replace(/\n{3,}/g, "\n\n");
+  return (forCitationAudit ? markdown.replace(/(^|\n)[ \t]+/g, "$1") : markdown).trim();
 }
 
 export function htmlToCitationAuditMarkdown(html: string): string {

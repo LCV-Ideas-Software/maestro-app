@@ -63,6 +63,19 @@ describe("htmlToCitationAuditMarkdown", () => {
     expect(htmlToCitationAuditMarkdown("<p>Texto.</p>    (Silva, 2026)")).toContain(
       "(Silva, 2026)",
     );
+    for (const html of [
+      "<p><s><s>x</s></s></p><p>(Silva, 2026)</p>",
+      "<p><del><s>x</s></del></p><p>(Silva, 2026)</p>",
+      "<p><s><s>x</s>y</s></p><p>(Silva, 2026)</p>",
+      "<s><s>x</s></s><p>(Silva, 2026)</p>",
+      '<p>A</p> <img src="https://e/x.png"> <img src="https://e/x.png"> <img src="https://e/x.png"> <img src="https://e/x.png"> (Silva, 2026)',
+      "<p>A</p><sup> </sup><sup> </sup><sup> </sup><sup> </sup>(Silva, 2026)",
+    ]) {
+      const projected = htmlToCitationAuditMarkdown(html);
+      expect(projected).toContain("(Silva, 2026)");
+      expect(projected).not.toMatch(/^\s{4,}\(Silva, 2026\)/m);
+      expect(projected).not.toMatch(/^~{3,}/m);
+    }
   });
 });
 

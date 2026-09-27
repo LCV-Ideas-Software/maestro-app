@@ -87,8 +87,7 @@ fn render_element(element: ElementRef<'_>, depth: usize) -> Result<String, Strin
         "p" => format!("{}\n\n", content.trim()),
         "strong" | "b" => format!("**{content}**"),
         "em" | "i" => format!("*{content}*"),
-        "s" | "del" if content.trim().is_empty() => String::new(),
-        "s" | "del" => format!("~~{content}~~"),
+        "s" | "del" => content,
         "blockquote" => format!(
             "{}\n\n",
             content
@@ -117,7 +116,13 @@ fn render_element(element: ElementRef<'_>, depth: usize) -> Result<String, Strin
 pub(crate) fn html_to_citation_markdown(html: &str) -> Result<String, String> {
     let document = Html::parse_fragment(html);
     let text = children(document.root_element(), 0)?;
-    Ok(text.trim().to_string())
+    Ok(text
+        .lines()
+        .map(str::trim_start)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string())
 }
 
 pub(crate) fn require_mainsite_citations_ready(
@@ -188,10 +193,16 @@ mod tests {
         for html in [
             "<p>~~~</p><p>(Silva, 2026)</p>",
             "<p><s>~</s></p><p>(Silva, 2026)</p>",
+            "<p><s><s>x</s></s></p><p>(Silva, 2026)</p>",
+            "<p><del><s>x</s></del></p><p>(Silva, 2026)</p>",
+            "<p><s><s>x</s>y</s></p><p>(Silva, 2026)</p>",
+            "<s><s>x</s></s><p>(Silva, 2026)</p>",
             "<p><code></code>(Silva, 2026)<code></code></p>",
             "<ul><li><pre>~~~</pre></li></ul><p>(Silva, 2026)</p>",
             "<h2><pre>~~~</pre></h2><p>(Silva, 2026)</p>",
             "<p>Texto.</p>    (Silva, 2026)",
+            "<p>A</p> <img src=\"https://e/x.png\"> <img src=\"https://e/x.png\"> <img src=\"https://e/x.png\"> <img src=\"https://e/x.png\"> (Silva, 2026)",
+            "<p>A</p><sup> </sup><sup> </sup><sup> </sup><sup> </sup>(Silva, 2026)",
         ] {
             let markdown = html_to_citation_markdown(html).unwrap();
             assert!(markdown.contains("(Silva, 2026)"), "{html}: {markdown}");
