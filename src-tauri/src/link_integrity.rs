@@ -35,7 +35,9 @@ use crate::{
 };
 
 const SCHEMA_VERSION: &str = "link_evidence.v1";
-const SOURCE_ARTIFACT: &str = "operator/current-editor";
+pub(crate) const SOURCE_ARTIFACT: &str = "operator/current-editor";
+pub(crate) const PROMPT_PROTOCOL_SOURCE_ARTIFACT: &str = "operator/prompt-protocol";
+pub(crate) const MAINSITE_SOURCE_ARTIFACT: &str = "operator/mainsite-posteditor";
 pub(crate) const LINK_INTEGRITY_MAX_OCCURRENCES: usize = 30;
 const MAX_CONTEXT_CHARS: usize = 360;
 const MAX_REVIEW_NOTE_CHARS: usize = 1200;
@@ -249,7 +251,7 @@ fn overlaps(start: usize, end: usize, spans: &[(usize, usize)]) -> bool {
 fn extract_links(text: &str) -> Vec<ExtractedLink> {
     let mut links = Vec::new();
     let mut covered = Vec::new();
-    let mut markdown_link: Option<(usize, String, String)> = None;
+    let mut markdown_links = Vec::<(usize, String, String)>::new();
     let mut code_block_start = None;
     let parser = Parser::new(text);
     covered.extend(
@@ -268,7 +270,7 @@ fn extract_links(text: &str) -> Vec<ExtractedLink> {
             }
             Event::Code(label) => {
                 covered.push((range.start, range.end));
-                if let Some((_, _, anchor)) = markdown_link.as_mut() {
+                for (_, _, anchor) in &mut markdown_links {
                     anchor.push_str(&label);
                 }
             }
@@ -285,16 +287,16 @@ fn extract_links(text: &str) -> Vec<ExtractedLink> {
                     cursor = end;
                 }
             }
-            Event::Start(Tag::Link { dest_url, .. }) => {
-                markdown_link = Some((range.start, dest_url.into_string(), String::new()));
+            Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+                markdown_links.push((range.start, dest_url.into_string(), String::new()));
             }
             Event::Text(label) => {
-                if let Some((_, _, anchor)) = markdown_link.as_mut() {
+                for (_, _, anchor) in &mut markdown_links {
                     anchor.push_str(&label);
                 }
             }
-            Event::End(TagEnd::Link) => {
-                if let Some((start, url, anchor)) = markdown_link.take() {
+            Event::End(TagEnd::Link | TagEnd::Image) => {
+                if let Some((start, url, anchor)) = markdown_links.pop() {
                     let end = range.end;
                     let source = &text[start..end];
                     let raw_range = source
@@ -432,6 +434,7 @@ fn same_network_url(left: &str, right: &str) -> bool {
 }
 
 fn link_id(
+    source_artifact: &str,
     source_fingerprint: &str,
     normalized_url: &str,
     anchor_text: Option<&str>,
@@ -439,19 +442,21 @@ fn link_id(
     occurrence: usize,
 ) -> String {
     sha256(format!(
-        "{SOURCE_ARTIFACT}|{source_fingerprint}|{normalized_url}|{}|{surrounding_text}|{occurrence}",
+        "{source_artifact}|{source_fingerprint}|{normalized_url}|{}|{surrounding_text}|{occurrence}",
         anchor_text.unwrap_or_default(),
     ))
 }
 
 fn base_row(
     extracted: &ExtractedLink,
+    source_artifact: &str,
     source_fingerprint: &str,
     normalized_url: String,
     normalization_changes: Vec<String>,
     occurrence: usize,
 ) -> LinkAuditRow {
     let id = link_id(
+        source_artifact,
         source_fingerprint,
         &normalized_url,
         extracted.anchor_text.as_deref(),
@@ -461,7 +466,7 @@ fn base_row(
     LinkAuditRow {
         schema_version: SCHEMA_VERSION.to_string(),
         link_id: id,
-        source_artifact: SOURCE_ARTIFACT.to_string(),
+        source_artifact: source_artifact.to_string(),
         source_fingerprint: source_fingerprint.to_string(),
         anchor_text: extracted.anchor_text.clone(),
         surrounding_text: extracted.surrounding_text.clone(),
@@ -775,12 +780,14 @@ fn safe_context_link(extracted: &ExtractedLink, masked_links: &[ExtractedLink]) 
 
 fn malformed_row(
     extracted: &ExtractedLink,
+    source_artifact: &str,
     source_fingerprint: &str,
     occurrence: usize,
     error: &str,
 ) -> LinkAuditRow {
     let mut row = base_row(
         extracted,
+        source_artifact,
         source_fingerprint,
         extracted.original_url.clone(),
         Vec::new(),
@@ -794,6 +801,19 @@ fn malformed_row(
 }
 
 pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, String> {
+    run_link_integrity_audit_for_source(text, SOURCE_ARTIFACT)
+}
+
+pub(crate) fn run_link_integrity_audit_for_source(
+    text: &str,
+    source_artifact: &str,
+) -> Result<LinkAuditResult, String> {
+    if !matches!(
+        source_artifact,
+        SOURCE_ARTIFACT | PROMPT_PROTOCOL_SOURCE_ARTIFACT | MAINSITE_SOURCE_ARTIFACT
+    ) {
+        return Err("invalid link-integrity source artifact".to_string());
+    }
     let source_fingerprint = sha256(text.as_bytes());
     let checked_at = Utc::now().to_rfc3339();
     let mut occurrences = std::collections::BTreeMap::<String, usize>::new();
@@ -836,6 +856,7 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
                     let rejected = redacted_extracted_link(&extracted);
                     let row = save_audit_record(malformed_row(
                         &rejected,
+                        source_artifact,
                         &source_fingerprint,
                         *occurrence,
                         "normalized URL would change during sanitization",
@@ -846,6 +867,7 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
                 }
                 base_row(
                     &safe_extracted,
+                    source_artifact,
                     &source_fingerprint,
                     normalized_url,
                     changes,
@@ -855,6 +877,7 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
             Err(error) => {
                 let row = save_audit_record(malformed_row(
                     &safe_extracted,
+                    source_artifact,
                     &source_fingerprint,
                     *occurrence,
                     &error,
@@ -921,8 +944,8 @@ pub(crate) fn run_link_integrity_audit(text: &str) -> Result<LinkAuditResult, St
         .count();
     Ok(LinkAuditResult {
         schema_version: "link_integrity_audit.v1".to_string(),
-        audit_id: sha256(format!("{source_fingerprint}|{checked_at}")),
-        source_artifact: SOURCE_ARTIFACT.to_string(),
+        audit_id: sha256(format!("{source_artifact}|{source_fingerprint}|{checked_at}")),
+        source_artifact: source_artifact.to_string(),
         checked_at,
         urls_found: rows.len(),
         checked,
@@ -1022,6 +1045,19 @@ pub(crate) fn list_link_integrity_records(
     })
 }
 
+fn reviewed_evidence_matches(
+    record: &LinkAuditRow,
+    normalized_url: &str,
+    sha256: &Option<String>,
+    final_url: &Option<String>,
+    redirect_chain: &[LinkEvidenceRedirect],
+) -> bool {
+    record.normalized_url == normalized_url
+        && &record.sha256 == sha256
+        && &record.final_url == final_url
+        && record.redirect_chain == redirect_chain
+}
+
 pub(crate) fn review_link_integrity(
     request: LinkIntegrityReviewRequest,
 ) -> Result<LinkAuditRow, String> {
@@ -1039,11 +1075,19 @@ pub(crate) fn review_link_integrity(
     let link_id = request.link_id;
     let expected_normalized_url = request.expected_normalized_url;
     let expected_sha256 = request.expected_sha256;
+    let expected_final_url = request.expected_final_url;
+    let expected_redirect_chain = request.expected_redirect_chain;
     let decision = request.decision;
     let record = update_record(&link_id, move |record| {
-        if record.normalized_url != expected_normalized_url || record.sha256 != expected_sha256 {
+        if !reviewed_evidence_matches(
+            record,
+            &expected_normalized_url,
+            &expected_sha256,
+            &expected_final_url,
+            &expected_redirect_chain,
+        ) {
             return Err(
-                "link URL or content hash changed since it was read; reload before reviewing"
+                "link URL, redirect identity, or content hash changed since it was read; reload before reviewing"
                     .to_string(),
             );
         }
@@ -1225,6 +1269,7 @@ mod tests {
         };
         base_row(
             &extracted,
+            SOURCE_ARTIFACT,
             &sha256("source"),
             extracted.original_url.clone(),
             Vec::new(),
@@ -1279,6 +1324,21 @@ mod tests {
             semantic_markdown_link[0].original_url,
             "https://example.org/article?a=1&b=2"
         );
+    }
+
+    #[test]
+    fn reference_images_and_images_inside_links_both_enter_the_audit() {
+        let reference = "Veja ![grafico][img].\n\n[img]: https://example.org/chart.png";
+        let links = extract_links(reference);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].original_url, "https://example.org/chart.png");
+        assert_eq!(links[0].anchor_text.as_deref(), Some("grafico"));
+
+        let nested = "[![grafico](https://example.org/chart.png)](https://example.org/report)";
+        let links = extract_links(nested);
+        assert_eq!(links.len(), 2);
+        assert!(links.iter().any(|link| link.original_url == "https://example.org/chart.png"));
+        assert!(links.iter().any(|link| link.original_url == "https://example.org/report"));
     }
 
     #[test]
@@ -1404,7 +1464,7 @@ mod tests {
                 surrounding_text: format!("fonte {url}"),
             };
             let safe = redacted_extracted_link(&extracted);
-            let row = malformed_row(&safe, &sha256(url), 1, "URL bloqueada");
+            let row = malformed_row(&safe, SOURCE_ARTIFACT, &sha256(url), 1, "URL bloqueada");
             let serialized = serde_json::to_string(&row).unwrap();
             assert!(!serialized.contains("secret"));
             assert!(!serialized.contains("access_token"));
@@ -1428,6 +1488,7 @@ mod tests {
         let safe = safe_context_link(public, &masked_links);
         let row = base_row(
             &safe,
+            SOURCE_ARTIFACT,
             &sha256(&text),
             safe.original_url.clone(),
             Vec::new(),
@@ -1447,6 +1508,7 @@ mod tests {
         let safe = safe_context_link(&links[0], &extract_links(&masked));
         let row = base_row(
             &safe,
+            SOURCE_ARTIFACT,
             &sha256(text),
             safe.original_url.clone(),
             Vec::new(),
@@ -1472,8 +1534,8 @@ mod tests {
         let first = redacted_extracted_link(&first);
         let second = redacted_extracted_link(&second);
         assert_eq!(first.original_url, second.original_url);
-        let a = malformed_row(&first, &sha256("source"), 1, "blocked");
-        let b = malformed_row(&second, &sha256("source"), 2, "blocked");
+        let a = malformed_row(&first, SOURCE_ARTIFACT, &sha256("source"), 1, "blocked");
+        let b = malformed_row(&second, SOURCE_ARTIFACT, &sha256("source"), 2, "blocked");
         assert_ne!(a.link_id, b.link_id);
         let long_a = format!("https://example.com/{}a", "x".repeat(1_001));
         let long_b = format!("https://example.com/{}b", "x".repeat(1_001));
@@ -1491,6 +1553,7 @@ mod tests {
                 anchor_text: None,
                 surrounding_text: String::new(),
             }),
+            SOURCE_ARTIFACT,
             &sha256("source"),
             redacted_a,
             Vec::new(),
@@ -1505,6 +1568,7 @@ mod tests {
                 anchor_text: None,
                 surrounding_text: String::new(),
             }),
+            SOURCE_ARTIFACT,
             &sha256("source"),
             redacted_b,
             Vec::new(),
@@ -1548,6 +1612,7 @@ mod tests {
         };
         let first = base_row(
             &extracted,
+            SOURCE_ARTIFACT,
             &sha256("source A"),
             extracted.original_url.clone(),
             Vec::new(),
@@ -1555,12 +1620,70 @@ mod tests {
         );
         let second = base_row(
             &extracted,
+            SOURCE_ARTIFACT,
             &sha256("source B"),
             extracted.original_url.clone(),
             Vec::new(),
             1,
         );
         assert_ne!(first.link_id, second.link_id);
+        let prompt = base_row(
+            &extracted,
+            PROMPT_PROTOCOL_SOURCE_ARTIFACT,
+            &sha256("same text"),
+            extracted.original_url.clone(),
+            Vec::new(),
+            1,
+        );
+        let mainsite = base_row(
+            &extracted,
+            MAINSITE_SOURCE_ARTIFACT,
+            &sha256("same text"),
+            extracted.original_url.clone(),
+            Vec::new(),
+            1,
+        );
+        assert_ne!(prompt.link_id, mainsite.link_id);
+        assert_ne!(prompt.source_artifact, mainsite.source_artifact);
+        assert!(run_link_integrity_audit_for_source("", "operator/unknown").is_err());
+    }
+
+    #[test]
+    fn review_rejects_changed_redirect_identity_even_with_the_same_content_hash() {
+        let mut row = test_row();
+        row.sha256 = Some("a".repeat(64));
+        row.final_url = Some("https://example.com/first".to_string());
+        row.redirect_chain = vec![LinkEvidenceRedirect {
+            url: "https://example.com/first".to_string(),
+            status: 302,
+        }];
+        let expected_hash = row.sha256.clone();
+        let expected_url = row.final_url.clone();
+        let expected_chain = row.redirect_chain.clone();
+        assert!(reviewed_evidence_matches(
+            &row,
+            &row.normalized_url,
+            &expected_hash,
+            &expected_url,
+            &expected_chain,
+        ));
+        row.final_url = Some("https://example.com/second".to_string());
+        assert!(!reviewed_evidence_matches(
+            &row,
+            &row.normalized_url,
+            &expected_hash,
+            &expected_url,
+            &expected_chain,
+        ));
+        row.final_url = expected_url.clone();
+        row.redirect_chain[0].url = "https://example.com/second".to_string();
+        assert!(!reviewed_evidence_matches(
+            &row,
+            &row.normalized_url,
+            &expected_hash,
+            &expected_url,
+            &expected_chain,
+        ));
     }
 
     #[test]
@@ -1575,6 +1698,7 @@ mod tests {
         };
         let row = base_row(
             &extracted,
+            SOURCE_ARTIFACT,
             &sha256("source"),
             extracted.original_url.clone(),
             Vec::new(),

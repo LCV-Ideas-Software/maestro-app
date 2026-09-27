@@ -22,6 +22,7 @@ use crate::cloudflare::{
 use crate::mainsite_draft::{
     validate_stored_draft, MainSiteDraft, MAINSITE_SANITIZER_PROFILE,
 };
+use crate::mainsite_citation::require_mainsite_citations_ready;
 use crate::CloudflareProviderStorageRequest;
 
 const PROBE_SCHEMA_VERSION: &str = "mainsite_d1_probe.v1";
@@ -748,7 +749,8 @@ fn validate_publishable_draft(draft: &MainSiteDraft) -> Result<(), String> {
     if draft.sanitizer_profile != MAINSITE_SANITIZER_PROFILE {
         return Err("SANITIZER_PROFILE_MISMATCH".to_string());
     }
-    validate_mainsite_html(&draft.content)
+    validate_mainsite_html(&draft.content)?;
+    require_mainsite_citations_ready(&draft.content, draft.citation_context.as_ref())
 }
 
 fn diff_item(field: &str, change: MainSiteD1DiffChange) -> MainSiteD1DiffItem {
@@ -1966,6 +1968,7 @@ fn validate_style(value: &str) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::mainsite_draft::{MAINSITE_DRAFT_SCHEMA_VERSION, MAINSITE_SANITIZER_PROFILE};
+    use crate::mainsite_citation::MainSiteCitationContext;
 
     fn draft(content: &str) -> MainSiteDraft {
         let now = Utc::now().to_rfc3339();
@@ -1980,6 +1983,11 @@ mod tests {
             is_published: false,
             is_about_site: false,
             sanitizer_profile: MAINSITE_SANITIZER_PROFILE.to_string(),
+            citation_context: Some(MainSiteCitationContext {
+                protocol_hash: None,
+                manifest: None,
+                previous_manifest: None,
+            }),
             content_sha256: sha256_bytes(content.as_bytes()),
             created_at: now.clone(),
             updated_at: now,
@@ -2030,6 +2038,21 @@ mod tests {
         value.is_about_site = true;
         let error = validate_publishable_draft(&value).expect_err("about must block");
         assert!(error.starts_with("ABOUT_SITE_UNSUPPORTED"));
+    }
+
+    #[test]
+    fn native_preview_and_publish_validation_require_ready_citations() {
+        let mut value = draft("<p>Silva (2026) descreve o resultado.</p>");
+        assert!(validate_publishable_draft(&value)
+            .unwrap_err()
+            .starts_with("MAINSITE_CITATION_GATE_BLOCKED"));
+        value.content = "<p>Texto autoral.</p>".to_string();
+        value.content_sha256 = sha256_bytes(value.content.as_bytes());
+        value.citation_context = None;
+        assert_eq!(
+            validate_publishable_draft(&value).unwrap_err(),
+            "MAINSITE_CITATION_CONTEXT_REQUIRED"
+        );
     }
 
     #[test]

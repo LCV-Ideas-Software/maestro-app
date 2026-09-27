@@ -104,7 +104,7 @@ artifacts from the official [crates.io registry](https://crates.io/); the SBOM
 identified the graph but did not populate `licenseDeclared` for these Cargo
 packages in that recorded response.
 
-Normalized `Cargo.lock` SHA-256: `ab4815605fd686d7ba616c67032bfaeb7be472511b309019f7077fd823587d89`
+Normalized `Cargo.lock` SHA-256: `01fdecdd43a771e2c83cd8d7cf411d953bb913b3f0b605e13e72cde04e9ae305`
 
 This fingerprint was computed after normalizing CRLF to LF. It is
 not recalculated by a repository-owned CI verifier. Direct or transitive
@@ -130,6 +130,7 @@ exception, tracked in LCV-207.
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/percent-encoding/2.3.2 |
 | portable-pty | 0.9.0 | MIT | runtime | No | https://crates.io/crates/portable-pty/0.9.0 |
 | pulldown-cmark | 0.13.4 | MIT | runtime | No | https://crates.io/crates/pulldown-cmark/0.13.4 |
+| scraper | 0.27.0 | ISC | runtime | No | https://crates.io/crates/scraper/0.27.0 |
 | regex | 1.13.1 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/regex/1.13.1 |
 | reqwest | 0.12.28 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/reqwest/0.12.28 |
 | serde | 1.0.229 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/serde/1.0.229 |
@@ -168,7 +169,20 @@ bytes as the earlier versions already included in `THIRD-PARTY-NOTICES.txt`;
 the new addendum records their artifact checksums and maps them to those full
 license texts. Locked Windows normal-dependency metadata still reaches 301
 crates; compared with the preceding PR tree, only these two exact versions were
-replaced. The fingerprint above identifies this integrated lockfile.
+replaced. That integration preceded the current HTML citation gate dependency
+change.
+
+The 27/09/2026 native PostEditor citation gate added `scraper 0.27.0` as a
+direct runtime dependency. Cargo regenerated the lockfile; the Windows normal
+dependency graph now reaches 309 crates. The eight new exact versions are
+`scraper 0.27.0`, `ego-tree 0.11.0`, `cssparser 0.37.0`,
+`cssparser-macros 0.7.1`, `html5ever 0.39.0`, `markup5ever 0.39.0`,
+`selectors 0.38.0`, and `syn 3.0.6`. `THIRD-PARTY-NOTICES.txt` maps each
+locked checksum to the selected upstream license text. The two new ISC notices
+are reproduced in full; identical license texts already in the bundle are
+referenced by their exact byte hashes. The MPL-covered `selectors 0.38.0`
+archive has 16 Rust files and all 16 carry the MPL 2.0 Exhibit A header; its
+corresponding source is linked below.
 
 ### Transitive Rust license review
 
@@ -184,10 +198,13 @@ set of conjunctive license expressions in the locked graph.
 | Component | Version | License | Treatment | Source |
 | --- | --- | --- | --- | --- |
 | cssparser | 0.36.0 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/cssparser/0.36.0 |
+| cssparser | 0.37.0 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/cssparser/0.37.0 |
 | cssparser-macros | 0.6.1 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/cssparser-macros/0.6.1 |
+| cssparser-macros | 0.7.1 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/cssparser-macros/0.7.1 |
 | dtoa-short | 0.3.5 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/dtoa-short/0.3.5 |
 | option-ext | 0.2.0 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/option-ext/0.2.0 |
 | selectors | 0.36.1 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/selectors/0.36.1 |
+| selectors | 0.38.0 | MPL-2.0 | Keep Covered Software under MPL and apply the source and executable distribution duties below. | https://crates.io/crates/selectors/0.38.0 |
 | r-efi | 5.3.0 and 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | The `OR` expression permits compliance under either permissive option. | [5.3.0](https://crates.io/crates/r-efi/5.3.0), [6.0.0](https://crates.io/crates/r-efi/6.0.0) |
 | dpi | 0.1.2 | Apache-2.0 AND MIT | Both permissive terms apply; preserve both sets of notices. | https://crates.io/crates/dpi/0.1.2 |
 | ring | 0.17.14 | Apache-2.0 AND ISC | Both permissive terms apply; preserve their copyright and license notices. | https://crates.io/crates/ring/0.17.14 |

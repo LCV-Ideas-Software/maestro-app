@@ -37,6 +37,46 @@ describe("htmlToCitationAuditMarkdown", () => {
     expect(result).toContain("https://example.org/article?a=1&b=2");
     expect(result).not.toContain("&amp;b=2");
   });
+
+  it("omits code examples without hiding later citations", () => {
+    for (const html of [
+      "<p><code>example`` (Silva, 2026)</code></p><p>(Oliveira, 2025)</p>",
+      "<p><code>``(Silva, 2026)``</code></p><p>(Oliveira, 2025)</p>",
+      "<pre>```\n(Silva, 2026)</pre><p>(Oliveira, 2025)</p>",
+      "<p><code>\n``x</code></p><p>(Oliveira, 2025)</p>",
+      "<ul><li><pre>~~~</pre></li></ul><p>(Oliveira, 2025)</p>",
+      "<p><code></code>(Oliveira, 2025)<code></code></p>",
+    ]) {
+      const result = htmlToCitationAuditMarkdown(html);
+      expect(result).not.toContain("(Silva, 2026)");
+      expect(result).toContain("(Oliveira, 2025)");
+    }
+  });
+
+  it("escapes tilde fences and collapses HTML whitespace in citation text", () => {
+    expect(htmlToCitationAuditMarkdown("<p>~~~</p><p>(Silva, 2026)</p>")).toBe(
+      "\\~\\~\\~\n\n(Silva, 2026)",
+    );
+    expect(htmlToCitationAuditMarkdown("<p><s>~</s></p><p>(Silva, 2026)</p>")).toContain(
+      "(Silva, 2026)",
+    );
+    expect(htmlToCitationAuditMarkdown("<p>Texto.</p>    (Silva, 2026)")).toContain(
+      "(Silva, 2026)",
+    );
+    for (const html of [
+      "<p><s><s>x</s></s></p><p>(Silva, 2026)</p>",
+      "<p><del><s>x</s></del></p><p>(Silva, 2026)</p>",
+      "<p><s><s>x</s>y</s></p><p>(Silva, 2026)</p>",
+      "<s><s>x</s></s><p>(Silva, 2026)</p>",
+      '<p>A</p> <img src="https://e/x.png"> <img src="https://e/x.png"> <img src="https://e/x.png"> <img src="https://e/x.png"> (Silva, 2026)',
+      "<p>A</p><sup> </sup><sup> </sup><sup> </sup><sup> </sup>(Silva, 2026)",
+    ]) {
+      const projected = htmlToCitationAuditMarkdown(html);
+      expect(projected).toContain("(Silva, 2026)");
+      expect(projected).not.toMatch(/^\s{4,}\(Silva, 2026\)/m);
+      expect(projected).not.toMatch(/^~{3,}/m);
+    }
+  });
 });
 
 describe("htmlToLinkAuditMarkdown", () => {
@@ -93,6 +133,15 @@ describe("sanitizeExportFilename", () => {
 });
 
 describe("buildFinalContentExport", () => {
+  it("uses collision-free code delimiters and escapes prose tildes in Markdown exports", () => {
+    const result = buildFinalContentExport(
+      { ...input, html: "<p><code>example`` (Silva, 2026)</code></p><p>~~~</p>" },
+      "markdown",
+    );
+    expect(result.content.content).toContain("```example`` (Silva, 2026)```");
+    expect(result.content.content).toContain("\\~\\~\\~");
+  });
+
   it("exports the exact sanitized MainSite fragment and separate provenance", () => {
     const result = buildFinalContentExport(input, "html");
 

@@ -22,6 +22,7 @@ import {
 } from "./editorial";
 import {
   auditAbntCitations,
+  auditLinkSourcesSequentially,
   auditLinks,
   fetchWebEvidence,
   getWebEvidence,
@@ -104,6 +105,52 @@ describe("Tauri service facades", () => {
     expect(invokeMock).toHaveBeenCalledWith("audit_abnt_citations", { request });
   });
 
+  it("audits distinct source artifacts one at a time", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    invokeMock.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) await firstGate;
+      return {} as never;
+    });
+    const pending = auditLinkSourcesSequentially([
+      { text: "https://example.com", sourceArtifact: "operator/prompt-protocol" },
+      { text: "https://example.com", sourceArtifact: "operator/mainsite-posteditor" },
+    ]);
+    await Promise.resolve();
+    expect(calls).toBe(1);
+    releaseFirst();
+    await pending;
+    expect(calls).toBe(2);
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "audit_links", {
+      request: { text: "https://example.com", source_artifact: "operator/prompt-protocol" },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "audit_links", {
+      request: { text: "https://example.com", source_artifact: "operator/mainsite-posteditor" },
+    });
+  });
+
+  it("audits the later source even when the first source rejects", async () => {
+    invokeMock
+      .mockRejectedValueOnce(new Error("capacity exceeded"))
+      .mockResolvedValueOnce({ audit_id: "mainsite-audit" });
+
+    const outcomes = await auditLinkSourcesSequentially([
+      { text: "prompt", sourceArtifact: "operator/prompt-protocol" },
+      { text: "article", sourceArtifact: "operator/mainsite-posteditor" },
+    ]);
+
+    expect(outcomes[0]?.status).toBe("rejected");
+    expect(outcomes[1]).toMatchObject({
+      status: "fulfilled",
+      value: { audit_id: "mainsite-audit" },
+    });
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps all read command names stable", async () => {
     await readBootstrapConfig();
     await readCloudflareEnvSnapshot();
@@ -125,6 +172,7 @@ describe("Tauri service facades", () => {
       is_published: false,
       is_about_site: false,
       sanitizer_profile: MAIN_SITE_SANITIZER_PROFILE,
+      citation_context: { protocol_hash: null, manifest: null, previous_manifest: null },
     };
 
     await loadMainSiteDraft();
@@ -273,6 +321,8 @@ describe("Tauri service facades", () => {
       reviewer: "operator" as const,
       expected_normalized_url: "https://example.com/source",
       expected_sha256: "sha256-current",
+      expected_final_url: "https://example.com/final",
+      expected_redirect_chain: [{ url: "https://example.com/final", status: 302 }],
     };
     const proposalRequest = {
       link_id: "link-1",

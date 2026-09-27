@@ -61,7 +61,7 @@ import {
   saveMainSiteDraft,
   stopEditorialSession,
 } from "./services/editorial";
-import { auditAbntCitations, auditLinks } from "./services/evidence";
+import { auditAbntCitations, auditLinkSourcesSequentially, auditLinks } from "./services/evidence";
 import {
   listenToNativeLogs,
   listenToRuntimeBootstrapProgress,
@@ -104,6 +104,7 @@ import type {
   EvidenceRow,
   InitialAgentKey,
   LinkAuditResult,
+  MainSiteCitationContext,
   MainSiteD1PublishPlan,
   MainSiteD1PublishResult,
   MainSiteD1Target,
@@ -844,8 +845,13 @@ export function App() {
     const mainSiteAuditText = mainSiteHtml.trim() ? htmlToCitationAuditMarkdown(mainSiteHtml) : "";
     const mainSiteLinkAuditText = mainSiteHtml.trim() ? htmlToLinkAuditMarkdown(mainSiteHtml) : "";
     const linkAuditSources = [
-      [editorialPrompt, protocolText].join("\n\n"),
-      ...(mainSiteLinkAuditText ? [mainSiteLinkAuditText] : []),
+      {
+        text: [editorialPrompt, protocolText].join("\n\n"),
+        sourceArtifact: "operator/prompt-protocol" as const,
+      },
+      ...(mainSiteLinkAuditText
+        ? [{ text: mainSiteLinkAuditText, sourceArtifact: "operator/mainsite-posteditor" as const }]
+        : []),
     ];
     const citationSourceText = mainSiteAuditText || editorialPrompt.trim();
     const pinnedProtocolHash = /^[a-f0-9]{64}$/i.test(protocol.hash) ? protocol.hash : null;
@@ -881,12 +887,19 @@ export function App() {
       });
     }
     const [linkOutcome, citationOutcome] = await Promise.allSettled([
-      Promise.all(linkAuditSources.map((source) => auditLinks(source))),
+      auditLinkSourcesSequentially(linkAuditSources),
       citationAuditPromise,
     ]);
 
     if (linkOutcome.status === "fulfilled") {
-      const audits = linkOutcome.value;
+      const audits = linkOutcome.value.flatMap((outcome) =>
+        outcome.status === "fulfilled" ? [outcome.value] : [],
+      );
+      const failedSources = linkOutcome.value.flatMap((outcome, index) =>
+        outcome.status === "rejected" && linkAuditSources[index]
+          ? [linkAuditSources[index].sourceArtifact]
+          : [],
+      );
       const result = {
         urls_found: audits.reduce((total, audit) => total + audit.urls_found, 0),
         checked: audits.reduce((total, audit) => total + audit.checked, 0),
@@ -908,6 +921,13 @@ export function App() {
       setEvidenceRows((current) =>
         current.map((row) => {
           if (row.label !== "Links") return row;
+          if (failedSources.length > 0) {
+            return {
+              ...row,
+              value: `${failedSources.length.toLocaleString("pt-BR")} fonte(s) sem auditoria; outras fontes preservadas`,
+              tone: "danger",
+            };
+          }
           if (result.urls_found === 0) {
             return { ...row, value: "nenhum link encontrado", tone: "idle" };
           }
@@ -933,18 +953,30 @@ export function App() {
         }),
       );
       appendActivity({
-        level: "detail",
+        level: failedSources.length > 0 ? "diagnostic" : "detail",
         title: "Links auditados",
         detail:
-          result.urls_found === 0
-            ? "Nenhum link foi encontrado no prompt, protocolo ou texto em edicao."
-            : `${result.ok.toLocaleString("pt-BR")} aceitos; ${pendingReviewLabel}; ${failedLinkLabel}.`,
+          failedSources.length > 0
+            ? `Falha em ${failedSources.join(", ")}; ${result.rows.length.toLocaleString("pt-BR")} registro(s) das demais fontes preservado(s).`
+            : result.urls_found === 0
+              ? "Nenhum link foi encontrado no prompt, protocolo ou texto em edicao."
+              : `${result.ok.toLocaleString("pt-BR")} aceitos; ${pendingReviewLabel}; ${failedLinkLabel}.`,
       });
       void logEvent({
-        level: result.failed > 0 || result.pending_review > 0 ? "warn" : "info",
-        category: "evidence.audit.completed",
-        message: "link evidence audit completed",
+        level:
+          failedSources.length > 0
+            ? "error"
+            : result.failed > 0 || result.pending_review > 0
+              ? "warn"
+              : "info",
+        category:
+          failedSources.length > 0 ? "evidence.audit.partially_failed" : "evidence.audit.completed",
+        message:
+          failedSources.length > 0
+            ? "link evidence audit failed for some sources"
+            : "link evidence audit completed",
         context: {
+          failed_sources: failedSources,
           urls_found: result.urls_found,
           checked: result.checked,
           ok: result.ok,
@@ -2722,9 +2754,23 @@ export function App() {
     requestedPostId?: number,
   ) {
     setIsSavingPostEditor(true);
-    setMainSiteDraftStatus("Auditando links antes de persistir");
+    setMainSiteDraftStatus("Auditando links e citacoes antes de persistir");
     try {
-      const linkAudit = await auditLinks(htmlToLinkAuditMarkdown(htmlContent));
+      const citationContext = postEditorCitationContext();
+      const citationAudit = await auditPostEditorCitations(htmlContent, citationContext);
+      if (!citationAuditReady(citationAudit)) {
+        setMainSiteDraftStatus("Save bloqueado pela auditoria ABNT");
+        appendActivity({
+          level: "diagnostic",
+          title: "Rascunho MainSite nao persistido",
+          detail: `${citationAudit.blockers.length} pendencia(s) de citacao. Revise o manifesto e as fontes na area Evidencias.`,
+        });
+        return false;
+      }
+      const linkAudit = await auditLinks(
+        htmlToLinkAuditMarkdown(htmlContent),
+        "operator/mainsite-posteditor",
+      );
       setLinkAuditRows(linkAudit.rows);
       setEvidenceRows((current) =>
         current.map((row) =>
@@ -2779,6 +2825,7 @@ export function App() {
         is_published: isPublished,
         is_about_site: isAboutSite,
         sanitizer_profile: MAIN_SITE_SANITIZER_PROFILE,
+        citation_context: citationContext,
       });
       setMainSiteDraft(draft);
       setMainSitePublishPlan(null);
@@ -2817,7 +2864,9 @@ export function App() {
       });
       return true;
     } catch (error) {
-      setMainSiteDraftStatus("Falha ao persistir; rascunho anterior preservado");
+      setMainSiteDraftStatus(
+        `Save bloqueado; rascunho anterior preservado. ${error instanceof Error ? error.message : String(error)}`,
+      );
       void logEvent({
         level: "error",
         category: "editor.posteditor.save_failed",
@@ -2844,6 +2893,67 @@ export function App() {
     };
   }
 
+  function postEditorCitationContext() {
+    const manifests = citationManifestsFromAttachments(promptAttachments);
+    return {
+      protocol_hash: /^[a-f0-9]{64}$/i.test(protocol.hash) ? protocol.hash : null,
+      manifest: manifests.current,
+      previous_manifest: manifests.previous,
+    };
+  }
+
+  async function auditPostEditorCitations(
+    htmlContent: string,
+    context: MainSiteCitationContext = postEditorCitationContext(),
+  ): Promise<CitationAuditResult> {
+    setCitationAuditResult(null);
+    let result: CitationAuditResult;
+    try {
+      result = await auditAbntCitations({
+        text: htmlToCitationAuditMarkdown(htmlContent),
+        ...context,
+      });
+    } catch (error) {
+      setEvidenceRows((current) =>
+        current.map((row) =>
+          row.label === "ABNT" ? { ...row, value: "falha na auditoria", tone: "danger" } : row,
+        ),
+      );
+      throw error;
+    }
+    setCitationAuditResult(result);
+    setEvidenceRows((current) =>
+      current.map((row) =>
+        row.label === "ABNT"
+          ? {
+              ...row,
+              value: citationAuditReady(result)
+                ? "auditoria mecanica sem blocker"
+                : `${result.blockers.length.toLocaleString("pt-BR")} pendencia(s) de citacao`,
+              tone: citationAuditReady(result) ? "ok" : "danger",
+            }
+          : row,
+      ),
+    );
+    return result;
+  }
+
+  function citationAuditReady(result: CitationAuditResult): boolean {
+    return result.maestro_peer_status === "ready" && result.blockers.length === 0;
+  }
+
+  async function requireStoredDraftCitationsReady(draft: MainSiteDraft): Promise<void> {
+    if (!draft.citation_context) {
+      throw new Error("Rascunho sem contexto ABNT; salve novamente antes de publicar.");
+    }
+    const result = await auditPostEditorCitations(draft.content, draft.citation_context);
+    if (!citationAuditReady(result)) {
+      throw new Error(
+        `Publicacao bloqueada pela auditoria ABNT: ${result.blockers.length} pendencia(s). Revise o manifesto e as fontes na area Evidencias.`,
+      );
+    }
+  }
+
   async function previewMainSitePublish() {
     if (!mainSiteDraft) {
       setMainSitePublishError("Salve primeiro um rascunho MainSite validado.");
@@ -2854,6 +2964,7 @@ export function App() {
     setMainSitePublishError(null);
     setMainSitePublishResult(null);
     try {
+      await requireStoredDraftCitationsReady(mainSiteDraft);
       await persistBootstrapConfig();
       const target = buildMainSiteD1Target();
       await probeMainSiteD1(target);
@@ -2894,6 +3005,7 @@ export function App() {
     setMainSitePublishBusy(true);
     setMainSitePublishError(null);
     try {
+      await requireStoredDraftCitationsReady(mainSiteDraft);
       const result = await publishMainSiteD1(
         buildMainSiteD1Target(),
         mainSiteDraft,
@@ -2909,6 +3021,7 @@ export function App() {
           is_published: mainSiteDraft.is_published,
           is_about_site: mainSiteDraft.is_about_site,
           sanitizer_profile: mainSiteDraft.sanitizer_profile,
+          citation_context: mainSiteDraft.citation_context,
         });
       } catch (persistenceError) {
         const recoveryMessage =

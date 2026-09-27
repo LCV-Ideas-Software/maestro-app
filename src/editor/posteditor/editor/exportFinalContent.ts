@@ -40,11 +40,11 @@ function escapeHtml(value: string): string {
 }
 
 function escapeMarkdown(value: string): string {
-  return value.replace(/([\\`*_[\]{}()#+.!|<>-])/g, "\\$1");
+  return value.replace(/([\\`~*_[\]{}()#+.!|<>-])/g, "\\$1");
 }
 
 function escapeCitationAuditText(value: string): string {
-  return value.replace(/([\\`*_[\]{}#+!|<>])/g, "\\$1");
+  return value.replace(/\s+/g, " ").replace(/([\\`~*_[\]{}#+!|<>])/g, "\\$1");
 }
 
 function markdownDestination(value: string): string {
@@ -105,18 +105,34 @@ function serializeMarkdownNode(node: Node, forCitationAudit = false): string {
       return `*${children}*`;
     case "s":
     case "del":
-      return `~~${children}~~`;
+      if (forCitationAudit) return children;
+      return children.trim() ? `~~${children}~~` : "";
     case "u":
     case "sub":
     case "sup":
       return forCitationAudit ? children : element.outerHTML;
     case "code": {
-      const value = element.textContent ?? "";
-      const delimiter = value.includes("`") ? "``" : "`";
-      return `${delimiter}${value}${delimiter}`;
+      if (forCitationAudit) return " ";
+      const value = (element.textContent ?? "").replace(/\r\n?|\n/g, " ");
+      if (!value) return "";
+      const longestRun = (value.match(/`+/g) ?? []).reduce(
+        (longest, run) => Math.max(longest, run.length),
+        0,
+      );
+      const delimiter = "`".repeat(longestRun + 1);
+      const padding = value.startsWith("`") || value.endsWith("`") ? " " : "";
+      return `${delimiter}${padding}${value}${padding}${delimiter}`;
     }
-    case "pre":
-      return `\n\`\`\`\n${element.textContent ?? ""}\n\`\`\`\n\n`;
+    case "pre": {
+      if (forCitationAudit) return " ";
+      const value = element.textContent ?? "";
+      const longestRun = (value.match(/`+/g) ?? []).reduce(
+        (longest, run) => Math.max(longest, run.length),
+        0,
+      );
+      const fence = "`".repeat(Math.max(3, longestRun + 1));
+      return `\n${fence}\n${value}\n${fence}\n\n`;
+    }
     case "blockquote":
       return `${children
         .trim()
@@ -168,11 +184,11 @@ function serializeMarkdownNode(node: Node, forCitationAudit = false): string {
 
 function htmlToMarkdown(html: string, forCitationAudit = false): string {
   const document = new DOMParser().parseFromString(html, "text/html");
-  return [...document.body.childNodes]
+  const markdown = [...document.body.childNodes]
     .map((node) => serializeMarkdownNode(node, forCitationAudit))
     .join("")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+    .replace(/\n{3,}/g, "\n\n");
+  return (forCitationAudit ? markdown.replace(/(^|\n)[ \t]+/g, "$1") : markdown).trim();
 }
 
 export function htmlToCitationAuditMarkdown(html: string): string {
