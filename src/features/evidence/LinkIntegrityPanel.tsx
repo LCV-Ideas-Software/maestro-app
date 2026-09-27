@@ -9,6 +9,7 @@ import type {
   LinkAuditSourceArtifact,
   LinkClassification,
   LinkCrossReviewStatus,
+  LinkIntegrityListRequest,
   LinkIntegrityRecord,
   LinkReviewDecision,
 } from "../../types";
@@ -96,6 +97,7 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
   const [sourceArtifact, setSourceArtifact] = useState<LinkAuditSourceArtifact | "">("");
   const [crossReviewStatus, setCrossReviewStatus] = useState<LinkCrossReviewStatus | "">("");
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
+  const [appliedFilters, setAppliedFilters] = useState<LinkIntegrityListRequest>({ limit: 30 });
   const [busy, setBusy] = useState<string | null>("inventory");
   const [feedback, setFeedback] = useState("Carregando o inventário de integridade.");
   const [reviewDecision, setReviewDecision] = useState<LinkReviewDecision | null>(null);
@@ -104,8 +106,13 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
   const [candidateQuery, setCandidateQuery] = useState("");
 
   const visibleRecords = useMemo(
-    () => records.filter((record) => !sourceArtifact || record.source_artifact === sourceArtifact),
-    [records, sourceArtifact],
+    () =>
+      records.filter(
+        (record) =>
+          !appliedFilters.source_artifact ||
+          record.source_artifact === appliedFilters.source_artifact,
+      ),
+    [records, appliedFilters.source_artifact],
   );
   const selected = useMemo(
     () => visibleRecords.find((record) => record.link_id === selectedId) ?? null,
@@ -158,16 +165,24 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
     setSelectedId(record.link_id);
   }
 
-  async function loadInventory(cursor?: string) {
+  function applyFilters() {
+    const filters: LinkIntegrityListRequest = {
+      ...(query.trim() ? { query: query.trim() } : {}),
+      ...(classification ? { classifications: [classification] } : {}),
+      ...(sourceArtifact ? { source_artifact: sourceArtifact } : {}),
+      ...(crossReviewStatus ? { cross_review_statuses: [crossReviewStatus] } : {}),
+      ...(needsReviewOnly ? { needs_review_only: true } : {}),
+      limit: 30,
+    };
+    setAppliedFilters(filters);
+    void loadInventory(undefined, filters);
+  }
+
+  async function loadInventory(cursor?: string, filters = appliedFilters) {
     setBusy(cursor ? "more" : "inventory");
     try {
       const result = await listLinkIntegrityRecords({
-        ...(query.trim() ? { query: query.trim() } : {}),
-        ...(classification ? { classifications: [classification] } : {}),
-        ...(sourceArtifact ? { source_artifact: sourceArtifact } : {}),
-        ...(crossReviewStatus ? { cross_review_statuses: [crossReviewStatus] } : {}),
-        ...(needsReviewOnly ? { needs_review_only: true } : {}),
-        limit: 30,
+        ...filters,
         ...(cursor ? { cursor } : {}),
       });
       setRecords((current) => (cursor ? mergeRecords(current, result.items) : result.items));
@@ -280,7 +295,7 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") void loadInventory();
+                if (event.key === "Enter" && busy === null) applyFilters();
               }}
               placeholder="Âncora, contexto, URL ou artefato"
             />
@@ -336,7 +351,7 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
               className="secondary-button"
               type="button"
               disabled={busy !== null}
-              onClick={() => void loadInventory()}
+              onClick={applyFilters}
             >
               <Search size={17} /> Aplicar filtros
             </button>

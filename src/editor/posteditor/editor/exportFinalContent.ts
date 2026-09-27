@@ -40,11 +40,11 @@ function escapeHtml(value: string): string {
 }
 
 function escapeMarkdown(value: string): string {
-  return value.replace(/([\\`*_[\]{}()#+.!|<>-])/g, "\\$1");
+  return value.replace(/([\\`~*_[\]{}()#+.!|<>-])/g, "\\$1");
 }
 
 function escapeCitationAuditText(value: string): string {
-  return value.replace(/([\\`*_[\]{}#+!|<>])/g, "\\$1");
+  return value.replace(/\s+/g, " ").replace(/([\\`~*_[\]{}#+!|<>])/g, "\\$1");
 }
 
 function markdownDestination(value: string): string {
@@ -105,13 +105,15 @@ function serializeMarkdownNode(node: Node, forCitationAudit = false): string {
       return `*${children}*`;
     case "s":
     case "del":
-      return `~~${children}~~`;
+      return children.trim() ? `~~${children}~~` : "";
     case "u":
     case "sub":
     case "sup":
       return forCitationAudit ? children : element.outerHTML;
     case "code": {
+      if (forCitationAudit) return " ";
       const value = (element.textContent ?? "").replace(/\r\n?|\n/g, " ");
+      if (!value) return "";
       const longestRun = (value.match(/`+/g) ?? []).reduce(
         (longest, run) => Math.max(longest, run.length),
         0,
@@ -121,6 +123,7 @@ function serializeMarkdownNode(node: Node, forCitationAudit = false): string {
       return `${delimiter}${padding}${value}${padding}${delimiter}`;
     }
     case "pre": {
+      if (forCitationAudit) return " ";
       const value = element.textContent ?? "";
       const longestRun = (value.match(/`+/g) ?? []).reduce(
         (longest, run) => Math.max(longest, run.length),

@@ -38,19 +38,30 @@ describe("htmlToCitationAuditMarkdown", () => {
     expect(result).not.toContain("&amp;b=2");
   });
 
-  it("keeps embedded backtick runs inside code during citation audit", () => {
-    expect(htmlToCitationAuditMarkdown("<p><code>example`` (Silva, 2026)</code></p>")).toBe(
-      "```example`` (Silva, 2026)```",
+  it("omits code examples without hiding later citations", () => {
+    for (const html of [
+      "<p><code>example`` (Silva, 2026)</code></p><p>(Oliveira, 2025)</p>",
+      "<p><code>``(Silva, 2026)``</code></p><p>(Oliveira, 2025)</p>",
+      "<pre>```\n(Silva, 2026)</pre><p>(Oliveira, 2025)</p>",
+      "<p><code>\n``x</code></p><p>(Oliveira, 2025)</p>",
+      "<ul><li><pre>~~~</pre></li></ul><p>(Oliveira, 2025)</p>",
+      "<p><code></code>(Oliveira, 2025)<code></code></p>",
+    ]) {
+      const result = htmlToCitationAuditMarkdown(html);
+      expect(result).not.toContain("(Silva, 2026)");
+      expect(result).toContain("(Oliveira, 2025)");
+    }
+  });
+
+  it("escapes tilde fences and collapses HTML whitespace in citation text", () => {
+    expect(htmlToCitationAuditMarkdown("<p>~~~</p><p>(Silva, 2026)</p>")).toBe(
+      "\\~\\~\\~\n\n(Silva, 2026)",
     );
-    expect(htmlToCitationAuditMarkdown("<p><code>``(Silva, 2026)``</code></p>")).toBe(
-      "``` ``(Silva, 2026)`` ```",
+    expect(htmlToCitationAuditMarkdown("<p><s>~</s></p><p>(Silva, 2026)</p>")).toContain(
+      "(Silva, 2026)",
     );
-    expect(htmlToCitationAuditMarkdown("<pre>```\n(Silva, 2026)</pre>")).toContain(
-      "````\n```\n(Silva, 2026)\n````",
-    );
-    expect(htmlToCitationAuditMarkdown("<p><code>abc\n``def</code></p>")).toBe("```abc ``def```");
-    expect(htmlToCitationAuditMarkdown("<p><code>\n``x</code></p><p>(Silva, 2026)</p>")).toBe(
-      "``` ``x```\n\n(Silva, 2026)",
+    expect(htmlToCitationAuditMarkdown("<p>Texto.</p>    (Silva, 2026)")).toContain(
+      "(Silva, 2026)",
     );
   });
 });
@@ -109,6 +120,15 @@ describe("sanitizeExportFilename", () => {
 });
 
 describe("buildFinalContentExport", () => {
+  it("uses collision-free code delimiters and escapes prose tildes in Markdown exports", () => {
+    const result = buildFinalContentExport(
+      { ...input, html: "<p><code>example`` (Silva, 2026)</code></p><p>~~~</p>" },
+      "markdown",
+    );
+    expect(result.content.content).toContain("```example`` (Silva, 2026)```");
+    expect(result.content.content).toContain("\\~\\~\\~");
+  });
+
   it("exports the exact sanitized MainSite fragment and separate provenance", () => {
     const result = buildFinalContentExport(input, "html");
 

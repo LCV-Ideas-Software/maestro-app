@@ -133,6 +133,24 @@ describe("Tauri service facades", () => {
     });
   });
 
+  it("audits the later source even when the first source rejects", async () => {
+    invokeMock
+      .mockRejectedValueOnce(new Error("capacity exceeded"))
+      .mockResolvedValueOnce({ audit_id: "mainsite-audit" });
+
+    const outcomes = await auditLinkSourcesSequentially([
+      { text: "prompt", sourceArtifact: "operator/prompt-protocol" },
+      { text: "article", sourceArtifact: "operator/mainsite-posteditor" },
+    ]);
+
+    expect(outcomes[0]?.status).toBe("rejected");
+    expect(outcomes[1]).toMatchObject({
+      status: "fulfilled",
+      value: { audit_id: "mainsite-audit" },
+    });
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps all read command names stable", async () => {
     await readBootstrapConfig();
     await readCloudflareEnvSnapshot();

@@ -20,24 +20,34 @@ pub(crate) struct MainSiteCitationContext {
 fn escape_text(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for character in value.chars() {
+        if character.is_whitespace() {
+            if !escaped.ends_with(' ') {
+                escaped.push(' ');
+            }
+            continue;
+        }
         if matches!(
             character,
-            '\\' | '`' | '*' | '_' | '[' | ']' | '{' | '}' | '#' | '+' | '!' | '|' | '<' | '>'
+            '\\' | '`'
+                | '~'
+                | '*'
+                | '_'
+                | '['
+                | ']'
+                | '{'
+                | '}'
+                | '#'
+                | '+'
+                | '!'
+                | '|'
+                | '<'
+                | '>'
         ) {
             escaped.push('\\');
         }
         escaped.push(character);
     }
     escaped
-}
-
-fn code_delimiter(value: &str, minimum: usize) -> String {
-    let longest = value
-        .split(|character| character != '`')
-        .map(str::len)
-        .max()
-        .unwrap_or(0);
-    "`".repeat(minimum.max(longest + 1))
 }
 
 fn children(element: ElementRef<'_>, depth: usize) -> Result<String, String> {
@@ -60,24 +70,10 @@ fn render_element(element: ElementRef<'_>, depth: usize) -> Result<String, Strin
     if matches!(tag, "script" | "style" | "noscript" | "template") {
         return Err("MAINSITE_CITATION_UNSUPPORTED_HTML".to_string());
     }
-    if tag == "code" {
-        let value = element
-            .text()
-            .collect::<String>()
-            .replace("\r\n", " ")
-            .replace(['\r', '\n'], " ");
-        let delimiter = code_delimiter(&value, 1);
-        let padding = if value.starts_with('`') || value.ends_with('`') {
-            " "
-        } else {
-            ""
-        };
-        return Ok(format!("{delimiter}{padding}{value}{padding}{delimiter}"));
-    }
-    if tag == "pre" {
-        let value = element.text().collect::<String>();
-        let fence = code_delimiter(&value, 3);
-        return Ok(format!("\n{fence}\n{value}\n{fence}\n\n"));
+    if matches!(tag, "code" | "pre") {
+        // Code examples are outside the ABNT body-text audit. Omitting them
+        // avoids creating a Markdown fence from otherwise safe HTML nesting.
+        return Ok(" ".to_string());
     }
     if tag == "img" {
         return Ok(String::new());
@@ -91,6 +87,7 @@ fn render_element(element: ElementRef<'_>, depth: usize) -> Result<String, Strin
         "p" => format!("{}\n\n", content.trim()),
         "strong" | "b" => format!("**{content}**"),
         "em" | "i" => format!("*{content}*"),
+        "s" | "del" if content.trim().is_empty() => String::new(),
         "s" | "del" => format!("~~{content}~~"),
         "blockquote" => format!(
             "{}\n\n",
@@ -171,10 +168,10 @@ mod tests {
     }
 
     #[test]
-    fn html_projection_preserves_headings_and_masks_code_examples() {
+    fn html_projection_preserves_headings_and_omits_code_examples() {
         let html = "<p><code>example`` (Silva, 2026)</code></p><h2>Referências</h2><table><tr><td>Uma</td><td>Duas</td></tr></table>";
         let markdown = html_to_citation_markdown(html).unwrap();
-        assert!(markdown.contains("```example`` (Silva, 2026)```"));
+        assert!(!markdown.contains("example`` (Silva, 2026)"));
         assert!(markdown.contains("## Referências"));
         assert!(markdown.contains("Uma Duas"));
         let code_only = "<p><code>example`` (Silva, 2026)</code></p><p>Texto autoral.</p>";
@@ -182,7 +179,26 @@ mod tests {
         let following_citation = "<p><code>\n``x</code></p><p>(Silva, 2026)</p>";
         assert!(html_to_citation_markdown(following_citation)
             .unwrap()
-            .contains("\n\n(Silva, 2026)"));
+            .contains("(Silva, 2026)"));
         assert!(require_mainsite_citations_ready(following_citation, Some(&context())).is_err());
+    }
+
+    #[test]
+    fn html_projection_cannot_hide_later_citations_with_markdown_fences() {
+        for html in [
+            "<p>~~~</p><p>(Silva, 2026)</p>",
+            "<p><s>~</s></p><p>(Silva, 2026)</p>",
+            "<p><code></code>(Silva, 2026)<code></code></p>",
+            "<ul><li><pre>~~~</pre></li></ul><p>(Silva, 2026)</p>",
+            "<h2><pre>~~~</pre></h2><p>(Silva, 2026)</p>",
+            "<p>Texto.</p>    (Silva, 2026)",
+        ] {
+            let markdown = html_to_citation_markdown(html).unwrap();
+            assert!(markdown.contains("(Silva, 2026)"), "{html}: {markdown}");
+            assert!(
+                require_mainsite_citations_ready(html, Some(&context())).is_err(),
+                "{html}: {markdown}"
+            );
+        }
     }
 }

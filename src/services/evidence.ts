@@ -25,10 +25,17 @@ export const auditLinks = (text: string, sourceArtifact?: LinkAuditSourceArtifac
 
 export async function auditLinkSourcesSequentially(
   sources: ReadonlyArray<{ text: string; sourceArtifact: LinkAuditSourceArtifact }>,
-): Promise<LinkAuditResult[]> {
-  const audits: LinkAuditResult[] = [];
+): Promise<PromiseSettledResult<LinkAuditResult>[]> {
+  const audits: PromiseSettledResult<LinkAuditResult>[] = [];
   for (const source of sources) {
-    audits.push(await auditLinks(source.text, source.sourceArtifact));
+    try {
+      audits.push({
+        status: "fulfilled",
+        value: await auditLinks(source.text, source.sourceArtifact),
+      });
+    } catch (reason) {
+      audits.push({ status: "rejected", reason });
+    }
   }
   return audits;
 }

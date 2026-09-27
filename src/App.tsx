@@ -104,6 +104,7 @@ import type {
   EvidenceRow,
   InitialAgentKey,
   LinkAuditResult,
+  MainSiteCitationContext,
   MainSiteD1PublishPlan,
   MainSiteD1PublishResult,
   MainSiteD1Target,
@@ -891,7 +892,14 @@ export function App() {
     ]);
 
     if (linkOutcome.status === "fulfilled") {
-      const audits = linkOutcome.value;
+      const audits = linkOutcome.value.flatMap((outcome) =>
+        outcome.status === "fulfilled" ? [outcome.value] : [],
+      );
+      const failedSources = linkOutcome.value.flatMap((outcome, index) =>
+        outcome.status === "rejected" && linkAuditSources[index]
+          ? [linkAuditSources[index].sourceArtifact]
+          : [],
+      );
       const result = {
         urls_found: audits.reduce((total, audit) => total + audit.urls_found, 0),
         checked: audits.reduce((total, audit) => total + audit.checked, 0),
@@ -913,6 +921,13 @@ export function App() {
       setEvidenceRows((current) =>
         current.map((row) => {
           if (row.label !== "Links") return row;
+          if (failedSources.length > 0) {
+            return {
+              ...row,
+              value: `${failedSources.length.toLocaleString("pt-BR")} fonte(s) sem auditoria; outras fontes preservadas`,
+              tone: "danger",
+            };
+          }
           if (result.urls_found === 0) {
             return { ...row, value: "nenhum link encontrado", tone: "idle" };
           }
@@ -938,18 +953,30 @@ export function App() {
         }),
       );
       appendActivity({
-        level: "detail",
+        level: failedSources.length > 0 ? "diagnostic" : "detail",
         title: "Links auditados",
         detail:
-          result.urls_found === 0
-            ? "Nenhum link foi encontrado no prompt, protocolo ou texto em edicao."
-            : `${result.ok.toLocaleString("pt-BR")} aceitos; ${pendingReviewLabel}; ${failedLinkLabel}.`,
+          failedSources.length > 0
+            ? `Falha em ${failedSources.join(", ")}; ${result.rows.length.toLocaleString("pt-BR")} registro(s) das demais fontes preservado(s).`
+            : result.urls_found === 0
+              ? "Nenhum link foi encontrado no prompt, protocolo ou texto em edicao."
+              : `${result.ok.toLocaleString("pt-BR")} aceitos; ${pendingReviewLabel}; ${failedLinkLabel}.`,
       });
       void logEvent({
-        level: result.failed > 0 || result.pending_review > 0 ? "warn" : "info",
-        category: "evidence.audit.completed",
-        message: "link evidence audit completed",
+        level:
+          failedSources.length > 0
+            ? "error"
+            : result.failed > 0 || result.pending_review > 0
+              ? "warn"
+              : "info",
+        category:
+          failedSources.length > 0 ? "evidence.audit.partially_failed" : "evidence.audit.completed",
+        message:
+          failedSources.length > 0
+            ? "link evidence audit failed for some sources"
+            : "link evidence audit completed",
         context: {
+          failed_sources: failedSources,
           urls_found: result.urls_found,
           checked: result.checked,
           ok: result.ok,
@@ -2877,7 +2904,7 @@ export function App() {
 
   async function auditPostEditorCitations(
     htmlContent: string,
-    context = postEditorCitationContext(),
+    context: MainSiteCitationContext = postEditorCitationContext(),
   ): Promise<CitationAuditResult> {
     setCitationAuditResult(null);
     let result: CitationAuditResult;
@@ -2915,8 +2942,11 @@ export function App() {
     return result.maestro_peer_status === "ready" && result.blockers.length === 0;
   }
 
-  async function requirePostEditorCitationsReady(htmlContent: string): Promise<void> {
-    const result = await auditPostEditorCitations(htmlContent);
+  async function requireStoredDraftCitationsReady(draft: MainSiteDraft): Promise<void> {
+    if (!draft.citation_context) {
+      throw new Error("Rascunho sem contexto ABNT; salve novamente antes de publicar.");
+    }
+    const result = await auditPostEditorCitations(draft.content, draft.citation_context);
     if (!citationAuditReady(result)) {
       throw new Error(
         `Publicacao bloqueada pela auditoria ABNT: ${result.blockers.length} pendencia(s). Revise o manifesto e as fontes na area Evidencias.`,
@@ -2934,7 +2964,7 @@ export function App() {
     setMainSitePublishError(null);
     setMainSitePublishResult(null);
     try {
-      await requirePostEditorCitationsReady(mainSiteDraft.content);
+      await requireStoredDraftCitationsReady(mainSiteDraft);
       await persistBootstrapConfig();
       const target = buildMainSiteD1Target();
       await probeMainSiteD1(target);
@@ -2975,7 +3005,7 @@ export function App() {
     setMainSitePublishBusy(true);
     setMainSitePublishError(null);
     try {
-      await requirePostEditorCitationsReady(mainSiteDraft.content);
+      await requireStoredDraftCitationsReady(mainSiteDraft);
       const result = await publishMainSiteD1(
         buildMainSiteD1Target(),
         mainSiteDraft,
