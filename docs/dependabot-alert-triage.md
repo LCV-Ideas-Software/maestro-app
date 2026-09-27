@@ -50,11 +50,11 @@ OpenSSF Scorecard SARIF can report RustSec/OSV advisories from every package rec
 The current Scorecard `VulnerabilitiesID` alert maps to `cargo audit` warnings, not active cargo-audit vulnerabilities:
 
 - `cargo audit --json`: `vulnerabilities.found=false`.
-- Warning shape: 14 `unmaintained` advisories plus 1 `unsound` advisory.
+- Warning shape on the 27/09/2026 integrated lockfile: 6 `unmaintained` advisories plus 1 `unsound` advisory.
 - GTK/glib evidence: `cargo tree --locked --target x86_64-pc-windows-msvc -i gtk` and `cargo tree --locked --target x86_64-pc-windows-msvc -i glib` print no dependency path.
 - Cross-platform evidence: `cargo tree --locked --target all -i gtk` and `cargo tree --locked --target all -i glib` show the Linux GTK/WebKit path through Tauri/Wry.
 
-`src-tauri/osv-scanner.toml` records the current OSV exceptions with explicit reasons and technical expiry `ignoreUntil = 2026-11-03`, forcing another review within 90 days. The register was revalidated on 05/08/2026 against the [latest stable Tauri 2.11.5](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.11.5) graph, which selects Wry 0.55.0. Wry 0.56.0 is available independently but is outside that stable Tauri dependency range:
+`src-tauri/osv-scanner.toml` records the OSV exceptions with explicit reasons and technical expiry `ignoreUntil = 2026-11-03`. The 05/08/2026 review used Tauri 2.11.5 and Wry 0.55.0. After the merged [Tauri 2.11.6](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.11.6) update, the locked graph selects Wry 0.55.1. On 27/09/2026, `cargo audit --file src-tauri/Cargo.lock --json` reported no active vulnerabilities and the warning counts above; the Windows-target Cargo tree still has no `gtk` or `glib` path. Wry 0.56.0 remains outside this locked Tauri dependency range:
 
 - GTK3 / glib stack: `RUSTSEC-2024-0411`, `RUSTSEC-2024-0412`, `RUSTSEC-2024-0413`, `RUSTSEC-2024-0415`, `RUSTSEC-2024-0416`, `RUSTSEC-2024-0418`, `RUSTSEC-2024-0419`, `RUSTSEC-2024-0420`, `RUSTSEC-2024-0429`.
 - GTK macro transitives: `RUSTSEC-2024-0370`.

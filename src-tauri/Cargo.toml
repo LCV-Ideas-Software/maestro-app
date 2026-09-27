@@ -1,6 +1,6 @@
 [package]
 name = "maestro-editorial-ai"
-version = "0.5.67"
+version = "0.5.68"
 description = "Portable Windows editorial workbench for protocol-driven AI drafting."
 authors = ["LCV Ideas & Software"]
 edition = "2021"
@@ -24,3 +24,5 @@ portable-pty = "0.9"
 tauri = { version = "2.11.2", default-features = false, features = ["common-controls-v6", "dynamic-acl", "wry"] }
 tokio = { version = "1", default-features = false, features = ["macros", "time", "sync", "rt"] }
 tokio-util = { version = "0.7", default-features = false }
+pulldown-cmark = { version = "=0.13.4", default-features = false }
+percent-encoding = "=2.3.2"

@@ -3,8 +3,8 @@
 # Maestro currently ships a Windows portable bundle. The GTK3/glib advisories
 # below are Tauri/Wry cross-platform Linux GTK dependencies recorded in the
 # lockfile; `cargo tree --target x86_64-pc-windows-msvc -i gtk` and `-i glib`
-# do not resolve them for the shipped target. Re-reviewed on 05/08/2026
-# against the latest stable Tauri 2.11.5 graph, which selects Wry 0.55.0.
+# do not resolve them for the shipped target. Re-reviewed on 27/09/2026
+# against the locked Tauri 2.11.6 graph, which selects Wry 0.55.1.
 # Revisit before adding Linux bundles, when upstream Tauri/Wry moves this
 # stack, or no later than 03/11/2026.
 

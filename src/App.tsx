@@ -22,6 +22,10 @@ import {
   navItems,
 } from "./constants";
 import { logEvent } from "./diagnostics";
+import {
+  htmlToCitationAuditMarkdown,
+  htmlToLinkAuditMarkdown,
+} from "./editor/posteditor/editor/exportFinalContent";
 import { AgentsScreen } from "./features/agents/AgentsScreen";
 import { EvidenceScreen } from "./features/evidence/EvidenceScreen";
 import { ProtocolsScreen } from "./features/protocols/ProtocolsScreen";
@@ -837,8 +841,13 @@ export function App() {
   }
 
   async function auditEvidenceNow() {
-    const sourceText = [editorialPrompt, protocolText, mainSiteHtml].join("\n\n");
-    const citationSourceText = mainSiteHtml.trim() || editorialPrompt.trim();
+    const mainSiteAuditText = mainSiteHtml.trim() ? htmlToCitationAuditMarkdown(mainSiteHtml) : "";
+    const mainSiteLinkAuditText = mainSiteHtml.trim() ? htmlToLinkAuditMarkdown(mainSiteHtml) : "";
+    const linkAuditSources = [
+      [editorialPrompt, protocolText].join("\n\n"),
+      ...(mainSiteLinkAuditText ? [mainSiteLinkAuditText] : []),
+    ];
+    const citationSourceText = mainSiteAuditText || editorialPrompt.trim();
     const pinnedProtocolHash = /^[a-f0-9]{64}$/i.test(protocol.hash) ? protocol.hash : null;
     setIsAuditingEvidence(true);
     setLinkAuditRows([]);
@@ -872,12 +881,21 @@ export function App() {
       });
     }
     const [linkOutcome, citationOutcome] = await Promise.allSettled([
-      auditLinks(sourceText),
+      Promise.all(linkAuditSources.map((source) => auditLinks(source))),
       citationAuditPromise,
     ]);
 
     if (linkOutcome.status === "fulfilled") {
-      const result = linkOutcome.value;
+      const audits = linkOutcome.value;
+      const result = {
+        urls_found: audits.reduce((total, audit) => total + audit.urls_found, 0),
+        checked: audits.reduce((total, audit) => total + audit.checked, 0),
+        ok: audits.reduce((total, audit) => total + audit.ok, 0),
+        failed: audits.reduce((total, audit) => total + audit.failed, 0),
+        pending_review: audits.reduce((total, audit) => total + audit.pending_review, 0),
+        blocked: audits.reduce((total, audit) => total + audit.blocked, 0),
+        rows: audits.flatMap((audit) => audit.rows),
+      };
       const failedLinkLabel =
         result.failed === 1
           ? "1 link com problema"
@@ -2706,7 +2724,7 @@ export function App() {
     setIsSavingPostEditor(true);
     setMainSiteDraftStatus("Auditando links antes de persistir");
     try {
-      const linkAudit = await auditLinks(htmlContent);
+      const linkAudit = await auditLinks(htmlToLinkAuditMarkdown(htmlContent));
       setLinkAuditRows(linkAudit.rows);
       setEvidenceRows((current) =>
         current.map((row) =>

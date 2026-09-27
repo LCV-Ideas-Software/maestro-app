@@ -49,7 +49,7 @@ use crate::{
 };
 
 const CIRCULAR_REVIEW_STATE_FILE: &str = "circular-review-state.json";
-pub(crate) const CIRCULAR_REVIEW_STATE_SCHEMA_VERSION: u8 = 3;
+pub(crate) const CIRCULAR_REVIEW_STATE_SCHEMA_VERSION: u8 = 4;
 pub(crate) const CIRCULAR_REVIEW_ROSTER_SCHEMA_VERSION: u8 = 2;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -59,6 +59,9 @@ pub(crate) struct CircularReviewState {
     pub(crate) current_draft_artifact: String,
     pub(crate) current_draft_author_key: String,
     pub(crate) current_draft_sha256: String,
+    /// Binds review credits to the protocol, links, attachments and citation manifests.
+    #[serde(default)]
+    pub(crate) review_context_sha256: Option<String>,
     pub(crate) round: usize,
     pub(crate) turn_index: usize,
     #[serde(default)]
@@ -532,8 +535,8 @@ pub(crate) fn parse_agent_artifact_result(
     let duration_ms = extract_bullet_code_value(metadata, "Duration ms")
         .and_then(|value| value.parse::<u128>().ok())
         .unwrap_or(0);
-    let exit_code =
-        extract_bullet_code_value(metadata, "Exit code").and_then(|value| value.parse::<i32>().ok());
+    let exit_code = extract_bullet_code_value(metadata, "Exit code")
+        .and_then(|value| value.parse::<i32>().ok());
     let usage_input_tokens = extract_bullet_code_value(metadata, "Usage input tokens")
         .and_then(|value| value.parse::<u64>().ok());
     let usage_output_tokens = extract_bullet_code_value(metadata, "Usage output tokens")
@@ -645,9 +648,8 @@ fn parse_cache_telemetry_from_artifact(text: &str) -> Option<ProviderCacheTeleme
 mod tests {
     use super::{
         circular_draft_sha256, load_resume_session_state, parse_agent_artifact_name,
-        parse_agent_artifact_result,
-        write_circular_review_state, CircularReviewState, CIRCULAR_REVIEW_STATE_FILE,
-        CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+        parse_agent_artifact_result, write_circular_review_state, CircularReviewState,
+        CIRCULAR_REVIEW_STATE_FILE, CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
     };
     use crate::{sessions_dir, write_text_file};
     use std::path::PathBuf;
@@ -866,6 +868,7 @@ mod tests {
                 current_draft_artifact: "round-003-codex-revision-attempt-006.md".to_string(),
                 current_draft_author_key: "codex".to_string(),
                 current_draft_sha256: circular_draft_sha256("Versao corrente aceita."),
+                review_context_sha256: Some("context-test".to_string()),
                 round: 3,
                 turn_index: 4,
                 round_roster: vec![
@@ -935,6 +938,7 @@ mod tests {
                 current_draft_artifact: "round-002-codex-revision-attempt-003.md".to_string(),
                 current_draft_author_key: "codex".to_string(),
                 current_draft_sha256: circular_draft_sha256("Versao confirmada."),
+                review_context_sha256: Some("context-test".to_string()),
                 round: 2,
                 turn_index: 3,
                 round_roster: vec![

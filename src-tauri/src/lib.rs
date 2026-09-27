@@ -21,8 +21,8 @@ use std::{fs, path::Path, thread};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tauri::{Emitter, Manager};
 
-mod ai_probes;
 mod abnt_citation;
+mod ai_probes;
 mod api_payloads;
 mod app_init;
 mod app_paths;
@@ -370,6 +370,8 @@ pub(crate) struct LinkAuditRow {
     pub(crate) checked_at: String,
     pub(crate) claim_supported: Option<bool>,
     pub(crate) classification: LinkClassification,
+    #[serde(default)]
+    pub(crate) mechanical_classification: Option<LinkClassification>,
     pub(crate) correction_candidates: Vec<LinkCorrectionCandidate>,
     pub(crate) cross_review_status: LinkCrossReviewStatus,
     pub(crate) review_decision: Option<LinkReviewDecision>,
@@ -824,17 +826,14 @@ pub(crate) struct RuntimeProfile {
     pub(crate) log_session_id: String,
 }
 
+use crate::abnt_citation::audit_abnt_citations;
 use crate::cloudflare_commands::{
     cloudflare_env_snapshot, dependency_preflight, verify_cloudflare_credentials,
 };
-use crate::abnt_citation::audit_abnt_citations;
-use crate::mainsite_d1::{
-    preview_mainsite_d1_publish, probe_mainsite_d1, publish_mainsite_d1,
-};
+use crate::mainsite_d1::{preview_mainsite_d1_publish, probe_mainsite_d1, publish_mainsite_d1};
 use crate::mainsite_draft::{load_mainsite_draft, save_mainsite_draft};
 use crate::runtime_bootstrap::{
-    execute_runtime_bootstrap_action, runtime_bootstrap_action_control,
-    runtime_bootstrap_plan,
+    execute_runtime_bootstrap_action, runtime_bootstrap_action_control, runtime_bootstrap_plan,
 };
 use crate::session_commands::{
     list_resumable_sessions, resume_editorial_session, run_editorial_session,
@@ -846,9 +845,8 @@ pub(crate) use crate::session_orchestration::{
 use crate::tauri_commands::{
     audit_links, diagnostics_snapshot, list_link_integrity_records, open_data_file,
     propose_link_corrections, read_ai_provider_config, read_bootstrap_config,
-    review_link_integrity, run_cli_adapter_smoke, runtime_profile,
-    verify_ai_provider_credentials, write_ai_provider_config, write_bootstrap_config,
-    write_log_event,
+    review_link_integrity, run_cli_adapter_smoke, runtime_profile, verify_ai_provider_credentials,
+    write_ai_provider_config, write_bootstrap_config, write_log_event,
 };
 use crate::web_evidence::{
     fetch_web_evidence, get_web_evidence, import_operator_evidence, import_shared_chat,

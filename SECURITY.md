@@ -8,8 +8,9 @@ The current `main` branch remains supported for security fixes. Repository
 automation uses native GitHub controls and SHA-pinned official Actions with
 least-privilege job tokens. CodeQL Default Setup analyzes Actions,
 JavaScript/TypeScript and Rust; the separate Windows CI job runs the Rust
-compiler, tests and Clippy on GitHub-hosted runners, never on the operator's
-local machine.
+compiler, tests and Clippy on GitHub-hosted runners. Local Rust validation is
+also permitted by the operator's 25/09/2026 decision when Windows Application
+Control allows the toolchain executables.
 
 Same-repository Dependabot PRs enable native GitHub auto-merge for their exact
 head SHA, including major updates, subject to required checks and inherited
