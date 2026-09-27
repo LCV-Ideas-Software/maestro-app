@@ -175,6 +175,10 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
       limit: 30,
     };
     setAppliedFilters(filters);
+    setRecords([]);
+    setSelectedId(null);
+    setNextCursor(null);
+    setTotal(0);
     void loadInventory(undefined, filters);
   }
 
