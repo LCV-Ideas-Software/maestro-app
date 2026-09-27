@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 use std::sync::OnceLock;
 
-use chrono::Utc;
+use chrono::{Datelike, Utc};
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -369,12 +369,38 @@ fn source_surname(source: &CitationSource) -> String {
         .unwrap_or_default()
 }
 
-fn valid_year(value: &str) -> bool {
+fn citation_year_candidate(value: &str) -> bool {
     let bytes = value.as_bytes();
-    (bytes.len() == 4 && bytes.iter().all(|byte| byte.is_ascii_digit()))
+    let format_valid = (bytes.len() == 4 && bytes.iter().all(|byte| byte.is_ascii_digit()))
         || (bytes.len() == 5
             && bytes[..4].iter().all(|byte| byte.is_ascii_digit())
-            && bytes[4].is_ascii_alphabetic())
+            && bytes[4].is_ascii_alphabetic());
+    format_valid
+        && value[..4]
+            .parse::<i32>()
+            .is_ok_and(|year| year > 0 && year <= Utc::now().year() + 100)
+}
+
+fn valid_year(value: &str) -> bool {
+    citation_year_candidate(value)
+        && value[..4]
+            .parse::<i32>()
+            .is_ok_and(|year| year <= Utc::now().year() + 1)
+}
+
+fn author_year_candidate(author: &str, year: &str) -> bool {
+    let designator = author
+        .split_whitespace()
+        .next_back()
+        .unwrap_or_default()
+        .trim_end_matches('.')
+        .to_ascii_uppercase();
+    citation_year_candidate(year)
+        // RFC and ISO followed by a future-looking number commonly identify
+        // standards, not a publication year. Narrative captures may include
+        // preceding capitalized words, so inspect the token beside the year.
+        // An actual in-range year still requires a citation manifest.
+        && (valid_year(year) || !matches!(designator.as_str(), "RFC" | "ISO"))
 }
 
 fn valid_sha256(value: &str) -> bool {
@@ -490,6 +516,9 @@ fn raw_citations(
                 .get(2)
                 .map(|value| value.as_str())
                 .unwrap_or_default();
+            if !author_year_candidate(author, year) {
+                continue;
+            }
             let mut locator = capture
                 .get(3)
                 .map(|value| sanitize_text(value.as_str().trim(), 80))
@@ -577,10 +606,16 @@ fn raw_citations(
         if parts.len() > MAX_CITATIONS + 1 {
             continue;
         }
-        let shared_year = year
-            .captures(parts.last().copied().unwrap_or_default())
-            .and_then(|capture| capture.get(1))
-            .map(|value| value.as_str());
+        let shared_year = parts.last().and_then(|part| {
+            year.captures(part).and_then(|capture| {
+                let whole = capture.get(0)?;
+                let value = capture.get(1)?.as_str();
+                author_year_candidate(part[..whole.start()].trim(), value).then_some(value)
+            })
+        });
+        if shared_year.is_some_and(|value| !citation_year_candidate(value)) {
+            continue;
+        }
         let shared_locator = year
             .captures(parts.last().copied().unwrap_or_default())
             .and_then(|capture| capture.get(2))
@@ -760,7 +795,12 @@ fn quote_blockers(
     let mut count = 0;
     for (index, character) in text.char_indices() {
         if opened.is_none() {
-            if matches!(character, '“' | '"') {
+            let measurement_mark = character == '"'
+                && text[..index]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_numeric);
+            if matches!(character, '“' | '"') && !measurement_mark {
                 opened = Some((index, character));
             }
             continue;
@@ -1566,6 +1606,51 @@ fn validate_manifest(
     manifest: &CitationManifest,
     blockers: &mut Vec<CitationAuditBlocker>,
 ) -> (Vec<CitationAuditCitation>, Vec<String>) {
+    // The narrative parser may capture a sentence-initial discourse marker
+    // before an author. Only grammatical introductory markers can be removed;
+    // arbitrary prefixes could be another author's compound surname.
+    let same_observed_author = |structured: &CitationAuditCitation, raw: &CitationAuditCitation| {
+        if equivalent_value(&structured.author_key, &raw.author_key) {
+            return true;
+        }
+        if raw.citation_type != CitationType::GenericMention {
+            return false;
+        }
+        let raw_key = canonical_author_key(&raw.author_key);
+        let structured_key = canonical_author_key(&structured.author_key);
+        let introductory_prefix = raw_key
+            .strip_suffix(&structured_key)
+            .and_then(|prefix| prefix.strip_suffix(' '))
+            .is_some_and(|prefix| matches!(prefix, "SEGUNDO" | "CONFORME" | "CONSOANTE" | "PARA"));
+        if !introductory_prefix {
+            return false;
+        }
+        let expected_narrative = structured.original_text.clone().or_else(|| {
+            manifest
+                .sources
+                .iter()
+                .find(|source| source.source_id == structured.source_id)
+                .map(|source| {
+                    let mut narrative = structured.clone();
+                    narrative.citation_type = CitationType::GenericMention;
+                    format_in_text_citation(&narrative, source)
+                })
+        });
+        let exact_narrative_suffix = raw
+            .original_text
+            .as_deref()
+            .zip(expected_narrative.as_deref())
+            .is_some_and(|(observed, stated)| {
+                if stated.trim_start().starts_with('(') {
+                    return false;
+                }
+                observed
+                    .to_lowercase()
+                    .strip_suffix(&stated.to_lowercase())
+                    .is_some_and(|prefix| prefix.ends_with(char::is_whitespace))
+            });
+        exact_narrative_suffix
+    };
     if !manifest.citations.is_empty() && raw_references.is_empty() {
         blockers.push(blocker(
             "reference_section_missing",
@@ -1823,7 +1908,7 @@ fn validate_manifest(
             raw_citations
                 .iter()
                 .filter(|raw| {
-                    equivalent_value(&citation.author_key, &raw.author_key)
+                    same_observed_author(citation, raw)
                         && citation.year.trim() == raw.year.trim()
                         && match (citation.locator.as_deref(), raw.locator.as_deref()) {
                             (None, None) => true,
@@ -1835,7 +1920,25 @@ fn validate_manifest(
                     let mut observed = citation.clone();
                     observed.original_text = raw.original_text.clone();
                     let normalized = format_in_text_citation(&observed, source);
-                    contains_value(text, &normalized).then_some(normalized)
+                    if contains_value(text, &normalized) {
+                        return Some(normalized);
+                    }
+                    if raw.citation_type == CitationType::GenericMention {
+                        observed.citation_type = CitationType::GenericMention;
+                        let narrative = format_in_text_citation(&observed, source);
+                        if raw.original_text.as_deref().is_some_and(|original| {
+                            original
+                                .to_lowercase()
+                                .strip_suffix(&narrative.to_lowercase())
+                                .is_some_and(|prefix| {
+                                    prefix.is_empty() || prefix.ends_with(char::is_whitespace)
+                                })
+                        }) && contains_value(text, &narrative)
+                        {
+                            return Some(narrative);
+                        }
+                    }
+                    None
                 })
                 .unwrap_or_else(|| format_in_text_citation(citation, source))
         } else {
@@ -2000,7 +2103,7 @@ fn validate_manifest(
     let mut available = (0..citations.len()).collect::<BTreeSet<_>>();
     let same_author_year_locator =
         |structured: &CitationAuditCitation, raw: &CitationAuditCitation| {
-            let fields_match = equivalent_value(&structured.author_key, &raw.author_key)
+            let fields_match = same_observed_author(structured, raw)
                 && structured.year.trim() == raw.year.trim()
                 && match (structured.locator.as_deref(), raw.locator.as_deref()) {
                     (None, None) => true,
@@ -2066,7 +2169,8 @@ fn validate_manifest(
                     .as_deref()
                     .zip(raw.original_text.as_deref())
                     .is_some_and(|(left, right)| equivalent_value(left, right));
-                (!exact_text, !exact_type, *index)
+                let exact_author = equivalent_value(&citation.author_key, &raw.author_key);
+                (!exact_text, !exact_author, !exact_type, *index)
             });
         if let Some(index) = represented {
             if let (Some(start), Some(original)) = (raw.raw_start, raw.original_text.as_deref()) {
@@ -2455,8 +2559,16 @@ pub(crate) fn audit_abnt_citations_inner(
     }
     let grouped = Regex::new(r"\([^()\r\n]*;[^()\r\n]*\)")
         .expect("static grouped citation pattern must compile");
-    let year_signal =
-        Regex::new(r"(?i),\s*\d{4}[a-z]?").expect("static citation year signal must compile");
+    let author_year_signal = Regex::new(r"(?i)([\p{L}][\p{L}\s.'’\-]{0,80}),\s*(\d{4}[a-z]?)\b")
+        .expect("static grouped author-year signal must compile");
+    let plausible_year_in = |value: &str| {
+        author_year_signal.captures_iter(value).any(|capture| {
+            match (capture.get(1), capture.get(2)) {
+                (Some(author), Some(year)) => author_year_candidate(author.as_str(), year.as_str()),
+                _ => false,
+            }
+        })
+    };
     let group_start = Regex::new(r"^\([\p{Lu}\p{Lo}][\p{L}\s.'’\-]*(?:,|;)")
         .expect("static grouped citation start must compile");
     for (group_index, found) in grouped.find_iter(&body).enumerate() {
@@ -2470,7 +2582,7 @@ pub(crate) fn audit_abnt_citations_inner(
         let dated_parts = found
             .as_str()
             .split(';')
-            .filter(|part| year_signal.is_match(part))
+            .filter(|part| plausible_year_in(part))
             .count();
         let expected_citations = if dated_parts == 1 {
             1
@@ -2478,7 +2590,7 @@ pub(crate) fn audit_abnt_citations_inner(
             found.as_str().matches(';').count() + 1
         };
         if group_start.is_match(found.as_str())
-            && year_signal.is_match(found.as_str())
+            && plausible_year_in(found.as_str())
             && raw_citation_rows
                 .iter()
                 .filter(|citation| citation.raw_start == Some(found.start()))
@@ -3331,6 +3443,33 @@ mod tests {
     }
 
     #[test]
+    fn technical_identifiers_are_not_publication_year_citations() {
+        for text in [
+            "O formato (ISO, 8601) e o endereco (RFC, 3986) aparecem no texto.",
+            "Os identificadores (ISO, 8601; RFC, 3986) aparecem no texto.",
+            "ISO (8601) e RFC (3986) sao identificadores tecnicos.",
+        ] {
+            let result = audit_abnt_citations_inner(request(text)).unwrap();
+            assert_eq!(
+                result.maestro_peer_status,
+                MaestroPeerStatus::Ready,
+                "{text}"
+            );
+            assert!(result.citations.is_empty(), "{text}");
+        }
+    }
+
+    #[test]
+    fn measurement_marks_do_not_open_direct_quotations() {
+        let result = audit_abnt_citations_inner(request(
+            "Um monitor de 27\" e outro de 32\" foram medidos.",
+        ))
+        .unwrap();
+        assert_eq!(result.maestro_peer_status, MaestroPeerStatus::Ready);
+        assert!(result.blockers.is_empty());
+    }
+
+    #[test]
     fn empty_manifest_does_not_silently_accept_footnote_citation_signals() {
         let result = audit_abnt_citations_inner(AbntAuditRequest {
             text: "Texto com nota bibliografica[^1].\n\n[^1]: Fonte consultada.".to_string(),
@@ -3414,6 +3553,58 @@ mod tests {
             assert!(raw_citations(text, None).is_empty(), "{text}");
         }
         assert_eq!(raw_citations("王 (2020)", None).len(), 1);
+    }
+
+    #[test]
+    fn plausible_future_citation_requires_evidence_without_treating_standard_ids_as_years() {
+        let future_year = Utc::now().year() + 2;
+        for text in [
+            format!("Segundo Silva ({future_year}), o metodo funciona."),
+            format!("O metodo funciona (Silva, {future_year})."),
+        ] {
+            let result = audit_abnt_citations_inner(request(&text)).unwrap();
+            assert_eq!(result.citations.len(), 1, "{text}");
+            assert_ne!(
+                result.maestro_peer_status,
+                MaestroPeerStatus::Ready,
+                "{text}"
+            );
+            assert!(result
+                .blockers
+                .iter()
+                .any(|item| item.code == "structured_manifest_missing"));
+        }
+        for text in [
+            "A norma (ISO, 8601) e a RFC (3986) definem formatos.",
+            "O texto segue a RFC (2119).",
+            "O texto segue a norma (RFC, 2119).",
+            "A norma ISO (2030) define um formato.",
+            "A IETF RFC (2119) define os termos.",
+            "Norma ISO (2030) define um formato.",
+            "As normas (RFC, 2119; ISO, 2030) sao tecnicas.",
+            "Os identificadores (ISO, 8601; RFC, 2119) aparecem no texto.",
+            "Os identificadores (RFC, 2119; RFC, 8174) aparecem no texto.",
+            "A notacao (Silva; RFC, 2119) nao cita Silva em 2119.",
+            "A notacao (Silva; ISO, 2030) nao cita Silva em 2030.",
+        ] {
+            let result = audit_abnt_citations_inner(request(text)).unwrap();
+            assert!(result.citations.is_empty(), "{text}");
+            assert_eq!(
+                result.maestro_peer_status,
+                MaestroPeerStatus::Ready,
+                "{text}"
+            );
+        }
+        let mixed = audit_abnt_citations_inner(request(
+            "A lista (RFC, 2119; Silva, 2026) inclui uma citacao real.",
+        ))
+        .unwrap();
+        assert_eq!(mixed.citations.len(), 1);
+        assert_eq!(mixed.citations[0].author_key, "SILVA");
+        assert!(mixed
+            .blockers
+            .iter()
+            .any(|item| item.code == "structured_manifest_missing"));
     }
 
     #[test]
@@ -3557,6 +3748,130 @@ mod tests {
             Some("Silva (2026)")
         );
 
+        let narrative_with_intro = audit_abnt_citations_inner(AbntAuditRequest {
+            text: format!(
+                "Segundo Silva (2026), a obra descreve o metodo.\n\n## Referencias\n{reference}"
+            ),
+            protocol_hash: Some("protocol-sha256".to_string()),
+            manifest: Some(manifest.clone()),
+            previous_manifest: None,
+        })
+        .unwrap();
+        assert_eq!(
+            narrative_with_intro.maestro_peer_status,
+            MaestroPeerStatus::Ready,
+            "{:?}",
+            narrative_with_intro.blockers
+        );
+        for marker in ["Conforme", "Consoante", "Para"] {
+            let audit = audit_abnt_citations_inner(AbntAuditRequest {
+                text: format!("{marker} Silva (2026), a obra descreve o metodo.\n\n## Referencias\n{reference}"),
+                protocol_hash: Some("protocol-sha256".to_string()),
+                manifest: Some(manifest.clone()),
+                previous_manifest: None,
+            })
+            .unwrap();
+            assert_eq!(
+                audit.maestro_peer_status,
+                MaestroPeerStatus::Ready,
+                "{marker}: {:?}",
+                audit.blockers
+            );
+        }
+
+        let unrelated_author = audit_abnt_citations_inner(AbntAuditRequest {
+            text: format!(
+                "Segundo Souza (2026), a obra descreve o metodo.\n\n## Referencias\n{reference}"
+            ),
+            protocol_hash: Some("protocol-sha256".to_string()),
+            manifest: Some(manifest.clone()),
+            previous_manifest: None,
+        })
+        .unwrap();
+        assert!(unrelated_author
+            .blockers
+            .iter()
+            .any(|item| item.code == "body_citation_not_in_manifest"));
+
+        for other_author in ["Souza Silva", "Souza e Silva", "Costa Silva", "Maria Silva"] {
+            let audit = audit_abnt_citations_inner(AbntAuditRequest {
+                text: format!(
+                    "{other_author} (2026) descreve o metodo.\n\n## Referencias\n{reference}"
+                ),
+                protocol_hash: Some("protocol-sha256".to_string()),
+                manifest: Some(manifest.clone()),
+                previous_manifest: None,
+            })
+            .unwrap();
+            assert!(
+                audit
+                    .blockers
+                    .iter()
+                    .any(|item| item.code == "body_citation_not_in_manifest"),
+                "{other_author}: {:?}",
+                audit.blockers
+            );
+        }
+
+        manifest.citations[0].original_text = None;
+        for other_author in ["Souza Silva", "Maria Silva"] {
+            let audit = audit_abnt_citations_inner(AbntAuditRequest {
+                text: format!(
+                    "{other_author} (2026) descreve o metodo.\n\n## Referencias\n{reference}"
+                ),
+                protocol_hash: Some("protocol-sha256".to_string()),
+                manifest: Some(manifest.clone()),
+                previous_manifest: None,
+            })
+            .unwrap();
+            assert!(
+                audit
+                    .blockers
+                    .iter()
+                    .any(|item| item.code == "body_citation_not_in_manifest"),
+                "{other_author}: {:?}",
+                audit.blockers
+            );
+        }
+        let inferred_narrative = audit_abnt_citations_inner(AbntAuditRequest {
+            text: format!(
+                "Segundo Silva (2026), a obra descreve o metodo.\n\n## Referencias\n{reference}"
+            ),
+            protocol_hash: Some("protocol-sha256".to_string()),
+            manifest: Some(manifest.clone()),
+            previous_manifest: None,
+        })
+        .unwrap();
+        assert_eq!(
+            inferred_narrative.maestro_peer_status,
+            MaestroPeerStatus::Ready,
+            "{:?}",
+            inferred_narrative.blockers
+        );
+
+        manifest.citations[0].author_display = "Matos Filho, Maria".to_string();
+        manifest.citations[0].author_key = "MATOS FILHO".to_string();
+        manifest.sources[0].authors[0].author_display = "Matos Filho, Maria".to_string();
+        manifest.sources[0].authors[0].author_key = "MATOS FILHO".to_string();
+        let compound_reference = format_reference(&manifest.sources[0]);
+        let compound_narrative = audit_abnt_citations_inner(AbntAuditRequest {
+            text: format!("Segundo Matos Filho (2026), a obra descreve o metodo.\n\n## Referencias\n{compound_reference}"),
+            protocol_hash: Some("protocol-sha256".to_string()),
+            manifest: Some(manifest.clone()),
+            previous_manifest: None,
+        })
+        .unwrap();
+        assert_eq!(
+            compound_narrative.maestro_peer_status,
+            MaestroPeerStatus::Ready,
+            "{:?}",
+            compound_narrative.blockers
+        );
+
+        manifest.citations[0].author_display = "Silva, Maria".to_string();
+        manifest.citations[0].author_key = "SILVA".to_string();
+        manifest.sources[0].authors[0].author_display = "Silva, Maria".to_string();
+        manifest.sources[0].authors[0].author_key = "SILVA".to_string();
         manifest.citations[0].citation_type = CitationType::GenericMention;
         manifest.citations[0].original_text = Some("(Silva, 2026)".to_string());
         let result = audit_abnt_citations_inner(AbntAuditRequest {
@@ -3570,6 +3885,81 @@ mod tests {
             .blockers
             .iter()
             .any(|item| item.code == "citation_type_mismatch"));
+    }
+
+    #[test]
+    fn narrative_prefix_does_not_consume_another_verified_author() {
+        let mut manifest = verified_manifest();
+        manifest.citations[0].citation_type = CitationType::IndirectQuote;
+        manifest.citations[0].locator = None;
+        manifest.citations[0].original_text = None;
+        let mut second_citation = manifest.citations[0].clone();
+        second_citation.claim_id = "claim-2".to_string();
+        second_citation.source_id = "source-2".to_string();
+        second_citation.author_display = "Segundo Silva, Ana".to_string();
+        second_citation.author_key = "SEGUNDO SILVA".to_string();
+        let mut second_source = manifest.sources[0].clone();
+        second_source.source_id = "source-2".to_string();
+        second_source.authors[0].author_display = "Segundo Silva, Ana".to_string();
+        second_source.authors[0].author_key = "SEGUNDO SILVA".to_string();
+        second_source.title = "Outra Obra".to_string();
+        manifest.citations.push(second_citation);
+        manifest.sources.push(second_source);
+        let first_reference = format_reference(&manifest.sources[0]);
+        let second_reference = format_reference(&manifest.sources[1]);
+        let audit = audit_abnt_citations_inner(AbntAuditRequest {
+            text: format!("Segundo Silva (2026) descreve um metodo. Silva (2026) descreve outro.\n\n## Referencias\n{first_reference}\n{second_reference}"),
+            protocol_hash: Some("protocol-sha256".to_string()),
+            manifest: Some(manifest),
+            previous_manifest: None,
+        })
+        .unwrap();
+        assert_eq!(
+            audit.maestro_peer_status,
+            MaestroPeerStatus::Ready,
+            "{:?}",
+            audit.blockers
+        );
+    }
+
+    #[test]
+    fn narrative_marker_does_not_truncate_compound_or_coauthor_names() {
+        for (display, key, observed) in [
+            ("Filho, Maria", "FILHO", "Segundo Matos Filho"),
+            ("Souza, Ana", "SOUZA", "Silva e Souza"),
+        ] {
+            for stated_original in [
+                Some(format!("{} (2026)", display.split(',').next().unwrap())),
+                None,
+            ] {
+                let mut manifest = verified_manifest();
+                manifest.citations[0].citation_type = CitationType::IndirectQuote;
+                manifest.citations[0].locator = None;
+                manifest.citations[0].author_display = display.to_string();
+                manifest.citations[0].author_key = key.to_string();
+                manifest.citations[0].original_text = stated_original;
+                manifest.sources[0].authors[0].author_display = display.to_string();
+                manifest.sources[0].authors[0].author_key = key.to_string();
+                let reference = format_reference(&manifest.sources[0]);
+                let audit = audit_abnt_citations_inner(AbntAuditRequest {
+                    text: format!(
+                        "{observed} (2026) descreve o metodo.\n\n## Referencias\n{reference}"
+                    ),
+                    protocol_hash: Some("protocol-sha256".to_string()),
+                    manifest: Some(manifest),
+                    previous_manifest: None,
+                })
+                .unwrap();
+                assert!(
+                    audit
+                        .blockers
+                        .iter()
+                        .any(|item| item.code == "body_citation_not_in_manifest"),
+                    "{observed}: {:?}",
+                    audit.blockers
+                );
+            }
+        }
     }
 
     #[test]

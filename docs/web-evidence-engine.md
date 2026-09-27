@@ -38,8 +38,9 @@ Implemented on the active release branch:
   The robots contract is [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html); the rate-limit signal is [RFC 6585](https://www.rfc-editor.org/rfc/rfc6585.html#section-4).
 - Ready projections verify the exact byte count and SHA-256 of every persisted
   artifact, including official API and operator-imported evidence. Search API
-  responses must finish on the configured provider origin before their results
-  can be attributed to that provider. A 304 response with an unusable cache
+  redirects to another origin are rejected before DNS resolution or a request
+  to that origin; responses must finish on the configured provider origin before
+  their results can be attributed to that provider. A 304 response with an unusable cache
   triggers an unconditional fetch; if that fetch fails or repeats 304, the
   record is persisted as Failed instead of retaining a stale Ready state.
 - Public-network-only HTTP `GET`/`HEAD`, bounded bodies, proxy bypass, DNS-to-

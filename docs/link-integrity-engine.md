@@ -73,6 +73,8 @@ Only `verified_supports_claim` and explicitly accepted `redirected_verified` lin
 
 Records are stored under `data/evidence/link-integrity/`. Review writeback is append-only in `events.ndjson`, requires an allowed reviewer identity and a substantive note, and uses optimistic checks against the normalized URL and content SHA-256. Link identity includes the complete source fingerprint and local claim context, so a decision cannot migrate to a different assertion that reuses the same URL. A later mechanical audit preserves a decision only while the source, assertion, URL, and content hash remain unchanged.
 
+The PostEditor review and save gates derive the same sanitized Markdown projection from the final MainSite HTML. The projection includes clickable anchors and images plus the publishable `iframe[src]` and `blockquote[cite]` URLs. Prompt and protocol links are audited as a separate source artifact in the evidence panel, so their text cannot change the MainSite review identity.
+
 Markdown destinations are read with the maintained CommonMark parser, including
 balanced parentheses. An invalid destination remains a blocked `malformed` row;
 internal fragment anchors are local references, and code examples and HTML

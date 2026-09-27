@@ -12,6 +12,7 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 - **MAESTRO-34 full-PR review:** Exclude Markdown code from body-citation and reference detection; decompose grouped citations; reject mislabeled direct quotes, missing reference sections and duplicate reference lines. Verify cached evidence bytes and the final URL before reuse, and redact rejected link URLs and context before persistence. Align the Rust and npm inventories with the shipped graph.
 - **MAESTRO-34 citation review:** Require a body occurrence for every manifest entry, count grouped sources with locators exactly once, preserve narrative indirect/paraphrase semantics, validate each `apud` against its consulted source, and link direct quotes only to their own adjacent citations and locators. Avoid treating a single cased letter as an author while retaining uncased scripts.
 - **MAESTRO-34 final engineering review:** Build the citation reader from rendered CommonMark text events, excluding markup delimiters and hidden examples; bind references to top-level heading offsets, check signals without reparsing decoded entities, and block reference apparatus without a manifest. Preserve balanced Markdown link destinations and exact redirect identity, ignore code/comment URL examples without hiding adjacent live anchors, trim long punctuation tails in linear time, prevent `mailto:` addresses without content hashes from being accepted as claim evidence, reject encoded and credential-like `*key`/`*sig` URL names while retaining ordinary anchors, fail closed when HTTP 304 cannot reuse or refresh its cache, verify persisted evidence artifacts, and apply the specific `robots.txt` agent policy to versioned product tokens while suspending collection on HTTP 429.
+- **MAESTRO-34 final PR review:** Keep encoded delimiters inside parsed URL keys visible to the credential guard. Distinguish valid publication years from plausible future citations that still require evidence, ignore technical standard numbers and measurement marks when opening direct quotations, and recognize only explicit introductory markers before narrative author names. Preserve table cell and row boundaries in the editor audit projection; use the same sanitized MainSite link projection at review and save, including URLs in iframe and blockquote attributes, so HTML entities do not change fetched destinations or review identity.
 
 - **MAESTRO-33:** Move the Perplexity desktop peer to the Agent API with a documented `provider/model` pin, typed response parsing, and source metadata. Preserve model override separators, require search evidence before accepting a response, reserve the web-search fee in cost guards, and account for incomplete responses using provider-reported totals or estimated token usage. Reject legacy Sonar model IDs before dispatch.
 
@@ -20,6 +21,11 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 - **MAESTRO-33 resume tone:** Persist the provider result tone in session artifacts, update status and tone together after final gate reclassification, and restore the recorded tone directly, with a legacy status fallback. Read accounting and status only from the artifact header. Legacy Perplexity model configuration failures, cost limits and user stops remain blocked after resume.
 
 ### Changed
+
+- Integrate MAESTRO-34 with the merged dependency updates for `@tauri-apps/cli`
+  2.11.5, `tauri` 2.11.6 and `rand` 0.10.3. Regenerate the npm and Cargo
+  lockfiles with their official managers, refresh the exact-version inventory
+  and license provenance, and recheck the Windows advisory graph.
 
 - Recalculate the transitive Rust graph and refresh the notices it feeds. This
   is the first recalculation since `scripts/generate-notices.mjs` was retired;

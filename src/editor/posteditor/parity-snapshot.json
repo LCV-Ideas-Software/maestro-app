@@ -1,6 +1,6 @@
 {
   "schema_version": "posteditor_parity_snapshot.v1",
-  "reviewed_at": "2026-09-26",
+  "reviewed_at": "2026-09-27",
   "sanitizer_profile": "mainsite_post_html.v1",
   "admin_commit": "034951b9c15307388b48154336880a5002f5fe86",
   "mainsite_commit": "5aefab43084e2028b28757ed798e3aefecb9c797",
@@ -41,7 +41,7 @@
     "src/editor/posteditor/editor/sanitizeFinalHtml.ts": "a346780ebf1adb7f4c03608c867af1ffa7325c5545f250203281499827c53f15",
     "src/editor/posteditor/editor/finalHtmlFixtures.ts": "6700eac7871a1febe04fe9657ae05bac4351a11f49a051f679718ba976977670",
     "src/editor/posteditor/editor/sharedChatImport.ts": "ef2c31b2ee2b81b030803e9acf479c9a923ef57219a490ac7a8e6e7c35e7806e",
-    "src/editor/posteditor/editor/exportFinalContent.ts": "e98e950d11e2c31132e26a2bbea541f61b9eecb7826f90f81b3eb110bf6d4d95"
+    "src/editor/posteditor/editor/exportFinalContent.ts": "4c87ee14ecb08491d6a49b7b49f2d0fc181551bf3341a32fc47fdf4c95e81c53"
   },
   "intentional_divergences": [
     "All imported or AI-produced HTML is sanitized before entering TipTap.",

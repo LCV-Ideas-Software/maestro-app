@@ -1273,6 +1273,12 @@ mod tests {
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].anchor_text.as_deref(), Some("documento oficial"));
         assert!(links[0].surrounding_text.contains("sustenta a frase"));
+        let semantic_markdown_link =
+            extract_links("Veja [fonte](<https://example.org/article?a=1&b=2>).");
+        assert_eq!(
+            semantic_markdown_link[0].original_url,
+            "https://example.org/article?a=1&b=2"
+        );
     }
 
     #[test]
@@ -1305,6 +1311,17 @@ mod tests {
             let links = extract_links(text);
             assert_eq!(links.len(), 1, "{text}");
             assert_eq!(links[0].original_url, "https://example.org/article(v2)");
+        }
+    }
+
+    #[test]
+    fn angle_bracket_destination_retains_a_space_or_unbalanced_parenthesis() {
+        for destination in ["https://example.org/a b", "https://example.org/a)b"] {
+            let text = format!("[fonte](<{destination}>)");
+            let links = extract_links(&text);
+            assert_eq!(links.len(), 1, "{text}");
+            let parsed = Url::parse(&links[0].original_url).unwrap();
+            assert_eq!(parsed, Url::parse(destination).unwrap(), "{text}");
         }
     }
 

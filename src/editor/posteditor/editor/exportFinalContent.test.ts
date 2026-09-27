@@ -4,6 +4,7 @@ import {
   buildFinalContentExport,
   buildPrintDocument,
   htmlToCitationAuditMarkdown,
+  htmlToLinkAuditMarkdown,
   sanitizeExportFilename,
 } from "./exportFinalContent";
 
@@ -18,6 +19,44 @@ describe("htmlToCitationAuditMarkdown", () => {
     expect(result).toContain("(Silva, 2026)");
     expect(result).not.toContain("<table");
     expect(result).not.toContain("hidden citation");
+  });
+
+  it("keeps table cells and rows separate in the citation audit", () => {
+    const result = htmlToCitationAuditMarkdown(
+      "<table><tbody><tr><td>Silva (2026)</td><td>descreve o resultado</td></tr><tr><td>Oliveira (2025)</td><td>confirma</td></tr></tbody></table>",
+    );
+    expect(result).toContain("Silva (2026) descreve o resultado");
+    expect(result).toContain("Oliveira (2025) confirma");
+    expect(result).not.toContain("resultadoOliveira");
+  });
+
+  it("uses the DOM URL attribute instead of its HTML entity spelling", () => {
+    const result = htmlToCitationAuditMarkdown(
+      '<p><a href="https://example.org/article?a=1&amp;b=2">fonte</a></p>',
+    );
+    expect(result).toContain("https://example.org/article?a=1&b=2");
+    expect(result).not.toContain("&amp;b=2");
+  });
+});
+
+describe("htmlToLinkAuditMarkdown", () => {
+  it("preserves every publishable HTML URL attribute in the link audit", () => {
+    const result = htmlToLinkAuditMarkdown(
+      '<figure><figcaption><a href="https://example.org/article?a=1&amp;b=2">Fonte</a></figcaption></figure><img src="https://example.org/image.png" alt="Ilustração"><iframe src="https://www.youtube.com/embed/abc123"></iframe><blockquote cite="https://example.org/quote">Trecho</blockquote>',
+    );
+    expect(result).toContain("https://example.org/article?a=1&b=2");
+    expect(result).toContain("https://example.org/image.png");
+    expect(result).toContain("https://www.youtube.com/embed/abc123");
+    expect(result).toContain("https://example.org/quote");
+    expect(result).not.toContain("&amp;b=2");
+  });
+
+  it("keeps a DOM href with spaces or an unmatched parenthesis parseable", () => {
+    const result = htmlToLinkAuditMarkdown(
+      '<a href="https://example.org/a b">Espaço</a><a href="https://example.org/a)b">Parêntese</a>',
+    );
+    expect(result).toContain("[Espaço](<https://example.org/a b>)");
+    expect(result).toContain("[Parêntese](<https://example.org/a)b>)");
   });
 });
 

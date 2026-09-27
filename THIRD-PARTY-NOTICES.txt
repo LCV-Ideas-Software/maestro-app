@@ -59728,3 +59728,27 @@ freely, subject to the following restrictions:
    misrepresented as being the original software.
 
 3. This notice may not be removed or altered from any source distribution.
+
+==============================================================================
+
+MAESTRO-34 addendum - 27/09/2026 - merged dependency versions
+The exact crates.io archives below were downloaded by Cargo and their SHA-256
+values match the integrated Cargo.lock. Their upstream license files are byte
+for byte identical to the full texts already carried above for the preceding
+versions; those full texts remain part of this distributed notice bundle.
+
+rand 0.10.3  (cargo)
+Source: https://crates.io/crates/rand/0.10.3
+License declared: MIT OR Apache-2.0; MIT option selected
+Cargo.lock archive checksum: 65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af
+LICENSE-MIT SHA-256: 209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b
+LICENSE-APACHE SHA-256: 35242e7a83f69875e6edeff02291e688c97caafe2f8902e4e19b49d3e78b4cab
+Full identical license texts: rand 0.10.2 entry above.
+
+tauri 2.11.6  (cargo)
+Source: https://crates.io/crates/tauri/2.11.6
+License declared: Apache-2.0 OR MIT; MIT option selected
+Cargo.lock archive checksum: 6fa5bacdb9bbad5954af3d1bd6cf6ae9192cab1b2e270f4a07f904610b9e85f4
+LICENSE_MIT SHA-256: 9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d
+LICENSE_APACHE-2.0 SHA-256: 0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594
+Full identical license texts: tauri 2.11.5 entry above.

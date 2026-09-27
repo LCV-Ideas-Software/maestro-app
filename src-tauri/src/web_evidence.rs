@@ -733,10 +733,9 @@ pub(crate) fn sensitive_query_key(value: &str) -> bool {
 
 fn sensitive_parameter_name(value: &str) -> bool {
     value
-        .split('=')
-        .next()
-        .unwrap_or_default()
-        .split(['/', '\\'])
+        // `query_pairs` has already isolated the key. An encoded delimiter
+        // inside that key must not hide a credential-like suffix.
+        .split(['=', ':', '/', '\\'])
         .any(sensitive_parameter_segment)
 }
 
@@ -877,6 +876,21 @@ fn same_origin(left: &Url, right: &Url) -> bool {
         && left.port_or_known_default() == right.port_or_known_default()
 }
 
+fn redirect_target(
+    current: &Url,
+    initial: &Url,
+    location: &str,
+    require_same_origin: bool,
+) -> Result<Url, String> {
+    let next = current
+        .join(location)
+        .map_err(|_| "redirect Location was invalid".to_string())?;
+    if require_same_origin && !same_origin(initial, &next) {
+        return Err("official search API redirected to an unapproved origin".to_string());
+    }
+    Ok(next)
+}
+
 fn safe_response_headers(response: &Response) -> BTreeMap<String, String> {
     let mut result = BTreeMap::new();
     for name in [
@@ -904,6 +918,7 @@ fn execute_public_request(
     initial_headers: &[(HeaderName, HeaderValue)],
     max_body_bytes: usize,
     check_redirect_robots: bool,
+    require_same_origin: bool,
 ) -> Result<RawHttpResponse, String> {
     let started = Instant::now();
     let original_origin = initial_url.clone();
@@ -947,9 +962,7 @@ fn execute_public_request(
             if redirects.len() >= MAX_REDIRECTS {
                 return Err(format!("redirect chain exceeded {MAX_REDIRECTS} hops"));
             }
-            let next = current
-                .join(location)
-                .map_err(|_| "redirect Location was invalid".to_string())?;
+            let next = redirect_target(&current, &original_origin, location, require_same_origin)?;
             let next = validate_public_url(next.as_str())?;
             if !same_origin(&original_origin, &next) {
                 initial_headers_allowed = false;
@@ -1032,6 +1045,7 @@ fn robots_state_for(client: &Client, url: &Url) -> WebEvidenceRobotsState {
         &robots_url,
         &[],
         MAX_ROBOTS_BYTES,
+        false,
         false,
     ) else {
         return WebEvidenceRobotsState::Unavailable;
@@ -1589,6 +1603,7 @@ pub(crate) fn fetch_web_evidence_inner(
         &headers,
         MAX_HTTP_BODY_BYTES,
         true,
+        false,
     ) {
         Ok(raw) => raw,
         Err(error) => return persist_fetch_failure(&error),
@@ -1609,6 +1624,7 @@ pub(crate) fn fetch_web_evidence_inner(
             &[],
             MAX_HTTP_BODY_BYTES,
             true,
+            false,
         ) {
             Ok(raw) => raw,
             Err(error) => return persist_fetch_failure(&error),
@@ -2105,6 +2121,7 @@ pub(crate) fn search_web_evidence_inner(
         &headers,
         MAX_HTTP_BODY_BYTES,
         false,
+        true,
     )?;
     if !Url::parse(&raw.final_url).is_ok_and(|final_url| same_origin(&url, &final_url)) {
         return Err("official search API redirected to an unapproved origin".to_string());
@@ -4033,6 +4050,9 @@ mod tests {
             "https://example.org/article?foo%252Faccess_token=secret-value",
             "https://example.org/article?foo%5Caccess_token=secret-value",
             "https://example.org/article?foo\\access_token=secret-value",
+            "https://example.org/article?foo%3Daccess_token=secret-value",
+            "https://example.org/article?foo%253Daccess_token=secret-value",
+            "https://example.org/article?foo%3Aaccess_token=secret-value",
             "https://example.org/foo%5Caccess_token/secret-value",
             "https://example.org/foo%252Faccess_token/secret-value",
         ] {
@@ -4045,6 +4065,7 @@ mod tests {
             "https://example.org/article?donkey=1",
             "https://example.org/article?turkey=1",
             "https://example.org/article?hockey=1",
+            "https://example.org/article?title=access_token",
         ] {
             assert!(validate_public_url(url).is_ok(), "{url}");
         }
@@ -4133,6 +4154,23 @@ mod tests {
     fn not_modified_reaches_cache_revalidation_without_location() {
         assert!(!follows_location_redirect(StatusCode::NOT_MODIFIED));
         assert!(follows_location_redirect(StatusCode::FOUND));
+    }
+
+    #[test]
+    fn official_search_redirect_is_rejected_before_resolving_another_origin() {
+        let initial = Url::parse("https://api.crossref.org/works?q=editorial").unwrap();
+        assert!(redirect_target(&initial, &initial, "/v2/works", true).is_ok());
+        for location in [
+            "https://example.org/collect?q=editorial",
+            "//example.org/collect?q=editorial",
+            "http://api.crossref.org/works",
+        ] {
+            assert!(
+                redirect_target(&initial, &initial, location, true).is_err(),
+                "{location}"
+            );
+            assert!(redirect_target(&initial, &initial, location, false).is_ok());
+        }
     }
 
     #[test]

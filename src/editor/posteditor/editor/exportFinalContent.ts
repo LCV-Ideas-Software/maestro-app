@@ -148,6 +148,11 @@ function serializeMarkdownNode(node: Node, forCitationAudit = false): string {
       return "  \n";
     case "hr":
       return "\n---\n\n";
+    case "tr":
+      return forCitationAudit ? `${children.trimEnd()}\n` : children;
+    case "td":
+    case "th":
+      return forCitationAudit ? `${children.trim()} ` : children;
     case "table":
     case "figure":
     case "iframe":
@@ -172,6 +177,20 @@ function htmlToMarkdown(html: string, forCitationAudit = false): string {
 
 export function htmlToCitationAuditMarkdown(html: string): string {
   return htmlToMarkdown(sanitizeFinalMainSiteHtml(html), true);
+}
+
+export function htmlToLinkAuditMarkdown(html: string): string {
+  const sanitized = sanitizeFinalMainSiteHtml(html);
+  const document = new DOMParser().parseFromString(sanitized, "text/html");
+  const embeddedUrls = [
+    ...document.body.querySelectorAll<HTMLIFrameElement | HTMLElement>(
+      "iframe[src], blockquote[cite]",
+    ),
+  ]
+    .map((element) => element.getAttribute(element.tagName === "IFRAME" ? "src" : "cite"))
+    .filter((url): url is string => Boolean(url))
+    .map((url) => `[fonte incorporada](<${markdownDestination(url)}>)`);
+  return [htmlToMarkdown(sanitized, true), ...embeddedUrls].filter(Boolean).join("\n\n");
 }
 
 function exportableEvidence(evidence: StoredSharedChatEvidence[]): StoredSharedChatEvidence[] {

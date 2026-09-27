@@ -78,7 +78,7 @@ declared explicitly in this inventory and the applicable distribution notices.
 | react-dom | 19.3.0 | MIT | runtime | No | https://www.npmjs.com/package/react-dom |
 | tiptap-markdown | 0.9.0 | MIT | runtime | No | https://www.npmjs.com/package/tiptap-markdown |
 | @biomejs/biome | 2.5.14 | MIT OR Apache-2.0 | development | No | https://www.npmjs.com/package/@biomejs/biome |
-| @tauri-apps/cli | 2.11.4 | Apache-2.0 OR MIT | development | No | https://www.npmjs.com/package/@tauri-apps/cli |
+| @tauri-apps/cli | 2.11.5 | Apache-2.0 OR MIT | development | No | https://www.npmjs.com/package/@tauri-apps/cli |
 | @testing-library/jest-dom | 7.0.1 | MIT | development | No | https://www.npmjs.com/package/@testing-library/jest-dom |
 | @testing-library/react | 16.3.3 | MIT | development | No | https://www.npmjs.com/package/@testing-library/react |
 | @types/react | 19.3.0 | MIT | development | No | https://www.npmjs.com/package/@types/react |
@@ -104,7 +104,7 @@ artifacts from the official [crates.io registry](https://crates.io/); the SBOM
 identified the graph but did not populate `licenseDeclared` for these Cargo
 packages in that recorded response.
 
-Normalized `Cargo.lock` SHA-256: `1380b52cce7f131ddbb2b502da90e48da99909b970ba6fbf653a6566d130baae`
+Normalized `Cargo.lock` SHA-256: `ab4815605fd686d7ba616c67032bfaeb7be472511b309019f7077fd823587d89`
 
 This fingerprint was computed after normalizing CRLF to LF. It is
 not recalculated by a repository-owned CI verifier. Direct or transitive
@@ -135,7 +135,7 @@ exception, tracked in LCV-207.
 | serde | 1.0.229 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/serde/1.0.229 |
 | serde_json | 1.0.151 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/serde_json/1.0.151 |
 | sha2 | 0.11.0 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/sha2/0.11.0 |
-| tauri | 2.11.5 | Apache-2.0 OR MIT | runtime | No | https://crates.io/crates/tauri/2.11.5 |
+| tauri | 2.11.6 | Apache-2.0 OR MIT | runtime | No | https://crates.io/crates/tauri/2.11.6 |
 | tokio | 1.53.1 | MIT | runtime | No | https://crates.io/crates/tokio/1.53.1 |
 | tokio-util | 0.7.19 | MIT | runtime | No | https://crates.io/crates/tokio-util/0.7.19 |
 
@@ -158,6 +158,17 @@ The current MAESTRO-34 correction made the already locked `percent-encoding
 locked metadata confirms the direct edge; the reachable package set and the
 existing exact-version license notice remain unchanged. The preceding lockfile
 fingerprint was `b214fea3b4251be6e0cf83658da2ed2b0b31c19427cc4661382219f29cdfe516`.
+
+The 27/09/2026 integration with the merged dependency PRs #410 and #411 retained
+`@tauri-apps/cli 2.11.5` and `tauri 2.11.6`, and updated the locked `rand`
+package from 0.10.2 to 0.10.3. Cargo's official `cargo update --workspace`
+preserved the other locked versions while adding the MAESTRO-34 dependencies.
+The exact `rand 0.10.3` and `tauri 2.11.6` artifacts have the same license-file
+bytes as the earlier versions already included in `THIRD-PARTY-NOTICES.txt`;
+the new addendum records their artifact checksums and maps them to those full
+license texts. Locked Windows normal-dependency metadata still reaches 301
+crates; compared with the preceding PR tree, only these two exact versions were
+replaced. The fingerprint above identifies this integrated lockfile.
 
 ### Transitive Rust license review
 
