@@ -3,8 +3,23 @@ import { describe, expect, it } from "vitest";
 import {
   buildFinalContentExport,
   buildPrintDocument,
+  htmlToCitationAuditMarkdown,
   sanitizeExportFilename,
 } from "./exportFinalContent";
+
+describe("htmlToCitationAuditMarkdown", () => {
+  it("turns editor HTML into visible citation text and a References heading", () => {
+    const result = htmlToCitationAuditMarkdown(
+      "<p>Silva (2026) descreve o resultado.</p><h2>Referências</h2><p><em>SILVA</em>. Obra. 2026.</p><table><tr><td>(Silva, 2026)</td></tr></table><script>hidden citation</script>",
+    );
+    expect(result).toContain("Silva (2026) descreve o resultado.");
+    expect(result).toContain("## Referências");
+    expect(result).toContain("*SILVA*. Obra. 2026.");
+    expect(result).toContain("(Silva, 2026)");
+    expect(result).not.toContain("<table");
+    expect(result).not.toContain("hidden citation");
+  });
+});
 
 const sharedChatEvidence = {
   provider: "chatgpt" as const,

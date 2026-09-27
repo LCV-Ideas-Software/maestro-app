@@ -732,12 +732,16 @@ pub(crate) fn sensitive_query_key(value: &str) -> bool {
 }
 
 fn sensitive_parameter_name(value: &str) -> bool {
-    let normalized = value
-        .trim_start_matches('/')
-        .split(['=', '/'])
+    value
+        .split('=')
         .next()
         .unwrap_or_default()
-        .to_ascii_lowercase();
+        .split(['/', '\\'])
+        .any(sensitive_parameter_segment)
+}
+
+fn sensitive_parameter_segment(value: &str) -> bool {
+    let normalized = value.to_ascii_lowercase();
     let ordinary_key_word = matches!(
         normalized.as_str(),
         "monkey" | "donkey" | "turkey" | "hockey" | "jockey" | "whiskey" | "hotkey"
@@ -814,7 +818,7 @@ pub(crate) fn url_has_sensitive_parameters(url: &Url) -> bool {
             let Some(decoded) = decode_parameter_component(segment) else {
                 return true;
             };
-            decoded_segments.extend(decoded.split('/').map(str::to_string));
+            decoded_segments.extend(decoded.split(['/', '\\']).map(str::to_string));
         }
         let segments = decoded_segments;
         if segments.iter().enumerate().any(|(index, segment)| {
@@ -4024,6 +4028,12 @@ mod tests {
             "https://example.org/sessionkey/secret-value",
             "https://example.org/article?%2561%2563%2563%2565%2573%2573%255F%2574%256F%256B%2565%256E=secret-value",
             "https://example.org/article?foo%2526access_token=secret-value",
+            "https://example.org/article?foo/access_token=secret-value",
+            "https://example.org/article?foo%2Faccess_token=secret-value",
+            "https://example.org/article?foo%252Faccess_token=secret-value",
+            "https://example.org/article?foo%5Caccess_token=secret-value",
+            "https://example.org/article?foo\\access_token=secret-value",
+            "https://example.org/foo%5Caccess_token/secret-value",
             "https://example.org/foo%252Faccess_token/secret-value",
         ] {
             assert!(validate_public_url(url).is_err(), "{url}");

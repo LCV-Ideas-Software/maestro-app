@@ -301,7 +301,15 @@ fn extract_links(text: &str) -> Vec<ExtractedLink> {
                         .find(&url)
                         .map(|offset| (start + offset, start + offset + url.len()));
                     let (url_start, url_end) = raw_range.unwrap_or((start, end));
-                    if !url.starts_with('#') {
+                    let is_internal_destination = !url.starts_with("//")
+                        && !url.contains('\\')
+                        && !url.chars().any(char::is_control)
+                        && !url
+                            .split(['/', '?', '#'])
+                            .next()
+                            .unwrap_or_default()
+                            .contains(':');
+                    if !url.starts_with('#') && !is_internal_destination {
                         links.push(ExtractedLink {
                             start,
                             url_start,

@@ -347,6 +347,17 @@ pub(crate) fn run_editorial_session_core(
             citation_protocol_hash.as_deref().unwrap_or_default(),
         ));
     }
+    let review_context_sha256 = circular_draft_sha256(
+        &serde_json::to_string(&json!({
+            "protocol_text": request.protocol_text,
+            "protocol_hash": citation_protocol_hash,
+            "links": evidence.links,
+            "attachments": evidence.attachments,
+            "citation_manifest": citation_manifests.current,
+            "previous_citation_manifest": citation_manifests.previous,
+        }))
+        .map_err(|error| format!("failed to serialize circular review context: {error}"))?,
+    );
     if let Some(manifest) = citation_manifests.current.as_ref() {
         evidence.block.push_str(&format!(
             "\n## Manifesto deterministico de citacoes\n\nA sessao usa um `citation_manifest.v1` {} com {} citacao(oes) e {} fonte(s). Ele e a fonte de verdade mecanica para chaves de autoria, acesso, verificacao e formatacao. O texto final deve conter exatamente as citacoes e referencias normalizadas correspondentes. Nao invente metadados para satisfazer o gate; quando a evidencia fornecida for insuficiente, remova, restrinja ou coloque a afirmacao/fonte em quarentena e registre a necessidade do operador.\n",
@@ -700,6 +711,7 @@ pub(crate) fn run_editorial_session_core(
                 state,
                 &round_turn_specs,
                 current_draft_author_key.as_deref(),
+                &review_context_sha256,
             );
             round = progress.round;
             round_turn_index = progress.turn_index;
@@ -726,9 +738,10 @@ pub(crate) fn run_editorial_session_core(
                 citation_manifests.previous.as_ref(),
             );
             round = progress.round;
-            round_turn_index = progress.turn_index;
-            valid_round_agents = progress.valid_agents;
-            stable_serial_approval_agents = progress.stable_approvals;
+            // Legacy artifacts carry no proof of the protocol and evidence reviewed.
+            round_turn_index = 0;
+            valid_round_agents.clear();
+            stable_serial_approval_agents.clear();
             (
                 "legacy_artifact_migration",
                 progress.had_substantive_change,
@@ -862,6 +875,7 @@ pub(crate) fn run_editorial_session_core(
                 current_draft_path: current_draft_path.as_ref(),
                 current_draft_author_key: current_draft_author_key.as_deref(),
                 current_draft: &current_draft,
+                review_context_sha256: &review_context_sha256,
                 round,
                 turn_index: round_turn_index,
                 round_roster: &round_turn_specs,
@@ -2249,6 +2263,7 @@ struct CircularProgressPersistence<'a> {
     current_draft_path: Option<&'a PathBuf>,
     current_draft_author_key: Option<&'a str>,
     current_draft: &'a str,
+    review_context_sha256: &'a str,
     round: usize,
     turn_index: usize,
     round_roster: &'a [crate::EditorialAgentSpec],
@@ -2289,6 +2304,7 @@ fn persist_circular_review_progress(input: CircularProgressPersistence<'_>) -> R
             current_draft_artifact: artifact_name.to_string(),
             current_draft_author_key: author.to_string(),
             current_draft_sha256: circular_draft_sha256(input.current_draft),
+            review_context_sha256: Some(input.review_context_sha256.to_string()),
             round: input.round.max(1),
             turn_index: input.turn_index,
             round_roster: input
@@ -2366,6 +2382,7 @@ fn restore_persisted_circular_progress(
     state: CircularReviewState,
     round_turn_specs: &[crate::EditorialAgentSpec],
     current_draft_author_key: Option<&str>,
+    review_context_sha256: &str,
 ) -> CircularResumeProgress {
     let current_roster = round_turn_specs
         .iter()
@@ -2378,9 +2395,9 @@ fn restore_persisted_circular_progress(
         .collect::<Vec<_>>();
     let roster_matches = state.schema_version >= CIRCULAR_REVIEW_ROSTER_SCHEMA_VERSION
         && persisted_roster == current_roster;
-    let retry_accounting_authoritative = state.schema_version
-        >= CIRCULAR_REVIEW_STATE_SCHEMA_VERSION
-        && state.retry_accounting_authoritative;
+    let retry_accounting_authoritative =
+        state.schema_version >= 3 && state.retry_accounting_authoritative;
+    let context_matches = state.review_context_sha256.as_deref() == Some(review_context_sha256);
 
     let mut round = state.round.max(1);
     let mut turn_index = state.turn_index;
@@ -2390,11 +2407,11 @@ fn restore_persisted_circular_progress(
         turn_index -= round_turn_specs.len();
         crossed_round_boundary = true;
     }
-    if !roster_matches {
+    if !roster_matches || !context_matches {
         turn_index = 0;
     }
 
-    let valid_agents = if crossed_round_boundary || !roster_matches {
+    let valid_agents = if crossed_round_boundary || !roster_matches || !context_matches {
         BTreeSet::new()
     } else {
         state
@@ -2407,7 +2424,8 @@ fn restore_persisted_circular_progress(
         .stable_serial_approval_agents
         .into_iter()
         .filter(|agent| {
-            round_turn_specs.iter().any(|spec| spec.key == agent)
+            context_matches
+                && round_turn_specs.iter().any(|spec| spec.key == agent)
                 && current_draft_author_key != Some(agent.as_str())
         })
         .collect();
@@ -3782,6 +3800,7 @@ mod tests {
                 current_draft_artifact: "round-004-perplexity-revision.md".to_string(),
                 current_draft_author_key: "perplexity".to_string(),
                 current_draft_sha256: "unused-by-position-normalizer".to_string(),
+                review_context_sha256: Some("context-test".to_string()),
                 round: 4,
                 turn_index: specs.len(),
                 round_roster: roster,
@@ -3803,6 +3822,7 @@ mod tests {
             },
             &specs,
             Some("perplexity"),
+            "context-test",
         );
 
         assert_eq!(progress.round, 5);
@@ -3842,6 +3862,7 @@ mod tests {
                 current_draft_artifact: "round-004-grok-revision.md".to_string(),
                 current_draft_author_key: "grok".to_string(),
                 current_draft_sha256: "unused-by-position-normalizer".to_string(),
+                review_context_sha256: Some("context-test".to_string()),
                 round: 4,
                 turn_index: 3,
                 round_roster: vec![
@@ -3865,6 +3886,7 @@ mod tests {
             },
             &specs,
             Some("grok"),
+            "context-test",
         );
 
         assert_eq!(progress.round, 4);
@@ -3899,6 +3921,61 @@ mod tests {
             progress.stable_approvals,
             BTreeSet::from(["codex".to_string(), "gemini".to_string()])
         );
+    }
+
+    #[test]
+    fn changed_review_context_discards_approvals_but_preserves_retry_accounting() {
+        let active = vec!["claude".to_string(), "codex".to_string()];
+        let specs = circular_round_turn_specs("claude", &active);
+        let state = CircularReviewState {
+            schema_version: CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+            run_id: "run-test".to_string(),
+            current_draft_artifact: "round-002-claude-draft.md".to_string(),
+            current_draft_author_key: "claude".to_string(),
+            current_draft_sha256: "draft-hash".to_string(),
+            review_context_sha256: Some("old-context".to_string()),
+            round: 2,
+            turn_index: 1,
+            round_roster: specs.iter().map(|spec| spec.key.to_string()).collect(),
+            valid_round_agents: vec!["codex".to_string()],
+            stable_serial_approval_agents: vec!["codex".to_string()],
+            paid_corrective_retries_by_round: BTreeMap::from([(2, 2)]),
+            corrective_contract_retry_counts: BTreeMap::from([("retry".to_string(), 1)]),
+            retry_accounting_authoritative: true,
+            updated_at: "2026-09-26T00:00:00Z".to_string(),
+        };
+        let unchanged = restore_persisted_circular_progress(
+            state.clone(),
+            &specs,
+            Some("claude"),
+            "old-context",
+        );
+        assert!(unchanged.stable_approvals.contains("codex"));
+        let changed = restore_persisted_circular_progress(
+            state.clone(),
+            &specs,
+            Some("claude"),
+            "new-context",
+        );
+        assert_eq!(changed.turn_index, 0);
+        assert!(changed.valid_agents.is_empty());
+        assert!(changed.stable_approvals.is_empty());
+        assert_eq!(changed.paid_corrective_retries_by_round.get(&2), Some(&2));
+        assert_eq!(
+            changed.corrective_contract_retry_counts.get("retry"),
+            Some(&1)
+        );
+        assert!(changed.retry_accounting_authoritative);
+
+        let old_schema = CircularReviewState {
+            schema_version: 3,
+            review_context_sha256: None,
+            ..state
+        };
+        let migrated =
+            restore_persisted_circular_progress(old_schema, &specs, Some("claude"), "new-context");
+        assert!(migrated.stable_approvals.is_empty());
+        assert!(migrated.retry_accounting_authoritative);
     }
 
     #[test]
@@ -4720,6 +4797,17 @@ Este texto ainda contem [EVIDENCIA_PENDENTE] para que o proximo revisor resolva 
     #[test]
     fn final_release_audit_ignores_relative_internal_markdown_links() {
         assert!(final_release_audit_failure("Leia [a secao interna](#secao-interna).").is_none());
+        assert!(final_release_audit_failure(
+            "Leia [a metodologia](/metodologia) e [o anexo](./anexo)."
+        )
+        .is_none());
+        assert!(final_release_audit_failure(
+            "Leia [a pagina](../pagina) e [a busca](?q=editorial)."
+        )
+        .is_none());
+        assert!(final_release_audit_failure("Leia [externo](//example.com/pagina).").is_some());
+        assert!(final_release_audit_failure("Leia [externo](/\\example.com/pagina).").is_some());
+        assert!(final_release_audit_failure("Leia [inseguro](javascript:alert%281%29).").is_some());
     }
 
     #[test]

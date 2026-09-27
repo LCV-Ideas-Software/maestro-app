@@ -43,6 +43,10 @@ function escapeMarkdown(value: string): string {
   return value.replace(/([\\`*_[\]{}()#+.!|<>-])/g, "\\$1");
 }
 
+function escapeCitationAuditText(value: string): string {
+  return value.replace(/([\\`*_[\]{}#+!|<>])/g, "\\$1");
+}
+
 function markdownDestination(value: string): string {
   return value.replace(/>/g, "%3E");
 }
@@ -57,29 +61,34 @@ function markdownQuotedTitle(value: string): string {
   return escaped;
 }
 
-function serializeChildren(element: Element): string {
-  return [...element.childNodes].map((child) => serializeMarkdownNode(child)).join("");
+function serializeChildren(element: Element, forCitationAudit = false): string {
+  return [...element.childNodes]
+    .map((child) => serializeMarkdownNode(child, forCitationAudit))
+    .join("");
 }
 
-function serializeList(element: Element, ordered: boolean): string {
+function serializeList(element: Element, ordered: boolean, forCitationAudit = false): string {
   const start = ordered ? Number(element.getAttribute("start")) || 1 : 1;
   return [...element.children]
     .filter((child) => child.tagName.toLowerCase() === "li")
     .map((item, index) => {
       const marker = ordered ? `${start + index}. ` : "- ";
-      const body = serializeChildren(item).trim().replace(/\n+/g, "\n  ");
+      const body = serializeChildren(item, forCitationAudit).trim().replace(/\n+/g, "\n  ");
       return `${marker}${body}`;
     })
     .join("\n");
 }
 
-function serializeMarkdownNode(node: Node): string {
-  if (node.nodeType === 3) return escapeMarkdown(node.textContent ?? "");
+function serializeMarkdownNode(node: Node, forCitationAudit = false): string {
+  if (node.nodeType === 3)
+    return forCitationAudit
+      ? escapeCitationAuditText(node.textContent ?? "")
+      : escapeMarkdown(node.textContent ?? "");
   if (node.nodeType !== 1) return "";
 
   const element = node as Element;
   const tag = element.tagName.toLowerCase();
-  const children = serializeChildren(element);
+  const children = serializeChildren(element, forCitationAudit);
 
   if (/^h[1-6]$/.test(tag)) {
     return `${"#".repeat(Number(tag[1]))} ${children.trim()}\n\n`;
@@ -100,7 +109,7 @@ function serializeMarkdownNode(node: Node): string {
     case "u":
     case "sub":
     case "sup":
-      return element.outerHTML;
+      return forCitationAudit ? children : element.outerHTML;
     case "code": {
       const value = element.textContent ?? "";
       const delimiter = value.includes("`") ? "``" : "`";
@@ -115,10 +124,11 @@ function serializeMarkdownNode(node: Node): string {
         .map((line) => `> ${line}`)
         .join("\n")}\n\n`;
     case "ul":
-      if (element.getAttribute("data-type") === "taskList") return `${element.outerHTML}\n\n`;
-      return `${serializeList(element, false)}\n\n`;
+      if (element.getAttribute("data-type") === "taskList" && !forCitationAudit)
+        return `${element.outerHTML}\n\n`;
+      return `${serializeList(element, false, forCitationAudit)}\n\n`;
     case "ol":
-      return `${serializeList(element, true)}\n\n`;
+      return `${serializeList(element, true, forCitationAudit)}\n\n`;
     case "a": {
       const href = element.getAttribute("href");
       if (!href) return children;
@@ -141,21 +151,27 @@ function serializeMarkdownNode(node: Node): string {
     case "table":
     case "figure":
     case "iframe":
-      return `${element.outerHTML}\n\n`;
+      return forCitationAudit ? `${children}\n\n` : `${element.outerHTML}\n\n`;
     case "div":
-      return element.hasAttribute("data-youtube-video") ? `${element.outerHTML}\n\n` : children;
+      return element.hasAttribute("data-youtube-video") && !forCitationAudit
+        ? `${element.outerHTML}\n\n`
+        : children;
     default:
       return children;
   }
 }
 
-function htmlToMarkdown(html: string): string {
+function htmlToMarkdown(html: string, forCitationAudit = false): string {
   const document = new DOMParser().parseFromString(html, "text/html");
   return [...document.body.childNodes]
-    .map((node) => serializeMarkdownNode(node))
+    .map((node) => serializeMarkdownNode(node, forCitationAudit))
     .join("")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+export function htmlToCitationAuditMarkdown(html: string): string {
+  return htmlToMarkdown(sanitizeFinalMainSiteHtml(html), true);
 }
 
 function exportableEvidence(evidence: StoredSharedChatEvidence[]): StoredSharedChatEvidence[] {

@@ -22,6 +22,7 @@ import {
   navItems,
 } from "./constants";
 import { logEvent } from "./diagnostics";
+import { htmlToCitationAuditMarkdown } from "./editor/posteditor/editor/exportFinalContent";
 import { AgentsScreen } from "./features/agents/AgentsScreen";
 import { EvidenceScreen } from "./features/evidence/EvidenceScreen";
 import { ProtocolsScreen } from "./features/protocols/ProtocolsScreen";
@@ -838,7 +839,9 @@ export function App() {
 
   async function auditEvidenceNow() {
     const sourceText = [editorialPrompt, protocolText, mainSiteHtml].join("\n\n");
-    const citationSourceText = mainSiteHtml.trim() || editorialPrompt.trim();
+    const citationSourceText = mainSiteHtml.trim()
+      ? htmlToCitationAuditMarkdown(mainSiteHtml)
+      : editorialPrompt.trim();
     const pinnedProtocolHash = /^[a-f0-9]{64}$/i.test(protocol.hash) ? protocol.hash : null;
     setIsAuditingEvidence(true);
     setLinkAuditRows([]);
