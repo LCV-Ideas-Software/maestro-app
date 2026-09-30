@@ -4616,7 +4616,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ==============================================================================
 
-markdown-it 14.2.0  (npm)
+markdown-it 14.3.2  (npm)
 Licenca declarada: MIT
 
 --- LICENSE ---
