@@ -6,6 +6,9 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Fixed
 
+- **LCV-244:** Raise the existing transitive `markdown-it` override to 14.3.2
+  for GHSA-253c-mchw-3w2r, restoring the npm audit gate for Dependabot PR #416.
+
 - **MAESTRO-34:** Require current mechanical proof, content hash and ready evidence before a link can be accepted or its approval preserved; keep the fetched URL identical to the source text. Fail closed on unstructured or excess citations, preserve citation context during session resume, and match body citations per occurrence. Block local IPv6 translation ranges and restore safe HTTP 304 revalidation without persisting credentials or sensitive query values in rejected URL records.
 - **MAESTRO-34 review follow-up:** Preserve validated query parameters when robots.txt blocks collection; compare non-Latin author names without dropping their letters; ignore Markdown code examples when checking raw HTML and citation signals; revalidate ready HEAD and bodyless HTTP records with 304.
 - **MAESTRO-34 second review follow-up:** Detect narrative citations in non-Latin scripts, require a distinct body occurrence for each manifest entry, reject private IPv4 addresses embedded in IPv6 translation ranges, and accept HTTP 304 only when a validator was sent. Use the maintained CommonMark parser for code and HTML boundaries.
