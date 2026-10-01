@@ -50616,6 +50616,8 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
+Historical vendor block — tinyvec_macros is absent from the current Cargo.lock and Windows runtime graph.
+
 tinyvec_macros 0.1.1  (cargo)
 Licenca declarada: MIT OR Apache-2.0 OR Zlib
 Licenca eleita: MIT (ordem de preferencia da politica)

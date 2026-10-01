@@ -30,6 +30,11 @@ exact-version addenda, including their copyright notices. Current Cargo
 notices were checked against checksum-verified upstream archives; historical
 blocks remain explicit provenance and are not current dependency claims.
 Current reviewed Cargo.lock SHA-256: `854ab5aa772687a99c0f84d3425fc5a4b28684bcb9baaa7609b8c0a3ce1abb3a`.
+The v0.5.69 Windows runtime review reaches 309 upstream package/version
+identities with Cargo metadata filtered to x86_64-pc-windows-msvc and normal
+dependencies only (excluding the application, build and dev dependencies).
+`tinyvec_macros 0.1.1` is absent from that graph and the current lock; its
+full vendor block remains explicitly historical, outside the current count.
 
 Direct dependencies declared by this repository:
 
