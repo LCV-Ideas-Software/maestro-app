@@ -25,6 +25,17 @@ snapshot in `THIRD-PARTY-NOTICES.txt` and still require manual review before a n
 distribution. Native GitHub dependency and security checks are not a claim that
 the Rust notice bundle has been regenerated.
 
+The v0.5.69 review retains historical vendor blocks used by the existing
+exact-version addenda, including their copyright notices. Current Cargo
+notices were checked against checksum-verified upstream archives; historical
+blocks remain explicit provenance and are not current dependency claims.
+Current reviewed Cargo.lock SHA-256: `854ab5aa772687a99c0f84d3425fc5a4b28684bcb9baaa7609b8c0a3ce1abb3a`.
+The v0.5.69 Windows runtime review reaches 309 upstream package/version
+identities with Cargo metadata filtered to x86_64-pc-windows-msvc and normal
+dependencies only (excluding the application, build and dev dependencies).
+`tinyvec_macros 0.1.1` is absent from that graph and the current lock; its
+full vendor block remains explicitly historical, outside the current count.
+
 Direct dependencies declared by this repository:
 
 `Modified? = No` means the locked upstream artifact is consumed without a
@@ -66,14 +77,14 @@ declared explicitly in this inventory and the applicable distribution notices.
 | @tiptap/react | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/react |
 | @tiptap/starter-kit | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/starter-kit |
 | @tiptap/suggestion | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/suggestion |
-| dompurify | 3.4.15 | (MPL-2.0 OR Apache-2.0) | runtime | No | https://www.npmjs.com/package/dompurify |
+| dompurify | 3.4.16 | (MPL-2.0 OR Apache-2.0) | runtime | No | https://www.npmjs.com/package/dompurify |
 | lowlight | 3.3.0 | MIT | runtime | No | https://www.npmjs.com/package/lowlight |
-| lucide-react | 1.47.0 | ISC AND MIT | runtime | No | https://www.npmjs.com/package/lucide-react |
+| lucide-react | 1.48.0 | ISC AND MIT | runtime | No | https://www.npmjs.com/package/lucide-react |
 | mammoth | 1.12.3 | BSD-2-Clause | runtime | No | https://www.npmjs.com/package/mammoth |
-| marked | 18.0.13 | MIT AND BSD-3-Clause | runtime | No | https://www.npmjs.com/package/marked |
-| prosemirror-model | 1.25.11 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-model |
+| marked | 18.0.14 | MIT AND BSD-3-Clause | runtime | No | https://www.npmjs.com/package/marked |
+| prosemirror-model | 1.25.12 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-model |
 | prosemirror-state | 1.4.4 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-state |
-| prosemirror-view | 1.42.4 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-view |
+| prosemirror-view | 1.42.5 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-view |
 | react | 19.3.0 | MIT | runtime | No | https://www.npmjs.com/package/react |
 | react-dom | 19.3.0 | MIT | runtime | No | https://www.npmjs.com/package/react-dom |
 | tiptap-markdown | 0.9.0 | MIT | runtime | No | https://www.npmjs.com/package/tiptap-markdown |
@@ -84,8 +95,8 @@ declared explicitly in this inventory and the applicable distribution notices.
 | @types/react | 19.3.0 | MIT | development | No | https://www.npmjs.com/package/@types/react |
 | @types/react-dom | 19.3.0 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
 | @vitejs/plugin-react | 6.1.1 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
-| jsdom | 30.1.0 | MIT | development | No | https://www.npmjs.com/package/jsdom |
-| prettier | 3.9.8 | MIT | development | No | https://www.npmjs.com/package/prettier |
+| jsdom | 30.1.1 | MIT | development | No | https://www.npmjs.com/package/jsdom |
+| prettier | 3.9.9 | MIT | development | No | https://www.npmjs.com/package/prettier |
 | typescript | 7.0.2 | Apache-2.0 | development | No | https://www.npmjs.com/package/typescript |
 | vite | 8.3.0 | MIT | development | No | https://www.npmjs.com/package/vite |
 | vitest | 5.0.1 | MIT | development | No | https://www.npmjs.com/package/vitest |

@@ -4,25 +4,53 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+## [v0.5.69] - 01/10/2026
+
+### Security
+
+- **MAESTRO-35 / LCV-256:** Prepare v00.05.69 so the existing native release
+  workflow delivers the dependency fixes already merged into main, including
+  DOMPurify 3.4.16. Preserve the immutable v00.05.68 release and reconcile the
+  exact-version runtime inventory and full distribution notices.
+
+- **MAESTRO-35 review:** Align all installed npm notice headers with the
+  locked versions, including React types and scheduler, and show 0.5.69 as
+  the README source version. Preserve historical entries outside the selected
+  installed graph and the documented limits of the legal snapshot.
+
+- **MAESTRO-35 release review:** Refresh the remaining direct tooling rows
+  (jsdom/Prettier) and the three current Rust notices from checksum-verified
+  crates.io archives: hyper-rustls 0.27.10 and thiserror/thiserror-impl 2.0.21.
+
+- **MAESTRO-35 final review:** Refresh every remaining version-drifted Cargo
+  notice against the exact checksum-verified current archive, including
+  quinn-udp 0.5.16, and date the v0.5.69 release notes. Preserve historical
+  snapshot entries for components outside the current lock.
+
 ### Fixed
 
 - **LCV-244:** Raise the existing transitive `markdown-it` override to 14.3.2
   for GHSA-253c-mchw-3w2r, restoring the npm audit gate for Dependabot PR #416.
 
+## [v0.5.68] - 27/09/2026
+
+### Fixed
+
 - **MAESTRO-34:** Require current mechanical proof, content hash and ready evidence before a link can be accepted or its approval preserved; keep the fetched URL identical to the source text. Fail closed on unstructured or excess citations, preserve citation context during session resume, and match body citations per occurrence. Block local IPv6 translation ranges and restore safe HTTP 304 revalidation without persisting credentials or sensitive query values in rejected URL records.
+
 - **MAESTRO-34 review follow-up:** Preserve validated query parameters when robots.txt blocks collection; compare non-Latin author names without dropping their letters; ignore Markdown code examples when checking raw HTML and citation signals; revalidate ready HEAD and bodyless HTTP records with 304.
+
 - **MAESTRO-34 second review follow-up:** Detect narrative citations in non-Latin scripts, require a distinct body occurrence for each manifest entry, reject private IPv4 addresses embedded in IPv6 translation ranges, and accept HTTP 304 only when a validator was sent. Use the maintained CommonMark parser for code and HTML boundaries.
+
 - **MAESTRO-34 full-PR review:** Exclude Markdown code from body-citation and reference detection; decompose grouped citations; reject mislabeled direct quotes, missing reference sections and duplicate reference lines. Verify cached evidence bytes and the final URL before reuse, and redact rejected link URLs and context before persistence. Align the Rust and npm inventories with the shipped graph.
+
 - **MAESTRO-34 citation review:** Require a body occurrence for every manifest entry, count grouped sources with locators exactly once, preserve narrative indirect/paraphrase semantics, validate each `apud` against its consulted source, and link direct quotes only to their own adjacent citations and locators. Avoid treating a single cased letter as an author while retaining uncased scripts.
+
 - **MAESTRO-34 final engineering review:** Build the citation reader from rendered CommonMark text events, excluding markup delimiters and hidden examples; bind references to top-level heading offsets, check signals without reparsing decoded entities, and block reference apparatus without a manifest. Preserve balanced Markdown link destinations and exact redirect identity, ignore code/comment URL examples without hiding adjacent live anchors, trim long punctuation tails in linear time, prevent `mailto:` addresses without content hashes from being accepted as claim evidence, reject encoded and credential-like `*key`/`*sig` URL names while retaining ordinary anchors, fail closed when HTTP 304 cannot reuse or refresh its cache, verify persisted evidence artifacts, and apply the specific `robots.txt` agent policy to versioned product tokens while suspending collection on HTTP 429.
+
 - **MAESTRO-34 final PR review:** Keep encoded delimiters inside parsed URL keys visible to the credential guard. Distinguish valid publication years from plausible future citations that still require evidence, ignore technical standard numbers and measurement marks when opening direct quotations, and recognize only explicit introductory markers before narrative author names. Preserve table cell and row boundaries in the editor audit projection; use the same sanitized MainSite link projection at review and save, including URLs in iframe and blockquote attributes, so HTML entities do not change fetched destinations or review identity.
+
 - **MAESTRO-34 post-merge review:** Require the ABNT citation gate in both the editor and native Save/Preview/Publish commands, with a citation context bound to each stored draft and reused after session recovery. Omit code examples from HTML citation projections and escape tilde fences in prose so later citations remain visible; preserve collision-free code delimiters in Markdown exports. Audit reference-style image destinations; reject link review on a changed final URL or redirect chain. Serialize Web Evidence cache updates per evidence ID and identify prompt/protocol and MainSite link records as separate source artifacts. Keep auditing later sources if an earlier source fails, and restart inventory pagination when filters change. Record the new HTML parser and its exact distribution notices.
-
-- **MAESTRO-33:** Move the Perplexity desktop peer to the Agent API with a documented `provider/model` pin, typed response parsing, and source metadata. Preserve model override separators, require search evidence before accepting a response, reserve the web-search fee in cost guards, and account for incomplete responses using provider-reported totals or estimated token usage. Reject legacy Sonar model IDs before dispatch.
-
-- **MAESTRO-33 follow-up:** Charge searches that return zero results or omit token counters when estimating an unreported provider total. Update the in-app Perplexity labels and `LEIAME.md` to identify the Agent API and its default model.
-- **MAESTRO-33 resume accounting:** Persist token usage and the observed versus estimated cost label for billed provider failures; restore those fields when resuming a session while retaining compatibility with older `Cost USD` artifacts.
-- **MAESTRO-33 resume tone:** Persist the provider result tone in session artifacts, update status and tone together after final gate reclassification, and restore the recorded tone directly, with a legacy status fallback. Read accounting and status only from the artifact header. Legacy Perplexity model configuration failures, cost limits and user stops remain blocked after resume.
 
 ### Changed
 
@@ -30,6 +58,35 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   2.11.5, `tauri` 2.11.6 and `rand` 0.10.3. Regenerate the npm and Cargo
   lockfiles with their official managers, refresh the exact-version inventory
   and license provenance, and recheck the Windows advisory graph.
+
+## [v0.5.67] - 23/09/2026
+
+### Fixed
+
+- **MAESTRO-33:** Move the Perplexity desktop peer to the Agent API with a documented `provider/model` pin, typed response parsing, and source metadata. Preserve model override separators, require search evidence before accepting a response, reserve the web-search fee in cost guards, and account for incomplete responses using provider-reported totals or estimated token usage. Reject legacy Sonar model IDs before dispatch.
+
+- **MAESTRO-33 follow-up:** Charge searches that return zero results or omit token counters when estimating an unreported provider total. Update the in-app Perplexity labels and `LEIAME.md` to identify the Agent API and its default model.
+
+- **MAESTRO-33 resume accounting:** Persist token usage and the observed versus estimated cost label for billed provider failures; restore those fields when resuming a session while retaining compatibility with older `Cost USD` artifacts.
+
+- **MAESTRO-33 resume tone:** Persist the provider result tone in session artifacts, update status and tone together after final gate reclassification, and restore the recorded tone directly, with a legacy status fallback. Read accounting and status only from the artifact header. Legacy Perplexity model configuration failures, cost limits and user stops remain blocked after resume.
+
+## [v0.5.66] - 23/09/2026
+
+### Fixed
+
+- **MAESTRO-30 follow-up — ambiguous growth attribution.** Reject added blocks
+  when two or more received blocks are edited in the same unmatched region.
+  An addition declaration on one of those blocks cannot prove which revised
+  block produced the extra text without the separately deferred provenance
+  contract. The revision prompt and workflow now direct agents to revise the
+  existing blocks first and add new text in a separate serial turn. A
+  GitHub-hosted Windows regression reproduced the v0.5.65 false accept before
+  the fix. Bump the synchronized source version to 0.5.66.
+
+## [v0.5.65] - 23/09/2026
+
+### Changed
 
 - Recalculate the transitive Rust graph and refresh the notices it feeds. This
   is the first recalculation since `scripts/generate-notices.mjs` was retired;
@@ -50,15 +107,6 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   table that dependency updates do not touch (LCV-207).
 
 ### Fixed
-
-- **MAESTRO-30 follow-up — ambiguous growth attribution.** Reject added blocks
-  when two or more received blocks are edited in the same unmatched region.
-  An addition declaration on one of those blocks cannot prove which revised
-  block produced the extra text without the separately deferred provenance
-  contract. The revision prompt and workflow now direct agents to revise the
-  existing blocks first and add new text in a separate serial turn. A
-  GitHub-hosted Windows regression reproduced the v0.5.65 false accept before
-  the fix. Bump the synchronized source version to 0.5.66.
 
 - **MAESTRO-30 — approved-content lock.** Parse the isolated revision report as
   strict JSON with typed `changed_blocks` entries instead of scanning

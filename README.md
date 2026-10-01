@@ -24,7 +24,8 @@ The version history at a glance:
 
 | Release | Scope |
 | --- | --- |
-| **`v0.5.68` (source)** | MAESTRO-34: final citation and link audits require current mechanical evidence, preserve source URLs during fetch, reject incomplete manifest coverage, and keep sensitive rejected URL data out of persisted records. |
+| **`v0.5.69` (source)** | MAESTRO-35: deliver the dependency updates already merged into main through a new native release, with current exact-version third-party notices. |
+| **`v0.5.68`** | MAESTRO-34: final citation and link audits require current mechanical evidence, preserve source URLs during fetch, reject incomplete manifest coverage, and keep sensitive rejected URL data out of persisted records. |
 | **`v0.5.66`** | Reject growth when multiple received blocks change in one region: revised blocks lack provenance IDs, so a distant addition permission cannot authorize new text. Revise the blocks first and add new text in a separate serial turn. |
 | **`v0.5.65`** | MAESTRO-30: every serial revision report requires JSON without duplicate fields; block permissions and insertion anchors are validated from received IDs, with compound reorder/addition declarations. Whitespace-only separator lines and five-digit block IDs are supported. |
 | **`v0.5.60`** | Ships the complete MAESTRO-17/20/22/23 release set, including the official Linear writer, fail-closed dependency inventory, source-qualified third-party licence evidence, complete portable legal notices, and the bounded release-gate wait. |
