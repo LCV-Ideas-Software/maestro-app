@@ -8976,13 +8976,14 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-camino 1.2.5  (cargo)
+camino 1.2.6  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
+
 --- LICENSE-APACHE ---
 
-Apache License
+                              Apache License
                         Version 2.0, January 2004
                      http://www.apache.org/licenses/
 
@@ -9508,13 +9509,14 @@ SOFTWARE.
 
 ==============================================================================
 
-cfg-if 1.0.4  (cargo)
+cfg-if 1.0.5  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
+
 --- LICENSE-APACHE ---
 
-Apache License
+                              Apache License
                         Version 2.0, January 2004
                      http://www.apache.org/licenses/
 
@@ -28448,13 +28450,15 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-lru-slab 0.1.2  (cargo)
+lru-slab 0.1.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0 OR Zlib
 Licenca eleita: MIT (ordem de preferencia da politica)
 
+
 --- LICENSE-APACHE ---
 
-Apache License
+
+                                 Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
 
@@ -33038,13 +33042,14 @@ THE SOFTWARE.
 
 ==============================================================================
 
-quinn-proto 0.11.17  (cargo)
+quinn-proto 0.11.18  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
+
 --- LICENSE-APACHE ---
 
-Apache License
+                                 Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
 
@@ -33258,13 +33263,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ==============================================================================
 
-quinn-udp 0.5.15  (cargo)
+quinn-udp 0.5.16  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
+
 --- LICENSE-APACHE ---
 
-Apache License
+                                 Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
 
@@ -33478,13 +33484,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ==============================================================================
 
-quinn 0.11.11  (cargo)
+quinn 0.11.12  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
+
 --- LICENSE-APACHE ---
 
-Apache License
+                                 Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
 
@@ -34150,13 +34157,14 @@ licensed under the Apache License, Version 2.0 <LICENSE-APACHE> or
 
 ==============================================================================
 
-rand 0.10.2  (cargo)
+rand 0.10.3  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
+
 --- LICENSE-APACHE ---
 
-Apache License
+                              Apache License
                         Version 2.0, January 2004
                      https://www.apache.org/licenses/
 
@@ -34361,21 +34369,6 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
-
---- COPYRIGHT ---
-
-Copyrights in the Rand project are retained by their contributors. No
-copyright assignment is required to contribute to the Rand project.
-
-For full authorship information, see the version control history.
-
-Except as otherwise noted (below and/or in individual files), Rand is
-licensed under the Apache License, Version 2.0 <LICENSE-APACHE> or
-<http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-<LICENSE-MIT> or <http://opensource.org/licenses/MIT>, at your option.
-
-The Rand project includes code from the Rust project
-published under these same licenses.
 
 ==============================================================================
 
@@ -44193,13 +44186,14 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-syn 3.0.5  (cargo)
+syn 3.0.6  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
+
 --- LICENSE-APACHE ---
 
-Apache License
+                              Apache License
                         Version 2.0, January 2004
                      http://www.apache.org/licenses/
 
@@ -44588,8 +44582,9 @@ Apache License
 
 ==============================================================================
 
-synstructure 0.13.2  (cargo)
+synstructure 0.14.0  (cargo)
 Licenca declarada: MIT
+
 
 --- LICENSE ---
 
@@ -45878,13 +45873,15 @@ SOFTWARE.
 
 ==============================================================================
 
-tauri 2.11.5  (cargo)
+tauri 2.11.6  (cargo)
 Licenca declarada: Apache-2.0 OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
+
 --- LICENSE_APACHE-2.0 ---
 
-Apache License
+
+                                 Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
 
@@ -48102,13 +48099,15 @@ freely, subject to the following restrictions:
 
 ==============================================================================
 
-tinyvec 1.13.2  (cargo)
+tinyvec 1.13.3  (cargo)
 Licenca declarada: Zlib OR Apache-2.0 OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
+
 --- LICENSE-APACHE.md ---
 
-Apache License
+
+                                 Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
 
@@ -51829,13 +51828,14 @@ limitations under the License.
 
 ==============================================================================
 
-unicode-ident 1.0.24  (cargo)
+unicode-ident 1.0.26  (cargo)
 Licenca declarada: (MIT OR Apache-2.0) AND Unicode-3.0
 Licenca eleita: MIT AND Unicode-3.0 (registrada na politica)
 
+
 --- LICENSE-APACHE ---
 
-Apache License
+                              Apache License
                         Version 2.0, January 2004
                      http://www.apache.org/licenses/
 
@@ -58538,8 +58538,9 @@ Creator: Person: Daniel Thompson-Yvetot
 
 ==============================================================================
 
-yoke-derive 0.8.2  (cargo)
+yoke-derive 0.8.3  (cargo)
 Licenca declarada: Unicode-3.0
+
 
 --- LICENSE ---
 
@@ -58651,8 +58652,9 @@ no commit 78185cb51ea64f91c523fb9cb8a01aad37295302.
 
 ==============================================================================
 
-zerofrom-derive 0.1.7  (cargo)
+zerofrom-derive 0.1.8  (cargo)
 Licenca declarada: Unicode-3.0
+
 
 --- LICENSE ---
 
@@ -59159,8 +59161,9 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 
 ==============================================================================
 
-zlib-rs 0.6.7  (cargo)
+zlib-rs 0.6.8  (cargo)
 Licenca declarada: Zlib
+
 
 --- LICENSE ---
 

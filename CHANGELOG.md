@@ -4,6 +4,8 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+## [v0.5.69] - 01/10/2026
+
 ### Security
 
 - **MAESTRO-35 / LCV-256:** Prepare v00.05.69 so the existing native release
@@ -17,6 +19,10 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 - **MAESTRO-35 release review:** Refresh the remaining direct tooling rows
   (jsdom/Prettier) and the three current Rust notices from checksum-verified
   crates.io archives: hyper-rustls 0.27.10 and thiserror/thiserror-impl 2.0.21.
+- **MAESTRO-35 final review:** Refresh every remaining version-drifted Cargo
+  notice against the exact checksum-verified current archive, including
+  quinn-udp 0.5.16, and date the v0.5.69 release notes. Preserve historical
+  snapshot entries for components outside the current lock.
 
 ### Fixed
 
