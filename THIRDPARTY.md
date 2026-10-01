@@ -25,6 +25,12 @@ snapshot in `THIRD-PARTY-NOTICES.txt` and still require manual review before a n
 distribution. Native GitHub dependency and security checks are not a claim that
 the Rust notice bundle has been regenerated.
 
+The v0.5.69 review retains historical vendor blocks used by the existing
+exact-version addenda, including their copyright notices. Current Cargo
+notices were checked against checksum-verified upstream archives; historical
+blocks remain explicit provenance and are not current dependency claims.
+Current reviewed Cargo.lock SHA-256: `854ab5aa772687a99c0f84d3425fc5a4b28684bcb9baaa7609b8c0a3ce1abb3a`.
+
 Direct dependencies declared by this repository:
 
 `Modified? = No` means the locked upstream artifact is consumed without a
