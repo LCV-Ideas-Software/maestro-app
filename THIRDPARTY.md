@@ -84,8 +84,8 @@ declared explicitly in this inventory and the applicable distribution notices.
 | @types/react | 19.3.0 | MIT | development | No | https://www.npmjs.com/package/@types/react |
 | @types/react-dom | 19.3.0 | MIT | development | No | https://www.npmjs.com/package/@types/react-dom |
 | @vitejs/plugin-react | 6.1.1 | MIT | development | No | https://www.npmjs.com/package/@vitejs/plugin-react |
-| jsdom | 30.1.0 | MIT | development | No | https://www.npmjs.com/package/jsdom |
-| prettier | 3.9.8 | MIT | development | No | https://www.npmjs.com/package/prettier |
+| jsdom | 30.1.1 | MIT | development | No | https://www.npmjs.com/package/jsdom |
+| prettier | 3.9.9 | MIT | development | No | https://www.npmjs.com/package/prettier |
 | typescript | 7.0.2 | Apache-2.0 | development | No | https://www.npmjs.com/package/typescript |
 | vite | 8.3.0 | MIT | development | No | https://www.npmjs.com/package/vite |
 | vitest | 5.0.1 | MIT | development | No | https://www.npmjs.com/package/vitest |

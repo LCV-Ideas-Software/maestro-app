@@ -24352,13 +24352,14 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-hyper-rustls 0.27.9  (cargo)
+hyper-rustls 0.27.10  (cargo)
 Licenca declarada: Apache-2.0 OR ISC OR MIT
 Licenca eleita: MIT (ordem de preferencia da politica)
 
+
 --- LICENSE-APACHE ---
 
-Apache License
+                              Apache License
                         Version 2.0, January 2004
                      http://www.apache.org/licenses/
 
@@ -46535,13 +46536,14 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-thiserror-impl 2.0.20  (cargo)
+thiserror-impl 2.0.21  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
+
 --- LICENSE-APACHE ---
 
-Apache License
+                              Apache License
                         Version 2.0, January 2004
                      http://www.apache.org/licenses/
 
@@ -46957,13 +46959,14 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-thiserror 2.0.20  (cargo)
+thiserror 2.0.21  (cargo)
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
+
 --- LICENSE-APACHE ---
 
-Apache License
+                              Apache License
                         Version 2.0, January 2004
                      http://www.apache.org/licenses/
 

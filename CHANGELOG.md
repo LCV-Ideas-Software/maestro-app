@@ -14,6 +14,9 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   locked versions, including React types and scheduler, and show 0.5.69 as
   the README source version. Preserve historical entries outside the selected
   installed graph and the documented limits of the legal snapshot.
+- **MAESTRO-35 release review:** Refresh the remaining direct tooling rows
+  (jsdom/Prettier) and the three current Rust notices from checksum-verified
+  crates.io archives: hyper-rustls 0.27.10 and thiserror/thiserror-impl 2.0.21.
 
 ### Fixed
 
