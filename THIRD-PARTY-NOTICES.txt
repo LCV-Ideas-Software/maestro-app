@@ -2184,12 +2184,13 @@ MIT License
 
 ==============================================================================
 
-@types/react-dom 19.2.7  (npm)
+@types/react-dom 19.3.0  (npm)
 Licenca declarada: MIT
+
 
 --- LICENSE ---
 
-MIT License
+    MIT License
 
     Copyright (c) Microsoft Corporation.
 
@@ -2210,15 +2211,17 @@ MIT License
     LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE
+
 
 ==============================================================================
 
-@types/react 19.2.18  (npm)
+@types/react 19.3.0  (npm)
 Licenca declarada: MIT
+
 
 --- LICENSE ---
 
-MIT License
+    MIT License
 
     Copyright (c) Microsoft Corporation.
 
@@ -2239,6 +2242,7 @@ MIT License
     LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE
+
 
 ==============================================================================
 
@@ -5528,8 +5532,9 @@ THE SOFTWARE.
 
 ==============================================================================
 
-scheduler 0.27.0  (npm)
+scheduler 0.28.0  (npm)
 Licenca declarada: MIT
+
 
 --- LICENSE ---
 
@@ -5554,6 +5559,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
 
 ==============================================================================
 

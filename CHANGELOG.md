@@ -10,6 +10,10 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   workflow delivers the dependency fixes already merged into main, including
   DOMPurify 3.4.16. Preserve the immutable v00.05.68 release and reconcile the
   exact-version runtime inventory and full distribution notices.
+- **MAESTRO-35 review:** Align all installed npm notice headers with the
+  locked versions, including React types and scheduler, and show 0.5.69 as
+  the README source version. Preserve historical entries outside the selected
+  installed graph and the documented limits of the legal snapshot.
 
 ### Fixed
 
