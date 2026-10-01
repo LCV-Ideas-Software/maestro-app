@@ -4,6 +4,13 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- **MAESTRO-35 / LCV-256:** Prepare v00.05.69 so the existing native release
+  workflow delivers the dependency fixes already merged into main, including
+  DOMPurify 3.4.16. Preserve the immutable v00.05.68 release and reconcile the
+  exact-version runtime inventory and full distribution notices.
+
 ### Fixed
 
 - **LCV-244:** Raise the existing transitive `markdown-it` override to 14.3.2
