@@ -29,7 +29,7 @@ The v0.5.69 review retains historical vendor blocks used by the existing
 exact-version addenda, including their copyright notices. Current Cargo
 notices were checked against checksum-verified upstream archives; historical
 blocks remain explicit provenance and are not current dependency claims.
-Current reviewed Cargo.lock SHA-256: `854ab5aa772687a99c0f84d3425fc5a4b28684bcb9baaa7609b8c0a3ce1abb3a`.
+Current reviewed Cargo.lock SHA-256: `22afc6042658c20c2302b678acb1f93f5d6aa3104765786c2871573bc0f8f7fe`.
 The v0.5.69 Windows runtime review reaches 309 upstream package/version
 identities with Cargo metadata filtered to x86_64-pc-windows-msvc and normal
 dependencies only (excluding the application, build and dev dependencies).
@@ -84,7 +84,7 @@ declared explicitly in this inventory and the applicable distribution notices.
 | marked | 18.0.14 | MIT AND BSD-3-Clause | runtime | No | https://www.npmjs.com/package/marked |
 | prosemirror-model | 1.25.12 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-model |
 | prosemirror-state | 1.4.4 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-state |
-| prosemirror-view | 1.42.5 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-view |
+| prosemirror-view | 1.42.6 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-view |
 | react | 19.3.0 | MIT | runtime | No | https://www.npmjs.com/package/react |
 | react-dom | 19.3.0 | MIT | runtime | No | https://www.npmjs.com/package/react-dom |
 | tiptap-markdown | 0.9.0 | MIT | runtime | No | https://www.npmjs.com/package/tiptap-markdown |
@@ -98,7 +98,7 @@ declared explicitly in this inventory and the applicable distribution notices.
 | jsdom | 30.1.1 | MIT | development | No | https://www.npmjs.com/package/jsdom |
 | prettier | 3.9.9 | MIT | development | No | https://www.npmjs.com/package/prettier |
 | typescript | 7.0.2 | Apache-2.0 | development | No | https://www.npmjs.com/package/typescript |
-| vite | 8.3.0 | MIT | development | No | https://www.npmjs.com/package/vite |
+| vite | 8.3.1 | MIT | development | No | https://www.npmjs.com/package/vite |
 | vitest | 5.0.3 | MIT | development | No | https://www.npmjs.com/package/vitest |
 
 ## Rust components — preserved review
@@ -234,7 +234,7 @@ the crates remain MPL-covered files in a Larger Work under MPL section 3.3,
 while separate files in the application remain under AGPL-3.0-or-later.
 
 `ring` is reached on the configured runtime path through direct dependency
-`reqwest` 0.12.28 and `rustls` 0.23.39. Its exact crates.io artifact matches the
+`reqwest` 0.12.28 and `rustls` 0.23.45. Its exact crates.io artifact matches the
 `Cargo.lock` SHA-256 checksum
 `a4689e6c2294d81e88dc6261c768b63bc4fcdb852be6d1352498b114f61383b7`
 and declares `Apache-2.0 AND ISC`; both terms apply. Its root `LICENSE` also
@@ -254,3 +254,18 @@ a new distribution; the retired custom verifier no longer enforces that work.
 ## Atualização documental — 02/10/2026 (LCV-183 / LCV-211)
 
 O Vitest 5.0.3 seleciona `why-is-node-running` 3.2.1, cuja publicação oficial não depende de `stackback`. A árvore exata permanece nos lockfiles regenerados pelo npm. Fonte: https://github.com/vitest-dev/vitest/pull/11316 e https://github.com/vitest-dev/vitest/releases/tag/v5.0.3. Esta atualização de ferramenta de teste não afirma incorporação no produto distribuído.
+
+## v0.5.70 exact-version inventory refresh - 03/10/2026
+
+The direct npm rows now match `prosemirror-view 1.42.6` and development tool
+`vite 8.3.1`. Their exact official npm archives match the locked SRI and
+registry metadata; this tooling record does not assert Vite is distributed.
+The locked Windows normal-dependency selection remains 309 identities.
+The current notices identify checksum-verified `hyper-util 0.1.21`,
+`smallvec 1.16.2`, `siphasher 1.0.4` and `windows-sys 0.52.0`. Existing full
+license texts remain intact; the two new current-version blocks reproduce
+complete upstream MIT texts and applicable copyright notices. The historical
+`siphasher` vendor supplement remains explicitly historical. The complete
+Microsoft SDK grant and native-loader supplement remain byte-identical.
+This is a targeted release inventory refresh, not certification that every
+build, development or other-platform lock entry is distributed.

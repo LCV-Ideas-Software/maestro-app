@@ -4,16 +4,19 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
-- Atualizado o Vitest para 5.0.3, que seleciona o `why-is-node-running` oficial 3.2.1 sem `stackback`; manifestos e lockfiles regenerados pelo npm.
-
 ## [v0.5.70] - 03/10/2026
 
 ### Fixed
 
+- Align exact-version npm and Windows runtime notices and checksum provenance
+  with the locked release graph; preserve historical vendor text and the full SDK grant.
+
 - **MAESTRO-37:** Add the complete Microsoft WebView2 SDK 1.0.3650.58 BSD-3-Clause
-  text for the native x64 MSVC loader, preserving all existing notice bytes.
+  text for the native x64 MSVC loader, preserving the complete existing license texts.
 
 ### Changed
+
+- Atualizado o Vitest para 5.0.3, que seleciona o `why-is-node-running` oficial 3.2.1 sem `stackback`; manifestos e lockfiles regenerados pelo npm.
 
 - Prepare v00.05.70 with synchronized product versions so the existing native
   release workflow can deliver the notice without changing the published v00.05.69.

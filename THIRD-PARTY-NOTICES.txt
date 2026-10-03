@@ -5302,7 +5302,11 @@ THE SOFTWARE.
 
 ==============================================================================
 
-prosemirror-view 1.42.5  (npm)
+prosemirror-view 1.42.6  (npm)
+Source artifact: https://registry.npmjs.org/prosemirror-view/-/prosemirror-view-1.42.6.tgz
+Locked npm integrity: sha512-3g25f6hKV2bBxo3puH3EcYWmmVNSH0iWmNsMVT7sugDSpA025jgpOLarcDWr39SdzPjYMaiYtRdNtXialPSjEQ==
+Artifact SHA-256: cf47baf6a53d609220fdc9b6a71b7de04f5e4cc67b2a00d1f55d967f22a68c2c
+LICENSE SHA-256: ef0b452ced6304db2ce78ca66de1fc7b97bab05bc1750c95df359ed3fe1d65c8
 Licenca declarada: MIT
 
 
@@ -25350,7 +25354,10 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-hyper-util 0.1.20  (cargo)
+hyper-util 0.1.21  (cargo)
+Source artifact: https://static.crates.io/crates/hyper-util/hyper-util-0.1.21.crate
+Cargo.lock archive checksum: ddc03d96684f9226b8a787cdb71488417b53ab5ea8fdb1dac946cb9431cc8bff
+LICENSE SHA-256: 9e0a97848ea543aef745c98e84fde696a9a3e0735538f6daefdd3cb1942effc1
 Licenca declarada: MIT
 
 --- LICENSE ---
@@ -44513,6 +44520,7 @@ SOFTWARE.
 ==============================================================================
 
 siphasher 1.0.3  (cargo)
+Historical preserved notice; current locked 1.0.4 is documented in the v0.5.70 addendum below.
 Licenca declarada: MIT/Apache-2.0
 Licenca eleita: MIT (registrada na politica)
 Origem do texto: https://github.com/spdx/license-list-data @ c4a7237ec8f4654e867546f9f409749300f1bf4c (text/MIT.txt)
@@ -44624,7 +44632,11 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 
-smallvec 1.16.1  (cargo)
+smallvec 1.16.2  (cargo)
+Source artifact: https://static.crates.io/crates/smallvec/smallvec-1.16.2.crate
+Cargo.lock archive checksum: f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e
+LICENSE-APACHE SHA-256: a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2
+LICENSE-MIT SHA-256: 0b28172679e0009b655da42797c03fd163a3379d5cfa67ba1f1655e974a2a1a9
 Licenca declarada: MIT OR Apache-2.0
 Licenca eleita: MIT (ordem de preferencia da politica)
 
@@ -63285,6 +63297,90 @@ License declared: MIT OR Apache-2.0 (MIT selected)
 Cargo.lock archive checksum: 8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee
 LICENSE-MIT SHA-256: 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3
 Full identical license text: syn 2.0.119 entry above.
+
+==============================================================================
+
+v0.5.70 exact-version notice refresh - 03/10/2026
+The current locked Windows normal-dependency selection remains 309 identities.
+Historical vendor/source blocks remain provenance, not current-version claims.
+
+siphasher 1.0.4  (cargo)
+Source artifact: https://static.crates.io/crates/siphasher/siphasher-1.0.4.crate
+License declared: MIT OR Apache-2.0 (MIT selected)
+Cargo.lock archive checksum: 33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256
+LICENSE-MIT SHA-256: f9c4c77baa3828004ee54b8a4f2db2e88ed44a6237a493965bf551fac0fcb62d
+COPYING SHA-256: c962ee4d1d05ddc138b202b2540219ebc57893fcf97b364852094a9a94ce1365
+
+The exact current archive includes the complete upstream license files;
+the preceding vendor supplement remains historical.
+
+--- LICENSE-MIT (complete exact artifact text) ---
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+--- COPYING (complete exact artifact text) ---
+
+Copyright 2012-2016 The Rust Project Developers.
+Copyright 2016-2026 Frank Denis.
+
+Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+<LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+option.
+
+
+==============================================================================
+
+windows-sys 0.52.0  (cargo)
+Source artifact: https://static.crates.io/crates/windows-sys/windows-sys-0.52.0.crate
+License declared: MIT OR Apache-2.0 (MIT selected)
+Cargo.lock archive checksum: 282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d
+license-mit SHA-256: c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+--- license-mit (complete exact artifact text) ---
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+
+
+==============================================================================
+
 
 
 ==============================================================================
