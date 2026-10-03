@@ -99,7 +99,7 @@ declared explicitly in this inventory and the applicable distribution notices.
 | prettier | 3.9.9 | MIT | development | No | https://www.npmjs.com/package/prettier |
 | typescript | 7.0.2 | Apache-2.0 | development | No | https://www.npmjs.com/package/typescript |
 | vite | 8.3.0 | MIT | development | No | https://www.npmjs.com/package/vite |
-| vitest | 5.0.1 | MIT | development | No | https://www.npmjs.com/package/vitest |
+| vitest | 5.0.3 | MIT | development | No | https://www.npmjs.com/package/vitest |
 
 ## Rust components — preserved review
 
@@ -250,3 +250,7 @@ repository's AGPL-3.0-or-later license in its locked Rust graph. This is a
 historical technical compliance inventory, not legal advice or a new coverage
 certification. It must be reviewed and refreshed for dependency changes before
 a new distribution; the retired custom verifier no longer enforces that work.
+
+## Atualização documental — 02/10/2026 (LCV-183 / LCV-211)
+
+O Vitest 5.0.3 seleciona `why-is-node-running` 3.2.1, cuja publicação oficial não depende de `stackback`. A árvore exata permanece nos lockfiles regenerados pelo npm. Fonte: https://github.com/vitest-dev/vitest/pull/11316 e https://github.com/vitest-dev/vitest/releases/tag/v5.0.3. Esta atualização de ferramenta de teste não afirma incorporação no produto distribuído.
