@@ -25,12 +25,12 @@ snapshot in `THIRD-PARTY-NOTICES.txt` and still require manual review before a n
 distribution. Native GitHub dependency and security checks are not a claim that
 the Rust notice bundle has been regenerated.
 
-The v0.5.69 review retains historical vendor blocks used by the existing
+The v0.5.71 review retains historical vendor blocks used by the existing
 exact-version addenda, including their copyright notices. Current Cargo
 notices were checked against checksum-verified upstream archives; historical
 blocks remain explicit provenance and are not current dependency claims.
-Current reviewed Cargo.lock SHA-256: `22afc6042658c20c2302b678acb1f93f5d6aa3104765786c2871573bc0f8f7fe`.
-The v0.5.69 Windows runtime review reaches 309 upstream package/version
+Current reviewed Cargo.lock SHA-256: `8c8cecd5bcb6bea4290f6d3008c2f19f71fa3afc1e9935aca902f5c659ac1654`.
+The v0.5.71 Windows runtime review reaches 294 upstream package/version
 identities with Cargo metadata filtered to x86_64-pc-windows-msvc and normal
 dependencies only (excluding the application, build and dev dependencies).
 `tinyvec_macros 0.1.1` is absent from that graph and the current lock; its
@@ -44,7 +44,7 @@ declared explicitly in this inventory and the applicable distribution notices.
 
 | Component | Version | License | Scope | Modified? | Source |
 | --- | --- | --- | --- | --- | --- |
-| @tauri-apps/api | 2.11.1 | Apache-2.0 OR MIT | runtime | No | https://www.npmjs.com/package/@tauri-apps/api |
+| @tauri-apps/api | 2.12.0 | Apache-2.0 OR MIT | runtime | No | https://www.npmjs.com/package/@tauri-apps/api |
 | @tiptap/core | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/core |
 | @tiptap/extension-character-count | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-character-count |
 | @tiptap/extension-code-block-lowlight | 3.31.3 | MIT | runtime | No | https://www.npmjs.com/package/@tiptap/extension-code-block-lowlight |
@@ -80,7 +80,7 @@ declared explicitly in this inventory and the applicable distribution notices.
 | dompurify | 3.4.16 | (MPL-2.0 OR Apache-2.0) | runtime | No | https://www.npmjs.com/package/dompurify |
 | lowlight | 3.3.0 | MIT | runtime | No | https://www.npmjs.com/package/lowlight |
 | lucide-react | 1.48.0 | ISC AND MIT | runtime | No | https://www.npmjs.com/package/lucide-react |
-| mammoth | 1.12.3 | BSD-2-Clause | runtime | No | https://www.npmjs.com/package/mammoth |
+| mammoth | 1.13.0 | BSD-2-Clause | runtime | No | https://www.npmjs.com/package/mammoth |
 | marked | 18.0.14 | MIT AND BSD-3-Clause | runtime | No | https://www.npmjs.com/package/marked |
 | prosemirror-model | 1.25.12 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-model |
 | prosemirror-state | 1.4.4 | MIT | runtime | No | https://www.npmjs.com/package/prosemirror-state |
@@ -89,7 +89,7 @@ declared explicitly in this inventory and the applicable distribution notices.
 | react-dom | 19.3.0 | MIT | runtime | No | https://www.npmjs.com/package/react-dom |
 | tiptap-markdown | 0.9.0 | MIT | runtime | No | https://www.npmjs.com/package/tiptap-markdown |
 | @biomejs/biome | 2.5.14 | MIT OR Apache-2.0 | development | No | https://www.npmjs.com/package/@biomejs/biome |
-| @tauri-apps/cli | 2.11.5 | Apache-2.0 OR MIT | development | No | https://www.npmjs.com/package/@tauri-apps/cli |
+| @tauri-apps/cli | 2.12.0 | Apache-2.0 OR MIT | development | No | https://www.npmjs.com/package/@tauri-apps/cli |
 | @testing-library/jest-dom | 7.0.1 | MIT | development | No | https://www.npmjs.com/package/@testing-library/jest-dom |
 | @testing-library/react | 16.3.3 | MIT | development | No | https://www.npmjs.com/package/@testing-library/react |
 | @types/react | 19.3.0 | MIT | development | No | https://www.npmjs.com/package/@types/react |
@@ -135,7 +135,7 @@ exception, tracked in LCV-207.
 
 | Component | Version | License | Scope | Modified? | Source |
 | --- | --- | --- | --- | --- | --- |
-| tauri-build | 2.6.3 | Apache-2.0 OR MIT | build | No | https://crates.io/crates/tauri-build/2.6.3 |
+| tauri-build | 2.7.1 | Apache-2.0 OR MIT | build | No | https://crates.io/crates/tauri-build/2.7.1 |
 | base64 | 0.23.1 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/base64/0.23.1 |
 | chrono | 0.4.45 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/chrono/0.4.45 |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/percent-encoding/2.3.2 |
@@ -147,9 +147,10 @@ exception, tracked in LCV-207.
 | serde | 1.0.229 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/serde/1.0.229 |
 | serde_json | 1.0.151 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/serde_json/1.0.151 |
 | sha2 | 0.11.0 | MIT OR Apache-2.0 | runtime | No | https://crates.io/crates/sha2/0.11.0 |
-| tauri | 2.11.6 | Apache-2.0 OR MIT | runtime | No | https://crates.io/crates/tauri/2.11.6 |
+| tauri | 2.12.0 | Apache-2.0 OR MIT | runtime | No | https://crates.io/crates/tauri/2.12.0 |
 | tokio | 1.53.1 | MIT | runtime | No | https://crates.io/crates/tokio/1.53.1 |
 | tokio-util | 0.7.19 | MIT | runtime | No | https://crates.io/crates/tokio-util/0.7.19 |
+| windows-sys | 0.61.2 | MIT OR Apache-2.0 | Windows runtime | No | https://crates.io/crates/windows-sys/0.61.2 |
 
 For MAESTRO-34, the 25/09/2026 lockfile update added `pulldown-cmark 0.13.4`
 and its transitive `unicase 2.9.0` to the Windows runtime graph. Their exact
@@ -269,3 +270,33 @@ complete upstream MIT texts and applicable copyright notices. The historical
 Microsoft SDK grant and native-loader supplement remain byte-identical.
 This is a targeted release inventory refresh, not certification that every
 build, development or other-platform lock entry is distributed.
+
+## v0.5.71 exact-version inventory refresh - 05/10/2026
+
+Cargo's official locked Windows metadata selects 294 upstream identities in
+the normal-dependency graph. Every exact registry archive was matched against
+its Cargo.lock checksum. The stable Tauri 2.12.0 graph had already replaced
+the obsolete UNIC chain; the compatible yoke-derive 0.8.4 update and enabling
+pulldown-cmark's native HTML renderer also regenerated the lock.
+
+The notice addendum adds 43 exact-version sections and nine complete upstream
+texts. The original 3,237,673-byte prefix remains byte-identical, SHA-256
+`beaaf449de30650899f36f003d151b9de9308afb090bc88ae02b708a7dde5caf`.
+Additional copyright, Unicode, ring/fiat, tracing, window-vibrancy and web-time
+texts found inside exact archives are retained. No repository-owned legal
+generator, verifier or CI consumer has been restored.
+
+The five archives without a standalone license file were reviewed individually.
+Selectors 0.38.0 has the MPL Exhibit A header in all 16 Rust files and maps
+to the complete preserved MPL grant. Exact defmt-parser 1.0.0 source matches
+its recorded upstream revision and MIT grant. WebView2 0.39.1 source matches
+its recorded revision and MIT grant; webview2-com-macros 0.8.1 differs only
+in LF/CRLF line endings, explicitly not in exact bytes. These source-qualified
+grants resolve the historical missing-file exceptions.
+
+The recorded Microsoft SDK version is 1.0.3800.47. The official NuGet
+archive's x64 WebView2LoaderStatic.lib matches the crate's loader bytes.
+The complete SDK grant and current NOTICE are included without claiming its
+managed or generator sources are shipped. Vite independently emits bundled
+npm licenses through native build.license. A new portable release still
+requires checking delivered notices, checksums and attestation.

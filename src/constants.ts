@@ -64,12 +64,12 @@ export const initialEvidenceRows: EvidenceRow[] = [
 ];
 
 export const initialProtocolReadingGates: ProtocolReadingGate[] = [
-  { agent: "Claude", progress: 0, status: "Aguardando" },
-  { agent: "Codex", progress: 0, status: "Aguardando" },
-  { agent: "Gemini", progress: 0, status: "Aguardando" },
-  { agent: "DeepSeek", progress: 0, status: "Aguardando" },
-  { agent: "Grok", progress: 0, status: "Aguardando" },
-  { agent: "Perplexity", progress: 0, status: "Aguardando" },
+  { agent: "Claude", progress: null, status: "Aguardando" },
+  { agent: "Codex", progress: null, status: "Aguardando" },
+  { agent: "Gemini", progress: null, status: "Aguardando" },
+  { agent: "DeepSeek", progress: null, status: "Aguardando" },
+  { agent: "Grok", progress: null, status: "Aguardando" },
+  { agent: "Perplexity", progress: null, status: "Aguardando" },
 ];
 
 export const initialDiscussionRounds: DiscussionRound[] = [

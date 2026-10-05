@@ -19,18 +19,20 @@
 use std::path::Path;
 use std::time::Instant;
 
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
+use crate::api_payloads::{api_attachment_delivery_note, validate_native_provider_payload};
 use crate::logging::{write_log_record, LogEventInput, LogSession};
 use crate::provider_retry::{
     build_api_client_async, provider_http_error_status, provider_reqwest_error_status,
     send_with_retry_async, ProviderRequestOutcome,
 };
 use crate::provider_runners::{
-    editorial_api_system_prompt, log_provider_cache_configured, provider_cache_artifact_lines,
-    EditorialAgentRequest,
+    editorial_api_system_prompt, fetch_provider_model_catalog, log_provider_cache_configured,
+    provider_cache_artifact_lines, write_provider_error_result_with_accounting,
+    EditorialAgentRequest, ProviderInvocation,
 };
 use crate::session_controls::{
     api_role_max_tokens, estimate_provider_cost, provider_cache_plan, provider_cache_telemetry,
@@ -51,12 +53,18 @@ pub(crate) async fn run_deepseek_api_agent(
         run_id,
         role,
         prompt,
-        attachments: _,
+        attachments,
         output_path,
         timeout,
         config,
         cost_guard,
     } = request;
+    // V4 Pro accepts text only. Retain the orchestration's manifest/previews
+    // and explicitly distinguish them from full native binary attachment input.
+    let prompt = format!(
+        "{prompt}{}",
+        api_attachment_delivery_note("deepseek", attachments)
+    );
     let started = Instant::now();
     let model_hint = deepseek_model();
     let name = "DeepSeek";
@@ -159,30 +167,6 @@ pub(crate) async fn run_deepseek_api_agent(
         }
     }
 
-    // Two clients: blocking for resolve_deepseek_model (short /models call),
-    // async for the main editorial request supporting tokio cancellation.
-    let mut blocking_builder = Client::builder().user_agent(format!(
-        "Maestro Editorial AI/{}",
-        env!("CARGO_PKG_VERSION")
-    ));
-    if let Some(timeout) = timeout {
-        blocking_builder = blocking_builder.timeout(timeout);
-    }
-    let blocking_client = match blocking_builder.build() {
-        Ok(client) => client,
-        Err(error) => {
-            let status = provider_reqwest_error_status("CLIENT_ERROR", error);
-            return write_deepseek_error_result(
-                log_session,
-                run_id,
-                role,
-                output_path,
-                &model_hint,
-                &status,
-                started.elapsed().as_millis(),
-            );
-        }
-    };
     let async_client = match build_api_client_async(timeout) {
         Ok(client) => client,
         Err(error) => {
@@ -199,7 +183,7 @@ pub(crate) async fn run_deepseek_api_agent(
         }
     };
 
-    let model = resolve_deepseek_model(&blocking_client, &api_key);
+    let model = resolve_deepseek_model(&async_client, &api_key, cancel_token).await;
     let system_prompt = editorial_api_system_prompt(name);
     let cache_plan = provider_cache_plan("deepseek", &model, role, name, &system_prompt);
     let _ = write_log_record(
@@ -245,8 +229,21 @@ pub(crate) async fn run_deepseek_api_agent(
             { "role": "user", "content": prompt }
         ],
         "stream": false,
+        "thinking": { "type": "enabled" },
+        "reasoning_effort": "max",
         "max_tokens": max_tokens
     });
+    if let Err(error) = validate_native_provider_payload("deepseek", &body) {
+        return write_deepseek_error_result(
+            log_session,
+            run_id,
+            role,
+            output_path,
+            &model,
+            &format!("ATTACHMENT_ERROR: {error}"),
+            started.elapsed().as_millis(),
+        );
+    }
     let request_builder = async_client
         .post("https://api.deepseek.com/chat/completions")
         .bearer_auth(&api_key)
@@ -332,14 +329,23 @@ pub(crate) async fn run_deepseek_api_agent(
         let stdout = match deepseek_assistant_content(&parsed) {
             Ok(content) => content,
             Err(status) => {
-                return write_deepseek_error_result(
-                    log_session,
-                    run_id,
-                    role,
-                    output_path,
+                return write_provider_error_result_with_accounting(
+                    &ProviderInvocation {
+                        log_session,
+                        run_id,
+                        name,
+                        cli,
+                        provider: "deepseek",
+                        role,
+                        output_path,
+                    },
                     &model,
                     &status,
                     started.elapsed().as_millis(),
+                    usage_input_tokens,
+                    usage_output_tokens,
+                    cost_usd,
+                    cost_usd.map(|_| true),
                 );
             }
         };
@@ -463,6 +469,15 @@ pub(crate) fn write_deepseek_error_result(
 }
 
 fn deepseek_assistant_content(parsed: &Value) -> Result<String, String> {
+    let finish_reason = parsed
+        .pointer("/choices/0/finish_reason")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    if finish_reason != "stop" {
+        return Err(sanitize_text(&format!(
+            "PROVIDER_INCOMPLETE_RESPONSE: DeepSeek did not complete final assistant content; finish_reason={finish_reason}; raw provider JSON omitted from artifact"
+        ), 240));
+    }
     if let Some(content) = parsed
         .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
@@ -472,10 +487,6 @@ fn deepseek_assistant_content(parsed: &Value) -> Result<String, String> {
         return Ok(content.to_string());
     }
 
-    let finish_reason = parsed
-        .pointer("/choices/0/finish_reason")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
     let reasoning_chars = parsed
         .pointer("/choices/0/message/reasoning_content")
         .and_then(Value::as_str)
@@ -510,7 +521,11 @@ pub(crate) fn deepseek_model() -> String {
         .unwrap_or_else(|| "deepseek-v4-pro".to_string())
 }
 
-pub(crate) fn resolve_deepseek_model(client: &Client, api_key: &str) -> String {
+pub(crate) async fn resolve_deepseek_model(
+    client: &Client,
+    api_key: &str,
+    cancel_token: &CancellationToken,
+) -> String {
     if let Some((_, _, value)) =
         first_env_value(&["MAESTRO_DEEPSEEK_MODEL", "CROSS_REVIEW_DEEPSEEK_MODEL"])
     {
@@ -520,28 +535,22 @@ pub(crate) fn resolve_deepseek_model(client: &Client, api_key: &str) -> String {
         }
     }
 
-    let response = client
+    let request = client
         .get("https://api.deepseek.com/models")
-        .bearer_auth(api_key)
-        .send();
-    if let Ok(response) = response {
-        if response.status().is_success() {
-            let body = response.text().unwrap_or_default();
-            if let Ok(value) = serde_json::from_str::<Value>(&body) {
-                let models = deepseek_model_ids(&value);
-                for candidate in ["deepseek-v4-pro", "deepseek-v4-flash"] {
-                    if models.iter().any(|model| model == candidate) {
-                        return candidate.to_string();
-                    }
-                }
-                if let Some(first) = models.first() {
-                    return first.clone();
-                }
-            }
-        }
+        .bearer_auth(api_key);
+    if let Some(value) = fetch_provider_model_catalog(request, cancel_token).await {
+        return deepseek_catalog_model(&value);
     }
 
     "deepseek-v4-pro".to_string()
+}
+
+fn deepseek_catalog_model(value: &Value) -> String {
+    crate::provider_runners::choose_preferred_model(
+        &deepseek_model_ids(value),
+        &["deepseek-v4-pro", "deepseek-flash", "deepseek-v4-flash"],
+        "deepseek-v4-pro",
+    )
 }
 
 pub(crate) fn deepseek_model_ids(value: &Value) -> Vec<String> {
@@ -584,6 +593,25 @@ mod tests {
                 "deepseek-v4-pro".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn deepseek_catalog_prefers_known_pro_and_never_arbitrary_models() {
+        let mut catalog = json!({ "data": [
+            { "id": "unknown-audio-only" }, { "id": "unknown-image-only" }
+        ] });
+        assert_eq!(deepseek_catalog_model(&catalog), "deepseek-v4-pro");
+        catalog["data"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "id": "deepseek-flash" }));
+        assert_eq!(deepseek_catalog_model(&catalog), "deepseek-flash");
+        catalog["data"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "id": "deepseek-v4-pro" }));
+        assert_eq!(deepseek_catalog_model(&catalog), "deepseek-v4-pro");
+        assert_eq!(deepseek_catalog_model(&json!({})), "deepseek-v4-pro");
     }
 
     #[test]
@@ -644,6 +672,23 @@ mod tests {
 
         assert!(error.starts_with("PROVIDER_EMPTY_CONTENT"));
         assert!(error.contains("raw provider JSON omitted"));
+    }
+
+    #[test]
+    fn deepseek_rejects_partial_ready_even_when_visible_content_exists() {
+        for finish_reason in [
+            "length",
+            "content_filter",
+            "aborted",
+            "tool_calls",
+            "insufficient_system_resource",
+        ] {
+            let value = json!({ "choices": [{ "finish_reason": finish_reason,
+                "message": { "content": "MAESTRO_STATUS: READY\nPartial output" } }] });
+            assert!(deepseek_assistant_content(&value)
+                .unwrap_err()
+                .starts_with("PROVIDER_INCOMPLETE_RESPONSE"));
+        }
     }
 
     #[test]

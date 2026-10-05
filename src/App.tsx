@@ -1,5 +1,5 @@
 import type { ChangeEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import packageJson from "../package.json";
 import { AppSidebar } from "./app/AppSidebar";
 import { AppTopbar } from "./app/AppTopbar";
@@ -26,6 +26,7 @@ import {
   htmlToCitationAuditMarkdown,
   htmlToLinkAuditMarkdown,
 } from "./editor/posteditor/editor/exportFinalContent";
+import type { StoredSharedChatEvidence } from "./editor/posteditor/editor/sharedChatImport";
 import { AgentsScreen } from "./features/agents/AgentsScreen";
 import { EvidenceScreen } from "./features/evidence/EvidenceScreen";
 import { ProtocolsScreen } from "./features/protocols/ProtocolsScreen";
@@ -47,7 +48,6 @@ import {
   sha256,
   summarizeAgentResults,
 } from "./helpers";
-import { useEscapeKey } from "./hooks/useEscapeKey";
 import {
   importSharedChat,
   listResumableSessions,
@@ -249,6 +249,7 @@ export function App() {
     grok: "",
     perplexity: "",
   });
+  const [geminiCliProjectId, setGeminiCliProjectId] = useState("");
   const [providerInputUsdPerMillion, setProviderInputUsdPerMillion] = useState<
     Record<ProviderRateKey, string>
   >({
@@ -312,6 +313,9 @@ export function App() {
   const [aiConfigStatus, setAiConfigStatus] = useState("Chaves ainda nao carregadas");
   const [isVerifyingCloudflare, setIsVerifyingCloudflare] = useState(false);
   const [isSavingAiConfig, setIsSavingAiConfig] = useState(false);
+  const configWritesInFlightRef = useRef(0);
+  const configWriteVersionRef = useRef(0);
+  const [pendingConfigWrites, setPendingConfigWrites] = useState(0);
   const [isVerifyingAiProviders, setIsVerifyingAiProviders] = useState(false);
   const [isAuditingEvidence, setIsAuditingEvidence] = useState(false);
   const [resumeCandidates, setResumeCandidates] = useState<ResumableSessionInfo[]>([]);
@@ -360,17 +364,6 @@ export function App() {
       disposed = true;
     };
   }, []);
-
-  // v0.3.14 / audit closure (MEDIUM): ESC dismissal on the ResumeDialog at
-  // line 2574. Mirrors the existing Close button (line 2582) — no new
-  // dismissal path, no new state. Hook gated by `showResumePicker` so the
-  // window listener is detached when the dialog is hidden. In-place edit
-  // per docs/code-split-plan.md ("future splits should start with pure
-  // helpers, ... without mixing large refactors with behavior changes").
-  const handleResumeDialogEscape = useCallback(() => {
-    setShowResumePicker(false);
-  }, []);
-  useEscapeKey(handleResumeDialogEscape, showResumePicker);
 
   useEffect(() => {
     sessionRunIdRef.current = sessionRunId;
@@ -1092,11 +1085,15 @@ export function App() {
   }
 
   async function loadBootstrapConfig() {
+    if (configWritesInFlightRef.current > 0) return;
+    const writeVersion = configWriteVersionRef.current;
     try {
       const [config, envSnapshot] = await Promise.all([
         readBootstrapConfig(),
         readCloudflareEnvSnapshot(),
       ]);
+      if (configWritesInFlightRef.current > 0 || writeVersion !== configWriteVersionRef.current)
+        return;
 
       setBootstrapRows(
         initialBootstrapChecks.map((row) => ({
@@ -1188,6 +1185,9 @@ export function App() {
   }
 
   async function persistBootstrapConfig(nextMode = credentialStorageMode) {
+    configWriteVersionRef.current += 1;
+    configWritesInFlightRef.current += 1;
+    setPendingConfigWrites(configWritesInFlightRef.current);
     try {
       const saved = await writeBootstrapConfig(buildBootstrapConfig(nextMode));
       setBootstrapConfigStatus(`bootstrap.json salvo em ${saved.updated_at}`);
@@ -1210,6 +1210,9 @@ export function App() {
         message: "failed to save bootstrap configuration",
         context: { error },
       });
+    } finally {
+      configWritesInFlightRef.current -= 1;
+      setPendingConfigWrites(configWritesInFlightRef.current);
     }
   }
 
@@ -1218,6 +1221,7 @@ export function App() {
       schema_version: 1,
       provider_mode: nextProviderMode,
       credential_storage_mode: credentialStorageMode,
+      gemini_cli_project_id: geminiCliProjectId.trim() || null,
       openai_api_key: aiCredentials.openai.trim() || null,
       anthropic_api_key: aiCredentials.anthropic.trim() || null,
       gemini_api_key: aiCredentials.gemini.trim() || null,
@@ -1316,9 +1320,14 @@ export function App() {
   }
 
   async function loadAiProviderConfig() {
+    if (configWritesInFlightRef.current > 0) return;
+    const writeVersion = configWriteVersionRef.current;
     try {
       const config = await readAiProviderConfig();
+      if (configWritesInFlightRef.current > 0 || writeVersion !== configWriteVersionRef.current)
+        return;
       setProviderMode(config.provider_mode);
+      setGeminiCliProjectId(config.gemini_cli_project_id ?? "");
       setAiCredentials({
         openai: config.openai_api_key ?? "",
         anthropic: config.anthropic_api_key ?? "",
@@ -1388,6 +1397,10 @@ export function App() {
   }
 
   async function saveAiProviderConfig(nextProviderMode = providerMode) {
+    if (configWritesInFlightRef.current > 0 || isVerifyingCloudflare) return null;
+    configWriteVersionRef.current += 1;
+    configWritesInFlightRef.current += 1;
+    setPendingConfigWrites(configWritesInFlightRef.current);
     setIsSavingAiConfig(true);
     try {
       const saved = await writeAiProviderConfig(
@@ -1395,6 +1408,7 @@ export function App() {
         credentialStorageMode === "cloudflare" ? buildCloudflareProviderStorageRequest() : null,
       );
       setProviderMode(saved.provider_mode);
+      setGeminiCliProjectId(saved.gemini_cli_project_id ?? "");
       setAiCredentials({
         openai: saved.openai_api_key ?? "",
         anthropic: saved.anthropic_api_key ?? "",
@@ -1462,6 +1476,8 @@ export function App() {
       });
       return null;
     } finally {
+      configWritesInFlightRef.current -= 1;
+      setPendingConfigWrites(configWritesInFlightRef.current);
       setIsSavingAiConfig(false);
     }
   }
@@ -2548,6 +2564,8 @@ export function App() {
   }
 
   function chooseProviderMode(nextMode: ProviderMode) {
+    if (configWritesInFlightRef.current > 0 || isVerifyingAiProviders || isVerifyingCloudflare)
+      return;
     setProviderMode(nextMode);
     if (nextMode === "cli") {
       // CLI mode is incompatible with API-only peers (DeepSeek, Grok and Perplexity).
@@ -2569,6 +2587,8 @@ export function App() {
   }
 
   function chooseCredentialStorage(nextMode: CredentialStorageMode) {
+    if (configWritesInFlightRef.current > 0 || isVerifyingAiProviders || isVerifyingCloudflare)
+      return;
     setCredentialStorageMode(nextMode);
     void persistBootstrapConfig(nextMode);
     void logEvent({
@@ -2580,6 +2600,8 @@ export function App() {
   }
 
   async function verifyCloudflareCredentials() {
+    if (configWritesInFlightRef.current > 0 || isVerifyingAiProviders || isVerifyingCloudflare)
+      return;
     setIsVerifyingCloudflare(true);
     await persistBootstrapConfig();
     const accountId = cloudflareAccountId.trim() || cloudflareEnvSnapshot?.account_id || "";
@@ -2667,6 +2689,8 @@ export function App() {
   }
 
   async function verifyAiProviderCredentials() {
+    if (configWritesInFlightRef.current > 0 || isVerifyingAiProviders || isVerifyingCloudflare)
+      return;
     setIsVerifyingAiProviders(true);
     setAiProviderRowsState(
       aiProviderRows.map((provider) => ({
@@ -2752,6 +2776,7 @@ export function App() {
     isAboutSite: boolean,
     confirmedAboutAction?: boolean,
     requestedPostId?: number,
+    sharedChatEvidence: StoredSharedChatEvidence[] = [],
   ) {
     setIsSavingPostEditor(true);
     setMainSiteDraftStatus("Auditando links e citacoes antes de persistir");
@@ -2826,6 +2851,7 @@ export function App() {
         is_about_site: isAboutSite,
         sanitizer_profile: MAIN_SITE_SANITIZER_PROFILE,
         citation_context: citationContext,
+        shared_chat_evidence: sharedChatEvidence,
       });
       setMainSiteDraft(draft);
       setMainSitePublishPlan(null);
@@ -3022,6 +3048,7 @@ export function App() {
           is_about_site: mainSiteDraft.is_about_site,
           sanitizer_profile: mainSiteDraft.sanitizer_profile,
           citation_context: mainSiteDraft.citation_context,
+          shared_chat_evidence: mainSiteDraft.shared_chat_evidence ?? [],
         });
       } catch (persistenceError) {
         const recoveryMessage =
@@ -3205,6 +3232,7 @@ export function App() {
             mainSiteAuthor={mainSiteAuthor}
             mainSiteDraftStatus={mainSiteDraftStatus}
             mainSiteHtml={mainSiteHtml}
+            mainSiteSharedChatEvidence={mainSiteDraft?.shared_chat_evidence}
             mainSiteIsAboutSite={mainSiteIsAboutSite}
             mainSiteIsPublished={mainSiteIsPublished}
             mainSitePostId={mainSitePostId}
@@ -3295,6 +3323,7 @@ export function App() {
                 cloudflareTokenEnvVar={cloudflareTokenEnvVar}
                 credentialStorageMode={credentialStorageMode}
                 isVerifying={isVerifyingCloudflare}
+                isBusy={pendingConfigWrites > 0 || isVerifyingAiProviders}
                 onAccountIdChange={setCloudflareAccountId}
                 onApiTokenChange={setCloudflareApiToken}
                 onChooseCredentialStorage={chooseCredentialStorage}
@@ -3307,14 +3336,16 @@ export function App() {
               <AiProviderSettingsPanel
                 aiConfigStatus={aiConfigStatus}
                 aiCredentials={aiCredentials}
-                isSaving={isSavingAiConfig}
-                isVerifying={isVerifyingAiProviders}
+                geminiCliProjectId={geminiCliProjectId}
+                isSaving={isSavingAiConfig || pendingConfigWrites > 0}
+                isVerifying={isVerifyingAiProviders || isVerifyingCloudflare}
                 probeRows={aiProviderRowsState}
                 providerInputRates={providerInputUsdPerMillion}
                 providerMode={providerMode}
                 providerOutputRates={providerOutputUsdPerMillion}
                 onChooseProviderMode={chooseProviderMode}
                 onCredentialChange={updateAiCredential}
+                onGeminiCliProjectIdChange={setGeminiCliProjectId}
                 onInputRateChange={updateProviderInputRate}
                 onOutputRateChange={updateProviderOutputRate}
                 onSave={() => void saveAiProviderConfig()}

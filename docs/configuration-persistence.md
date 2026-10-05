@@ -1,7 +1,7 @@
 # Configuration Persistence
 
-Status: implementation contract.
-Date: 2026-04-26.
+Status: implementation contract; planned schemas and future broker capabilities are identified below.
+Last reviewed: 2026-10-05.
 
 Maestro supports exactly three operator-selectable persistence modes for configuration, tokens, and API keys.
 
@@ -143,9 +143,9 @@ Important Secrets Store constraint:
 
 API policy:
 
-- Cloudflare API is the primary path for D1 and Secrets Store provisioning.
-- Wrangler is fallback only and must always be invoked as `wrangler@latest`.
-- Wrangler fallback must not replace API readiness checks.
+- Cloudflare API is the execution path for D1 and Secrets Store provisioning and MainSite publication.
+- Wrangler is optional diagnostic/bootstrap tooling. The current fixed bootstrap action uses `npx --yes wrangler@latest --version` after explicit per-action approval; it does not provide a D1 write fallback.
+- An unavailable D1 API path stops the operation. Selecting the legacy fallback permission changes the diagnostic only; it does not authorize a second write path or replace API readiness checks.
 
 Required permission areas shown to the operator:
 

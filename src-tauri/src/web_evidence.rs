@@ -693,7 +693,7 @@ fn append_event(operation: &str, record: &WebEvidenceRecord) -> Result<(), Strin
         .map_err(|error| format!("failed to append web evidence event: {error}"))
 }
 
-fn validate_public_url(value: &str) -> Result<Url, String> {
+pub(crate) fn validate_public_url(value: &str) -> Result<Url, String> {
     if value.len() > 4_096 {
         return Err("URL exceeds the 4096-character evidence limit".to_string());
     }
@@ -835,16 +835,13 @@ pub(crate) fn url_has_sensitive_parameters(url: &Url) -> bool {
             decoded_segments.extend(decoded.split(['/', '\\']).map(str::to_string));
         }
         let segments = decoded_segments;
-        if segments.iter().enumerate().any(|(index, segment)| {
-            let (key, inline_value) = segment
+        // Ordinary path segments name public resources. Only an explicit
+        // credential assignment within the same segment is a sensitive value;
+        // a following resource segment is not evidence of a credential.
+        if segments.iter().any(|segment| {
+            segment
                 .split_once(['=', ':'])
-                .map(|(key, value)| (key, Some(value)))
-                .unwrap_or((segment.as_str(), None));
-            sensitive_query_key(key)
-                && (inline_value.is_some_and(|value| !value.is_empty())
-                    || segments
-                        .get(index + 1)
-                        .is_some_and(|value| !value.is_empty()))
+                .is_some_and(|(key, value)| sensitive_query_key(key) && !value.is_empty())
         }) {
             return true;
         }
@@ -1790,13 +1787,13 @@ pub(crate) async fn fetch_web_evidence(
         .map_err(|error| format!("web evidence fetch worker failed: {error}"))?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn get_web_evidence(evidence_id: String) -> Result<WebEvidenceRecord, String> {
     let stored = load_stored(&evidence_id)?;
     project_stored(&stored, Utc::now())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn list_web_evidence(
     request: WebEvidenceListRequest,
 ) -> Result<WebEvidenceListResult, String> {
@@ -1979,6 +1976,9 @@ fn validate_search_connector(connector: &SearchConnector) -> Result<(), String> 
     ) {
         (None, None) => {}
         (Some(env_var), Some(header)) => {
+            if endpoint.scheme() != "https" {
+                return Err("credentialed search connectors require HTTPS".to_string());
+            }
             if env_var.is_empty()
                 || env_var.len() > 128
                 || !env_var
@@ -2695,7 +2695,7 @@ pub(crate) async fn import_operator_evidence(
     .map_err(|error| format!("operator evidence import worker failed: {error}"))?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn resume_web_evidence_interaction(
     request: WebEvidenceInteractionRequest,
 ) -> Result<WebEvidenceRecord, String> {
@@ -2884,6 +2884,20 @@ fn load_shared_chat_artifact(stored: &StoredWebEvidence) -> Result<(String, Stri
             "shared-chat artifact must contain 1..={} UTF-8 bytes",
             MAX_SHARED_CHAT_ARTIFACT_BYTES
         ));
+    }
+    // Check the exact bytes handed to the extractor. The raw stored record
+    // can still say Ready after its artifact changed, so UI cache projection
+    // alone cannot establish the source hash used for imported custody.
+    if stored.record.byte_count != Some(content.len() as u64)
+        || !stored
+            .record
+            .sha256
+            .as_deref()
+            .is_some_and(|expected| sha256_bytes(content.as_bytes()).eq_ignore_ascii_case(expected))
+    {
+        return Err(
+            "shared-chat artifact no longer matches its evidence hash and byte count".to_string(),
+        );
     }
     Ok((kind.to_string(), content))
 }
@@ -4044,10 +4058,12 @@ mod tests {
     #[test]
     fn credential_paths_are_rejected_without_blocking_plain_anchors() {
         for url in [
-            "https://example.org/download/access_token/secret-value",
-            "https://example.org/download/%61ccess_token/secret-value",
             "https://example.org/download/api_key=secret-value",
-            "https://example.org/download/sessiontoken/secret-value",
+            "https://example.org/download/api_key:secret-value",
+            "https://example.org/download/%61ccess_token%3Dsecret-value",
+            "https://example.org/download/%61ccess_token%3Asecret-value",
+            "https://example.org/foo%5Caccess_token=secret-value",
+            "https://example.org/foo%252Faccess_token%253Asecret-value",
             "https://example.org/article?mytoken=secret-value",
             "https://example.org/article?accesskey=secret-value",
             "https://example.org/article?myapikey=secret-value",
@@ -4061,18 +4077,15 @@ mod tests {
             "https://example.org/article?adminkey=secret-value",
             "https://example.org/article?accountkey=secret-value",
             "https://example.org/article?mykey=secret-value",
-            "https://example.org/download/masterkey/secret-value",
             "https://example.org/article?myaccesskey=secret-value",
             "https://example.org/article?mysecretkey=secret-value",
             "https://example.org/article?myapi_key=secret-value",
-            "https://example.org/mysessionkey/secret-value",
             "https://example.org/article?streamkey=secret-value",
             "https://example.org/article?sharedaccesskey=secret-value",
             "https://example.org/article?subscriptionkey=secret-value",
             "https://example.org/article?consumerkey=secret-value",
             "https://example.org/article?hmacsig=secret-value",
             "https://example.org/article?mysig=secret-value",
-            "https://example.org/sessionkey/secret-value",
             "https://example.org/article?%2561%2563%2563%2565%2573%2573%255F%2574%256F%256B%2565%256E=secret-value",
             "https://example.org/article?foo%2526access_token=secret-value",
             "https://example.org/article?foo/access_token=secret-value",
@@ -4083,8 +4096,6 @@ mod tests {
             "https://example.org/article?foo%3Daccess_token=secret-value",
             "https://example.org/article?foo%253Daccess_token=secret-value",
             "https://example.org/article?foo%3Aaccess_token=secret-value",
-            "https://example.org/foo%5Caccess_token/secret-value",
-            "https://example.org/foo%252Faccess_token/secret-value",
         ] {
             assert!(validate_public_url(url).is_err(), "{url}");
             assert!(!rejected_url_for_record(url).contains("secret-value"));
@@ -4096,6 +4107,22 @@ mod tests {
             "https://example.org/article?turkey=1",
             "https://example.org/article?hockey=1",
             "https://example.org/article?title=access_token",
+            "https://example.org/download/access_token/secret-value",
+            "https://example.org/download/%61ccess_token/secret-value",
+            "https://example.org/download/sessiontoken/secret-value",
+            "https://example.org/download/masterkey/secret-value",
+            "https://example.org/mysessionkey/secret-value",
+            "https://example.org/sessionkey/secret-value",
+            "https://example.org/foo%5Caccess_token/secret-value",
+            "https://example.org/foo%252Faccess_token/secret-value",
+            "https://github.com/auth0/node-jsonwebtoken/blob/master/README.md",
+            "https://www.npmjs.com/package/jsonwebtoken/v/9.0.2",
+            "https://developer.mozilla.org/en-US/docs/Web/API/CryptoKey/type",
+            "https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential/id",
+            "https://example.com/password/reset",
+            "https://example.com/reset-password/step-2",
+            "https://example.com/api-token/overview",
+            "https://example.com/books/the-secret/chapter-1",
         ] {
             assert!(validate_public_url(url).is_ok(), "{url}");
         }
@@ -4417,6 +4444,54 @@ mod tests {
     }
 
     #[test]
+    fn shared_chat_import_checks_the_actual_artifact_before_extraction() {
+        let id = evidence_id(&format!(
+            "shared-chat-byte-custody-fixture-{}",
+            std::process::id()
+        ));
+        let content = "## User\n\nPergunta\n\n## Assistant\n\nResposta 42\n";
+        let mut stored = failed_fetch_record(
+            None,
+            &id,
+            "https://chatgpt.com/share/abcdefgh",
+            WebEvidenceMethod::Get,
+            WebEvidenceState::Ready,
+            "test fixture",
+            Utc::now(),
+        );
+        stored.record.content_type = Some("text/markdown".to_string());
+        stored.record.byte_count = Some(content.len() as u64);
+        stored.record.sha256 = Some(sha256_bytes(content.as_bytes()));
+        stored.content_path =
+            persist_content(&id, Some("text/markdown"), content.as_bytes()).unwrap();
+        let path = checked_data_child_path(
+            &evidence_dir()
+                .unwrap()
+                .join(stored.content_path.as_deref().unwrap()),
+        )
+        .unwrap();
+        let intact = load_shared_chat_artifact(&stored);
+        write_text_file(&path, &content.replace("42", "43")).unwrap();
+        let altered_same_size = load_shared_chat_artifact(&stored);
+        write_text_file(&path, content).unwrap();
+        stored.record.byte_count = Some(content.len() as u64 + 1);
+        let wrong_count = load_shared_chat_artifact(&stored);
+        stored.record.byte_count = Some(content.len() as u64);
+        stored.record.sha256 = None;
+        let missing_hash = load_shared_chat_artifact(&stored);
+        fs::remove_file(path).unwrap();
+        assert_eq!(
+            intact.unwrap(),
+            ("markdown".to_string(), content.to_string())
+        );
+        for rejected in [altered_same_size, wrong_count, missing_hash] {
+            assert!(rejected
+                .unwrap_err()
+                .contains("evidence hash and byte count"));
+        }
+    }
+
+    #[test]
     fn shared_chat_extracts_chatgpt_mapping_and_rejects_navigation_text() {
         let fixture = r#"<script id="__NEXT_DATA__" type="application/json">{
           "title":"Conversa de teste",
@@ -4537,6 +4612,33 @@ mod tests {
         assert!(validate_import_magic("application/pdf", b"not-a-pdf").is_err());
         assert!(validate_import_magic("application/pdf", b"%PDF-1.7\n").is_ok());
         assert!(validate_import_magic("image/png", b"\x89PNG\r\n\x1a\nrest").is_ok());
+    }
+
+    #[test]
+    fn credentialed_search_connectors_require_https_before_dispatch() {
+        let mut connector = SearchConnector {
+            id: "example".to_string(),
+            label: "Example".to_string(),
+            endpoint: "http://example.com/search".to_string(),
+            query_parameter: "q".to_string(),
+            limit_parameter: "limit".to_string(),
+            results_path: "results".to_string(),
+            title_field: "title".to_string(),
+            url_field: "url".to_string(),
+            snippet_field: None,
+            api_key_env_var: Some("EXAMPLE_API_KEY".to_string()),
+            api_key_header: Some("x-api-key".to_string()),
+        };
+        assert_eq!(
+            validate_search_connector(&connector).unwrap_err(),
+            "credentialed search connectors require HTTPS"
+        );
+        connector.endpoint = "https://example.com/search".to_string();
+        assert!(validate_search_connector(&connector).is_ok());
+        connector.endpoint = "http://example.com/search".to_string();
+        connector.api_key_env_var = None;
+        connector.api_key_header = None;
+        assert!(validate_search_connector(&connector).is_ok());
     }
 
     #[test]

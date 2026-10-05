@@ -389,6 +389,7 @@ export function EvidenceScreen({
   }
 
   async function reloadSelected(evidenceId: string) {
+    if (busyAction !== null) return;
     setBusyAction("detail");
     setSelectedEvidenceId(evidenceId);
     try {
@@ -397,7 +398,7 @@ export function EvidenceScreen({
     } catch {
       setFeedback("Não foi possível atualizar os detalhes desta evidência.");
     } finally {
-      setBusyAction(null);
+      setBusyAction((current) => (current === "detail" ? null : current));
     }
   }
 
@@ -418,6 +419,7 @@ export function EvidenceScreen({
   }
 
   function chooseCaptureFile(event: ChangeEvent<HTMLInputElement>) {
+    if (busyAction === "import") return;
     const file = event.target.files?.[0] ?? null;
     event.target.value = "";
     if (!file) return;
@@ -641,6 +643,7 @@ export function EvidenceScreen({
           id="capture-url"
           className="text-input"
           type="url"
+          disabled={busyAction === "import"}
           value={captureUrl}
           onChange={(event) => setCaptureUrl(event.target.value)}
           placeholder="Opcional quando a origem não é uma página web"
@@ -654,6 +657,7 @@ export function EvidenceScreen({
           id="evidence-capture-file"
           className="hidden-input"
           type="file"
+          disabled={busyAction === "import"}
           accept=".html,.htm,.md,.markdown,.pdf,.png,.jpg,.jpeg,.webp,.txt,text/html,text/markdown,text/plain,image/png,image/jpeg,image/webp,application/pdf"
           onChange={chooseCaptureFile}
         />
@@ -663,6 +667,7 @@ export function EvidenceScreen({
         <textarea
           id="capture-notes"
           className="text-area evidence-notes"
+          disabled={busyAction === "import"}
           value={captureNotes}
           onChange={(event) => setCaptureNotes(event.target.value)}
           placeholder="Descreva o acesso legítimo, a etapa manual ou a licença aplicável. Não cole credenciais."
@@ -721,7 +726,7 @@ export function EvidenceScreen({
             value={filterQuery}
             onChange={(event) => setFilterQuery(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") void refreshInventory();
+              if (event.key === "Enter" && busyAction === null) void refreshInventory();
             }}
             placeholder="Filtrar por URL, hash, título ou nota"
           />
@@ -747,6 +752,7 @@ export function EvidenceScreen({
               type="button"
               key={record.id}
               aria-pressed={selectedEvidenceId === record.id}
+              disabled={busyAction !== null}
               onClick={() => void reloadSelected(record.id)}
             >
               <span className="evidence-record-main">

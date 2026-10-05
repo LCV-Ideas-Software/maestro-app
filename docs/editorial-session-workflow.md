@@ -2,7 +2,7 @@
 
 Status: implementation contract with functional background, hardened resume pass in `v0.3.5`, startup crash recovery hardening in `v0.3.6`, long-running agent diagnostics in `v0.3.7`, DeepSeek API peer support in `v0.3.11`, per-session controls/log readability in `v0.3.13`, Grok/xAI as fifth API peer in `v0.5.16`, provider prompt-cache policy telemetry in `v0.5.19`, and Perplexity/Sonar as sixth API-only peer in `v0.5.27`.
 
-Maestro's core workflow starts from an operator prompt and an active editorial protocol. The app must not deliver a final text until every AI peer selected for that session and Maestro's deterministic local checks all return `READY` in the same accepted round.
+Maestro's core workflow starts from an operator prompt and an active editorial protocol. The app must not deliver a final text until every AI peer selected for that session and Maestro's deterministic local checks all approve the same accepted version, with its author excluded from independent reviewer votes.
 
 This is inviolable: the final text is delivered only after unanimous acceptance from the selected peer set. While there is any divergence, the work remains open. Optional time and cost limits do not relax consensus; when reached, they pause/stop the session without `texto-final.md`.
 
@@ -14,17 +14,19 @@ The operator provides:
 - Generation prompt.
 - Active editorial protocol snapshot.
 - Optional source files/anexos, public HTTP/HTTPS links, shared chat links, PDFs, Markdown, HTML, and MainSite post references.
-- Active AI peer set: 1 to 6 among Claude, Codex, Gemini, DeepSeek, Grok, and Perplexity.
+- Active AI peer set: 1 to 6 among Claude, Codex, Gemini, DeepSeek, Grok, and Perplexity. Final independent consensus requires at least two selected peers; a lone author cannot self-approve.
 - Optional max session time in minutes. Blank means ignored.
-- Optional max observed direct-API cost in USD. Blank means ignored.
+- Explicit maximum observed direct-API cost in USD whenever any selected peer uses an API. CLI-only sessions do not require this ceiling; unreported CLI usage does not consume the API ceiling.
 
 Each session pins the protocol by file name, declared version when available, import timestamp, byte size, line count, and SHA-256 hash.
 
-## Mandatory Protocol Reading
+## Protocol delivery and requested reading acknowledgments
 
-Before any drafting or review round, Maestro must force each active agent to read the entire protocol line by line.
+Every drafting/review prompt includes the complete pinned protocol. Long CLI prompts use a complete sidecar when required; its presence is delivery evidence, not proof of model cognition.
 
-Minimum proof record per agent:
+The original design requests an explicit reading acknowledgment before a round. The fields below are design requirements that are not currently enforced or persisted by the native runtime. No UI percentage or phase label proves them. Implementing this acknowledgment contract is tracked separately from the circular custody correction.
+
+Requested acknowledgment record per agent (not an implemented gate):
 
 - `protocol_hash`
 - `line_count_expected`
@@ -34,7 +36,7 @@ Minimum proof record per agent:
 - `missing_ranges`
 - `status`
 
-If any agent cannot confirm full reading, the round cannot start.
+The proposed acknowledgment gate would prevent a round when that record is incomplete. Current runtime admission checks that the complete protocol is supplied, but does not require this per-agent acknowledgment. Neither delivery nor an acknowledgment proves every line was cognitively processed.
 
 If any peer remains `NOT_READY` or `NEEDS_EVIDENCE`, the session continues, pauses for operator evidence, or exports only a non-publicable working draft. It must not emit `texto-final.md`.
 
@@ -133,13 +135,13 @@ This pass is still conservative. The deterministic link checker, ABNT engine, ca
 - Provider tariffs are mandatory UI configuration in `Configuracoes > Agentes via API > Tabela de tarifas`; there is no env-var fallback. Any selected peer that will run via direct provider API is blocked before invocation if its provider tariff is blank. CLI peers remain labeled as subscription/unknown cost and do not decrement the USD budget.
 - Attachments are capped at 8 files, 25 MiB per file, and 75 MiB total. Small text-like files get bounded previews. CLI peers receive local paths/manifest; direct API peers receive native file/media parts when their provider supports the attachment type and the file is within the native inline size cap, and unsupported/oversized-native types remain manifest/path only.
 - The session UI shows a pre-run delivery hint per attachment and per active API provider, so mixed support is explicit: a file can be native for Gemini while remaining manifest/previews for OpenAI, Anthropic, DeepSeek, Grok, or Perplexity.
-- Direct API cost projection includes the native attachment payloads before the paid call is made, so a large supported file cannot bypass the optional USD session cap.
+- Direct API cost projection includes native attachment payloads before the paid call. Character-based estimates and configured tariffs are a preflight forecast, not exact native token counts or a strict spending reservation; observed cost is checked between calls and can exceed a forecast while a paid call completes.
 - Links must be public-looking HTTP/HTTPS URLs. Localhost, loopback/private IPs, `file:`, `data:`, and similar schemes are rejected.
 
 `v0.5.19` adds provider prompt-cache policy:
 
 - Prompt cache is a cost optimization only. It must not downgrade models, disable thinking, shorten the editorial protocol, or change consensus semantics.
-- OpenAI/Codex and Grok/xAI direct API calls send deterministic `prompt_cache_key` values. OpenAI models that support extended retention also receive `prompt_cache_retention: "24h"`.
+- OpenAI/Codex and Grok/xAI direct API calls send deterministic `prompt_cache_key` values. Supported legacy OpenAI extended-retention models receive `prompt_cache_retention: "24h"`; GPT-5.6+/6 models use the native `prompt_cache_options.ttl: "30m"` contract.
 - Anthropic/Claude direct API calls mark the stable `system` text block with `cache_control: { "type": "ephemeral" }` and record provider cache read/create token usage when returned.
 - DeepSeek uses its provider-side automatic prefix/disk cache and records hit/miss token usage when returned.
 - Gemini keeps the normal thinking-preserving GenerateContent flow. Maestro records Gemini cached-token usage when returned by `usageMetadata`.
@@ -152,7 +154,7 @@ This pass is still conservative. The deterministic link checker, ABNT engine, ca
 4. Maestro parses `READY`, `NOT_READY`, and `NEEDS_EVIDENCE`.
 5. `NEEDS_EVIDENCE` triggers mechanical verification before the next round.
 6. `NOT_READY` triggers revision or targeted debate.
-7. A final text is accepted only when all selected AI peers and MaestroPeer return `READY` in the same round.
+7. A final text requires genuine independent approvals for the same accepted version and READY mechanical gates. The current author participates through custody, never through self-review. Accepted edits invalidate earlier approvals; rejected attempts preserve approvals for unchanged version/context. If the original draft lead is independent, its closing turn waits for the other selected peers. Missing required votes pause without a final artifact.
 8. MaestroPeer is computed by Maestro from protocol, evidence, ABNT citation, export, and MainSite compatibility gates, and may block publication independently of the selected AI agents.
 9. Link failures, hallucinated URLs, or weak links are sent into cross-review with fetch/render evidence and correction candidates.
 
@@ -161,7 +163,7 @@ This pass is still conservative. The deterministic link checker, ABNT engine, ca
 The UI must show a calm operational view, not raw terminal output:
 
 - Active phase and progress.
-- Protocol reading gate.
+- Protocol delivery metadata and explicitly unmeasured reading phase.
 - Per-agent status.
 - Round timeline.
 - Evidence requests.
@@ -190,7 +192,7 @@ ata-da-sessao.md
 - Session manifest.
 - Operator prompt.
 - Protocol identity and hash.
-- Protocol reading confirmations.
+- Protocol delivery metadata; per-agent reading acknowledgments are not currently persisted.
 - Round timeline.
 - Agent positions.
 - Evidence requests and resolutions.

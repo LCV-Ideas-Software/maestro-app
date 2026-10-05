@@ -97,7 +97,7 @@ pub(crate) fn write_log_event(
     write_log_record(&log_session, event)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn diagnostics_snapshot(log_session: tauri::State<LogSession>) -> Value {
     let dir = match checked_data_child_path(&logs_dir()) {
         Ok(dir) => dir,
@@ -193,7 +193,7 @@ pub(crate) fn write_bootstrap_config(config: BootstrapConfig) -> Result<Bootstra
     Ok(sanitized)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn read_ai_provider_config() -> Result<AiProviderConfig, String> {
     let path = checked_data_child_path(&ai_provider_config_path())?;
     if !path.exists() {
@@ -223,7 +223,7 @@ pub(crate) fn read_ai_provider_config() -> Result<AiProviderConfig, String> {
     )))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn write_ai_provider_config(
     config: AiProviderConfig,
     cloudflare: Option<CloudflareProviderStorageRequest>,
@@ -242,7 +242,7 @@ pub(crate) fn write_ai_provider_config(
     Ok(sanitized)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn verify_ai_provider_credentials(config: AiProviderConfig) -> AiProviderProbeResult {
     run_ai_provider_probe(&sanitize_ai_provider_config(config))
 }
@@ -260,14 +260,14 @@ pub(crate) async fn audit_links(request: LinkAuditRequest) -> Result<LinkAuditRe
     .map_err(|error| format!("link-integrity audit worker failed: {error}"))?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn list_link_integrity_records(
     request: LinkIntegrityListRequest,
 ) -> Result<LinkIntegrityListResult, String> {
     list_link_integrity_records_inner(request)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn review_link_integrity(
     request: LinkIntegrityReviewRequest,
 ) -> Result<LinkAuditRow, String> {
@@ -317,7 +317,7 @@ pub(crate) fn open_data_file(path: String) -> Result<String, String> {
     Ok(checked.to_string_lossy().to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn run_cli_adapter_smoke(
     log_session: tauri::State<LogSession>,
     request: CliAdapterSmokeRequest,
@@ -339,9 +339,15 @@ pub(crate) fn run_cli_adapter_smoke(
         },
     );
 
+    // The native project is machine-local configuration. A missing or unreadable
+    // selection remains absent and the Gemini probe fails closed before a turn.
+    let config = read_ai_provider_config().unwrap_or_default();
     let handles = cli_adapter_specs(&request)
         .into_iter()
-        .map(|spec| thread::spawn(move || run_cli_adapter_probe(spec)))
+        .map(|spec| {
+            let config = config.clone();
+            thread::spawn(move || run_cli_adapter_probe(spec, &config))
+        })
         .collect::<Vec<_>>();
     let agents = handles
         .into_iter()

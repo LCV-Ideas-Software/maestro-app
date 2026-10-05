@@ -19,10 +19,8 @@ use crate::cloudflare::{
     cloudflare_client, cloudflare_get_paginated_results, cloudflare_post_json,
     cloudflare_result_id_for_name, cloudflare_token_from_provider_request,
 };
-use crate::mainsite_draft::{
-    validate_stored_draft, MainSiteDraft, MAINSITE_SANITIZER_PROFILE,
-};
 use crate::mainsite_citation::require_mainsite_citations_ready;
+use crate::mainsite_draft::{validate_stored_draft, MainSiteDraft, MAINSITE_SANITIZER_PROFILE};
 use crate::CloudflareProviderStorageRequest;
 
 const PROBE_SCHEMA_VERSION: &str = "mainsite_d1_probe.v1";
@@ -254,12 +252,10 @@ fn remote_post_hash(post: &RemotePost) -> String {
 }
 
 fn content_version_hash(record: &ContentVersionRecord) -> Option<String> {
-    record.payload.as_deref().map(|payload| {
-        hash_parts(&[
-            payload,
-            record.updated_at.as_deref().unwrap_or_default(),
-        ])
-    })
+    record
+        .payload
+        .as_deref()
+        .map(|payload| hash_parts(&[payload, record.updated_at.as_deref().unwrap_or_default()]))
 }
 
 pub(crate) fn validate_database_name(value: &str) -> Result<String, String> {
@@ -291,9 +287,7 @@ fn validate_simple_identifier(
         ));
     }
     if !chars.all(|character| {
-        character.is_ascii_alphanumeric()
-            || character == '_'
-            || (allow_hyphen && character == '-')
+        character.is_ascii_alphanumeric() || character == '_' || (allow_hyphen && character == '-')
     }) {
         return Err(format!("{label} contains an unsupported character"));
     }
@@ -367,11 +361,7 @@ fn token_for_target(target: &MainSiteD1Target) -> Result<String, String> {
         .map_err(|_| "CLOUDFLARE_TOKEN_UNAVAILABLE".to_string())
 }
 
-fn read_error(
-    target: &ValidatedTarget,
-    operation: &'static str,
-    raw_error: &str,
-) -> String {
+fn read_error(target: &ValidatedTarget, operation: &'static str, raw_error: &str) -> String {
     let deterministic = raw_error.contains("HTTP 400")
         || raw_error.contains("HTTP 401")
         || raw_error.contains("HTTP 403")
@@ -622,20 +612,8 @@ fn validate_remote_schema(
     validate_schema_column(&post_schema.rows, "content", "TEXT", true, false)?;
     validate_schema_column(&post_schema.rows, "author", "TEXT", false, false)?;
     validate_schema_column(&post_schema.rows, "is_pinned", "INTEGER", true, false)?;
-    validate_schema_column(
-        &post_schema.rows,
-        "display_order",
-        "INTEGER",
-        true,
-        false,
-    )?;
-    validate_schema_column(
-        &post_schema.rows,
-        "is_published",
-        "INTEGER",
-        true,
-        false,
-    )?;
+    validate_schema_column(&post_schema.rows, "display_order", "INTEGER", true, false)?;
+    validate_schema_column(&post_schema.rows, "is_published", "INTEGER", true, false)?;
 
     let settings_schema = execute_read_query(
         client,
@@ -699,9 +677,7 @@ fn read_content_version(
         target,
         database_id,
         "read_content_version",
-        &format!(
-            "SELECT payload,updated_at FROM {SETTINGS_TABLE} WHERE id = ? LIMIT 1"
-        ),
+        &format!("SELECT payload,updated_at FROM {SETTINGS_TABLE} WHERE id = ? LIMIT 1"),
         vec![d1_param(CONTENT_VERSION_KEY)],
     )?;
     match result.rows.as_slice() {
@@ -787,10 +763,7 @@ fn build_diff(draft: &MainSiteDraft, remote: Option<&RemotePost>) -> Vec<MainSit
         diff_item("content", field_change(&remote.content, &draft.content)),
         diff_item("author", field_change(&remote.author, &draft.author)),
         diff_item("is_pinned", field_change(&remote.is_pinned, &0_i64)),
-        diff_item(
-            "display_order",
-            field_change(&remote.display_order, &0_i64),
-        ),
+        diff_item("display_order", field_change(&remote.display_order, &0_i64)),
         diff_item(
             "is_published",
             field_change(&remote.is_published, &(draft.is_published as i64)),
@@ -939,9 +912,7 @@ fn probe_sync(request: MainSiteD1ProbeRequest) -> Result<MainSiteD1ProbeResult, 
     })
 }
 
-fn preview_sync(
-    request: MainSiteD1PreviewRequest,
-) -> Result<MainSiteD1PublishPlan, String> {
+fn preview_sync(request: MainSiteD1PreviewRequest) -> Result<MainSiteD1PublishPlan, String> {
     validate_publishable_draft(&request.draft)?;
     let target = validate_target(&request.target)?;
     let token = token_for_target(&request.target)?;
@@ -1160,9 +1131,7 @@ fn verify_readback(
     .collect())
 }
 
-fn publish_sync(
-    request: MainSiteD1PublishRequest,
-) -> Result<MainSiteD1PublishResult, String> {
+fn publish_sync(request: MainSiteD1PublishRequest) -> Result<MainSiteD1PublishResult, String> {
     if !request.confirmed {
         return Err("CONFIRMATION_REQUIRED".to_string());
     }
@@ -1201,8 +1170,13 @@ fn publish_sync(
     }
 
     let write_at = Utc::now().to_rfc3339();
-    let (post_sql, post_params) =
-        build_post_statement(&target, &request.draft, remote.as_ref(), &version, &write_at);
+    let (post_sql, post_params) = build_post_statement(
+        &target,
+        &request.draft,
+        remote.as_ref(),
+        &version,
+        &write_at,
+    );
     let (version_sql, version_params, next_payload) = build_content_version_statement(
         &target,
         &request.draft,
@@ -1229,9 +1203,7 @@ fn publish_sync(
     .map_err(|error| publish_error(&error))?;
     let results = parse_d1_results(&response, 2)
         .map_err(|_| "D1_PUBLISH_RESULT_INVALID_NO_RETRY".to_string())?;
-    if !write_meta_reports_write(&results[0].meta)
-        || !write_meta_reports_write(&results[1].meta)
-    {
+    if !write_meta_reports_write(&results[0].meta) || !write_meta_reports_write(&results[1].meta) {
         return Err("D1_PUBLISH_WRITE_COUNT_MISMATCH_NO_RETRY".to_string());
     }
 
@@ -1260,14 +1232,8 @@ fn publish_sync(
         }
     };
 
-    let post = read_post(
-        &client,
-        &token,
-        &target,
-        &database_id,
-        Some(post_id),
-    )?
-    .ok_or_else(|| "D1_POST_READBACK_MISSING".to_string())?;
+    let post = read_post(&client, &token, &target, &database_id, Some(post_id))?
+        .ok_or_else(|| "D1_POST_READBACK_MISSING".to_string())?;
     let content_version = read_content_version(&client, &token, &target, &database_id)?;
     if content_version.version != current_plan.content_version_next
         || content_version.payload.as_deref() != Some(next_payload.as_str())
@@ -1275,12 +1241,7 @@ fn publish_sync(
     {
         return Err("D1_CONTENT_VERSION_READBACK_MISMATCH".to_string());
     }
-    let fields_verified = verify_readback(
-        &post,
-        &request.draft,
-        remote.as_ref(),
-        &write_at,
-    )?;
+    let fields_verified = verify_readback(&post, &request.draft, remote.as_ref(), &write_at)?;
 
     Ok(MainSiteD1PublishResult {
         schema_version: PUBLISH_SCHEMA_VERSION.to_string(),
@@ -1325,9 +1286,10 @@ pub(crate) async fn publish_mainsite_d1(
 }
 
 fn validate_mainsite_html(html: &str) -> Result<(), String> {
-    if html.chars().any(|character| {
-        character.is_control() && !matches!(character, '\t' | '\n' | '\r')
-    }) {
+    if html
+        .chars()
+        .any(|character| character.is_control() && !matches!(character, '\t' | '\n' | '\r'))
+    {
         return Err("HTML_CONTROL_CHARACTER_NOT_ALLOWED".to_string());
     }
     let mut position = 0;
@@ -1441,8 +1403,7 @@ fn parse_tag(raw: &str) -> Result<ParsedTag, String> {
 
         let attr_start = position;
         while position < bytes.len()
-            && (bytes[position].is_ascii_alphanumeric()
-                || matches!(bytes[position], b'-' | b'_'))
+            && (bytes[position].is_ascii_alphanumeric() || matches!(bytes[position], b'-' | b'_'))
         {
             position += 1;
         }
@@ -1613,9 +1574,7 @@ fn validate_tag(tag: &ParsedTag) -> Result<(), String> {
         }
         validate_attribute_value(&tag.name, name, value.as_deref())?;
     }
-    if tag.name == "iframe"
-        && !tag.attributes.iter().any(|(name, _)| name == "src")
-    {
+    if tag.name == "iframe" && !tag.attributes.iter().any(|(name, _)| name == "src") {
         return Err("HTML_IFRAME_SRC_REQUIRED".to_string());
     }
     if tag.name == "a" {
@@ -1627,9 +1586,10 @@ fn validate_tag(tag: &ParsedTag) -> Result<(), String> {
                 return Err("HTML_LINK_TRANSFORM_MISSING".to_string());
             }
             if !is_youtube_link(href)? {
-                let has_target = tag.attributes.iter().any(|(name, value)| {
-                    name == "target" && value.as_deref() == Some("_blank")
-                });
+                let has_target = tag
+                    .attributes
+                    .iter()
+                    .any(|(name, value)| name == "target" && value.as_deref() == Some("_blank"));
                 if !has_target {
                     return Err("HTML_LINK_TRANSFORM_MISSING".to_string());
                 }
@@ -1638,8 +1598,7 @@ fn validate_tag(tag: &ParsedTag) -> Result<(), String> {
     }
     if tag.name == "img"
         && !tag.attributes.iter().any(|(name, value)| {
-            name == "loading"
-                && matches!(value.as_deref(), Some("lazy") | Some("eager"))
+            name == "loading" && matches!(value.as_deref(), Some("lazy") | Some("eager"))
         })
     {
         return Err("HTML_IMAGE_LOADING_MISSING".to_string());
@@ -1655,12 +1614,11 @@ fn validate_tag(tag: &ParsedTag) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_attribute_value(
-    tag: &str,
-    name: &str,
-    value: Option<&str>,
-) -> Result<(), String> {
-    let boolean = matches!(name, "allowfullscreen" | "checked" | "disabled" | "data-youtube-video");
+fn validate_attribute_value(tag: &str, name: &str, value: Option<&str>) -> Result<(), String> {
+    let boolean = matches!(
+        name,
+        "allowfullscreen" | "checked" | "disabled" | "data-youtube-video"
+    );
     if value.is_none() && !boolean {
         return Err("HTML_ATTRIBUTE_VALUE_REQUIRED".to_string());
     }
@@ -1674,10 +1632,9 @@ fn validate_attribute_value(
         "href" | "src" | "cite" => validate_url_attribute(tag, name, value),
         "style" => validate_style(value),
         "class" => {
-            if value
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || matches!(character, ' ' | '_' | '-'))
-            {
+            if value.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, ' ' | '_' | '-')
+            }) {
                 Ok(())
             } else {
                 Err("HTML_CLASS_VALUE_INVALID".to_string())
@@ -1781,16 +1738,13 @@ fn has_explicit_url_scheme(value: &str) -> bool {
     };
     let prefix = &value[..colon];
     !prefix.is_empty()
-        && prefix
-            .chars()
-            .enumerate()
-            .all(|(index, character)| {
-                if index == 0 {
-                    character.is_ascii_alphabetic()
-                } else {
-                    character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.')
-                }
-            })
+        && prefix.chars().enumerate().all(|(index, character)| {
+            if index == 0 {
+                character.is_ascii_alphabetic()
+            } else {
+                character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.')
+            }
+        })
 }
 
 fn is_youtube_link(value: &str) -> Result<bool, String> {
@@ -1799,7 +1753,11 @@ fn is_youtube_link(value: &str) -> Result<bool, String> {
         return Ok(false);
     };
     Ok(matches!(
-        parsed.host_str().unwrap_or_default().to_ascii_lowercase().as_str(),
+        parsed
+            .host_str()
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
         "youtube.com"
             | "www.youtube.com"
             | "youtu.be"
@@ -1838,7 +1796,10 @@ fn safe_color(value: &str) -> bool {
         return matches!(hex.len(), 3 | 4 | 6 | 8)
             && hex.chars().all(|character| character.is_ascii_hexdigit());
     }
-    if value.chars().all(|character| character.is_ascii_alphabetic()) {
+    if value
+        .chars()
+        .all(|character| character.is_ascii_alphabetic())
+    {
         return true;
     }
     let lowercase = value.to_ascii_lowercase();
@@ -1875,13 +1836,11 @@ fn safe_color(value: &str) -> bool {
                     });
         }
         if hsl && matches!(index, 1 | 2) {
-            return part
-                .strip_suffix('%')
-                .is_some_and(|number| {
-                    !number.is_empty()
-                        && number.len() <= 3
-                        && number.chars().all(|character| character.is_ascii_digit())
-                });
+            return part.strip_suffix('%').is_some_and(|number| {
+                !number.is_empty()
+                    && number.len() <= 3
+                    && number.chars().all(|character| character.is_ascii_digit())
+            });
         }
         !part.is_empty()
             && part.len() <= 3
@@ -1894,7 +1853,10 @@ fn style_value_allowed(property: &str, value: &str) -> bool {
     let value = normalized.as_str();
     match property {
         "background-color" | "color" => safe_color(value),
-        "display" => matches!(value, "block" | "inline" | "inline-block" | "flex" | "inline-flex"),
+        "display" => matches!(
+            value,
+            "block" | "inline" | "inline-block" | "flex" | "inline-flex"
+        ),
         "font-family" => value.chars().all(|character| {
             character.is_ascii_alphanumeric()
                 || character.is_ascii_whitespace()
@@ -1906,19 +1868,27 @@ fn style_value_allowed(property: &str, value: &str) -> bool {
         "font-style" => matches!(value, "normal" | "italic" | "oblique"),
         "font-weight" => {
             matches!(value, "normal" | "bold" | "bolder" | "lighter")
-                || matches!(value, "100" | "200" | "300" | "400" | "500" | "600" | "700" | "800" | "900")
+                || matches!(
+                    value,
+                    "100" | "200" | "300" | "400" | "500" | "600" | "700" | "800" | "900"
+                )
         }
         "height" | "max-width" | "min-width" | "width" => {
             value == "auto"
                 || numeric_with_units(value, &["rem", "px", "em", "%", "vw", "vh"], false)
         }
         "line-height" => {
-            value == "normal"
-                || numeric_with_units(value, &["rem", "px", "em", "%"], true)
+            value == "normal" || numeric_with_units(value, &["rem", "px", "em", "%"], true)
         }
-        "text-align" => matches!(value, "left" | "right" | "center" | "justify" | "start" | "end"),
+        "text-align" => matches!(
+            value,
+            "left" | "right" | "center" | "justify" | "start" | "end"
+        ),
         "text-decoration" => matches!(value, "none" | "underline" | "line-through" | "overline"),
-        "vertical-align" => matches!(value, "baseline" | "sub" | "super" | "top" | "middle" | "bottom"),
+        "vertical-align" => matches!(
+            value,
+            "baseline" | "sub" | "super" | "top" | "middle" | "bottom"
+        ),
         _ => false,
     }
 }
@@ -1967,8 +1937,8 @@ fn validate_style(value: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mainsite_draft::{MAINSITE_DRAFT_SCHEMA_VERSION, MAINSITE_SANITIZER_PROFILE};
     use crate::mainsite_citation::MainSiteCitationContext;
+    use crate::mainsite_draft::{MAINSITE_DRAFT_SCHEMA_VERSION, MAINSITE_SANITIZER_PROFILE};
 
     fn draft(content: &str) -> MainSiteDraft {
         let now = Utc::now().to_rfc3339();
@@ -1988,6 +1958,7 @@ mod tests {
                 manifest: None,
                 previous_manifest: None,
             }),
+            shared_chat_evidence: Vec::new(),
             content_sha256: sha256_bytes(content.as_bytes()),
             created_at: now.clone(),
             updated_at: now,
@@ -2073,9 +2044,8 @@ mod tests {
         .expect("plan");
         let mut changed_version = first_version.clone();
         changed_version.version = 2;
-        changed_version.payload = Some(
-            r#"{"version":2,"updated_at":"2026-08-21T00:01:00Z"}"#.to_string(),
-        );
+        changed_version.payload =
+            Some(r#"{"version":2,"updated_at":"2026-08-21T00:01:00Z"}"#.to_string());
         let second = build_plan(
             &target(),
             "database-id-fixture-a",
@@ -2107,7 +2077,9 @@ mod tests {
             ]
         });
         let parsed = parse_d1_results(&valid, 2).expect("valid response");
-        assert!(parsed.iter().all(|item| write_meta_reports_write(&item.meta)));
+        assert!(parsed
+            .iter()
+            .all(|item| write_meta_reports_write(&item.meta)));
 
         let mut invalid = valid;
         invalid["result"][1]["meta"]["rows_written"] = json!(0);
@@ -2117,7 +2089,14 @@ mod tests {
 
     #[test]
     fn post_sql_contains_only_validated_identifier_and_placeholders() {
-        let value = draft("<p>segredo editorial</p>");
+        let mut value = draft("<p>segredo editorial</p>");
+        value.shared_chat_evidence = vec![serde_json::from_value(json!({
+            "provider": "chatgpt",
+            "id": "private-provenance-fixture",
+            "source_url": "https://chatgpt.com/share/provenance-fixture",
+            "notes": ["Local provenance only"]
+        }))
+        .unwrap()];
         let (sql, params) = build_post_statement(
             &target(),
             &value,
@@ -2135,5 +2114,9 @@ mod tests {
         assert!(params
             .iter()
             .any(|param| param.as_str() == Some("<p>segredo editorial</p>")));
+        let statement = serde_json::to_string(&(sql, params)).unwrap();
+        assert!(!statement.contains("private-provenance-fixture"));
+        assert!(!statement.contains("chatgpt.com/share"));
+        assert!(!statement.contains("Local provenance only"));
     }
 }

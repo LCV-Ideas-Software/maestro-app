@@ -898,6 +898,10 @@ button:disabled {
   box-shadow: 0 24px 70px rgb(15 23 42 / 22%);
 }
 
+.resume-dialog::backdrop {
+  background: rgb(15 23 42 / 28%);
+}
+
 .resume-protocol-option {
   display: flex;
   align-items: center;

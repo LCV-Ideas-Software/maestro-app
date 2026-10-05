@@ -28,7 +28,7 @@ export type AiCredentialKey =
   | "perplexity";
 export type InitialAgentKey = "claude" | "codex" | "gemini" | "deepseek" | "grok" | "perplexity";
 export type ProviderRateKey = AiCredentialKey;
-export type NativeAttachmentProvider = Exclude<AiCredentialKey, "deepseek" | "grok" | "perplexity">;
+export type NativeAttachmentProvider = Exclude<AiCredentialKey, "deepseek" | "perplexity">;
 export type CredentialStorageMode = "local_json" | "windows_env" | "cloudflare";
 export type CloudflareTokenSource = "prompt_each_launch" | "windows_env" | "local_encrypted";
 export type ActiveSection = "session" | "protocols" | "evidence" | "agents" | "settings" | "setup";
@@ -223,6 +223,7 @@ export type AiProviderConfig = {
   schema_version: number;
   provider_mode: ProviderMode;
   credential_storage_mode: CredentialStorageMode;
+  gemini_cli_project_id?: string | null;
   openai_api_key: string | null;
   anthropic_api_key: string | null;
   gemini_api_key: string | null;
@@ -681,7 +682,7 @@ export type ResumableSessionInfo = {
 
 export type ProtocolReadingGate = {
   agent: string;
-  progress: number;
+  progress: number | null;
   status: string;
 };
 
@@ -697,6 +698,7 @@ export type MainSiteDraft = {
   is_about_site: boolean;
   sanitizer_profile: string;
   citation_context: MainSiteCitationContext | null;
+  shared_chat_evidence?: StoredSharedChatEvidence[];
   content_sha256: string;
   created_at: string;
   updated_at: string;
@@ -712,6 +714,7 @@ export type SaveMainSiteDraftRequest = Pick<
   | "is_about_site"
   | "sanitizer_profile"
   | "citation_context"
+  | "shared_chat_evidence"
 >;
 
 export type MainSiteD1Target = {
@@ -782,6 +785,17 @@ export type SharedChatEvidenceProjection = {
   retrieved_at: string | null;
   access_mode: string | null;
   notes: string[];
+};
+
+export type StoredSharedChatEvidence = {
+  provider: SharedChatProvider;
+  id: string;
+  source_url: string;
+  final_url?: string | null;
+  sha256?: string | null;
+  retrieved_at?: string | null;
+  access_mode?: string | null;
+  notes?: string[];
 };
 
 export type SharedChatImportReady = {

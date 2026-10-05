@@ -51,7 +51,15 @@ pub(crate) fn remaining_session_duration(
     max_session_minutes: Option<u64>,
 ) -> Option<Duration> {
     let minutes = max_session_minutes?;
-    let deadline = created_at + chrono::Duration::minutes(minutes as i64);
+    // IPC accepts u64, while chrono uses bounded signed durations and dates.
+    // An invalid cap must expire safely rather than wrap or panic the worker.
+    let Some(deadline) = i64::try_from(minutes)
+        .ok()
+        .and_then(chrono::Duration::try_minutes)
+        .and_then(|duration| created_at.checked_add_signed(duration))
+    else {
+        return Some(Duration::ZERO);
+    };
     let remaining = deadline - Utc::now();
     if remaining.num_milliseconds() <= 0 {
         Some(Duration::from_secs(0))
@@ -258,4 +266,37 @@ pub(crate) fn system_time_to_unix(value: SystemTime) -> Option<u64> {
         .duration_since(UNIX_EPOCH)
         .ok()
         .map(|duration| duration.as_secs())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_time_caps_expire_without_panicking_or_wrapping() {
+        let now = Utc::now();
+        for minutes in [u64::MAX, i64::MAX as u64, 9_007_199_254_740_991] {
+            assert_eq!(
+                remaining_session_duration(now, Some(minutes)),
+                Some(Duration::ZERO)
+            );
+            assert!(session_time_exhausted(now, Some(minutes)));
+        }
+        assert_eq!(
+            remaining_session_duration(DateTime::<Utc>::MAX_UTC, Some(1)),
+            Some(Duration::ZERO)
+        );
+    }
+
+    #[test]
+    fn finite_and_unlimited_time_caps_preserve_expected_behavior() {
+        let now = Utc::now();
+        assert_eq!(remaining_session_duration(now, None), None);
+        let remaining = remaining_session_duration(now, Some(2)).unwrap();
+        assert!(remaining.as_secs() >= 118 && remaining.as_secs() <= 120);
+        assert_eq!(
+            remaining_session_duration(now - chrono::Duration::minutes(3), Some(2)),
+            Some(Duration::ZERO)
+        );
+    }
 }

@@ -38,7 +38,9 @@ use crate::app_paths::{
     checked_data_child_path, human_log_path_for, sanitize_path_segment, sessions_dir,
 };
 use crate::editorial_agent_runners::run_editorial_agent_for_spec;
-use crate::editorial_content_lock::{parse_revision_report, validate_revision_content_lock};
+use crate::editorial_content_lock::{
+    canonical_editorial_text, parse_revision_report, validate_revision_content_lock,
+};
 use crate::editorial_helpers::{
     filter_existing_agents_to_active_set, resolve_effective_active_agents,
     FinalizeRunningArtifactsGuard,
@@ -712,7 +714,7 @@ pub(crate) fn run_editorial_session_core(
                 &round_turn_specs,
                 current_draft_author_key.as_deref(),
                 &review_context_sha256,
-            );
+            )?;
             round = progress.round;
             round_turn_index = progress.turn_index;
             valid_round_agents = progress.valid_agents;
@@ -736,7 +738,7 @@ pub(crate) fn run_editorial_session_core(
                 citation_protocol_hash.as_deref(),
                 citation_manifests.current.as_ref(),
                 citation_manifests.previous.as_ref(),
-            );
+            )?;
             round = progress.round;
             // Legacy artifacts carry no proof of the protocol and evidence reviewed.
             round_turn_index = 0;
@@ -1056,19 +1058,60 @@ pub(crate) fn run_editorial_session_core(
             &stable_serial_approval_agents,
             selection_seed,
         ) else {
-            let final_text = strip_leading_maestro_status(&current_draft);
-            if let Some((reason, audit_context)) = final_release_audit_failure_with_citations(
-                &final_text,
-                citation_protocol_hash.as_deref(),
-                citation_manifests.current.as_ref(),
-                citation_manifests.previous.as_ref(),
-            ) {
-                pause_final_reference_audit!(reason, audit_context);
-            }
-            let path = session_dir.join("texto-final.md");
-            write_text_file(&path, &final_text)?;
-            final_path = path;
-            break;
+            // Absence of an eligible reviewer can also mean the circuit is
+            // incomplete. Only the independent approval gate above may release
+            // the current version; scheduler exhaustion never grants approval.
+            let reason = if round_turn_specs
+                .iter()
+                .any(|spec| spec.key == current_author_key)
+            {
+                "no_eligible_pending_independent_reviewer"
+            } else {
+                "current_author_not_in_roster"
+            };
+            let _ = write_log_record(
+                log_session,
+                LogEventInput {
+                    level: "warn".to_string(),
+                    category: "session.serial.no_eligible_reviewer".to_string(),
+                    message: "circular review paused without an eligible independent reviewer"
+                        .to_string(),
+                    context: Some(json!({
+                        "run_id": &run_id,
+                        "round": round,
+                        "turn": nominal_turn_index + 1,
+                        "current_author": current_author_key,
+                        "reason": reason
+                    })),
+                },
+            );
+            let minutes_path = session_dir.join("ata-da-sessao.md");
+            write_text_file(
+                &minutes_path,
+                &build_session_minutes(request, &run_id, &agents, false, None),
+            )?;
+            let context = SessionResultContext {
+                run_id: &run_id,
+                session_dir: &session_dir,
+                prompt_path: &prompt_path,
+                protocol_path: &protocol_path,
+                active_agents: &active_agent_keys,
+                max_session_cost_usd,
+                max_session_minutes,
+                observed_cost_usd: cost_ledger.total_observed_cost_usd,
+                links_path: evidence.links_path.as_ref(),
+                attachments_manifest_path: evidence.attachments_manifest_path.as_ref(),
+                human_log_path: &human_log_path,
+            };
+            return Ok(editorial_session_result(
+                &context,
+                None,
+                &minutes_path,
+                current_draft_path,
+                agents,
+                false,
+                "PAUSED_ROUND_INCOMPLETE",
+            ));
         };
         if selected_turn_index != nominal_turn_index {
             let nominal_reviewer = round_turn_specs[nominal_turn_index].key;
@@ -1080,6 +1123,8 @@ pub(crate) fn run_editorial_session_core(
                     &round_turn_specs,
                     draft_lead_key,
                     &valid_round_agents,
+                    current_draft_author_key.as_deref(),
+                    &stable_serial_approval_agents,
                 )
             {
                 "original_author_closure_waiting_for_full_peer_circuit"
@@ -1119,6 +1164,8 @@ pub(crate) fn run_editorial_session_core(
                 &round_turn_specs,
                 draft_lead_key,
                 &valid_round_agents,
+                current_draft_author_key.as_deref(),
+                &stable_serial_approval_agents,
             )
         {
             let _ = write_log_record(
@@ -1664,7 +1711,12 @@ pub(crate) fn run_editorial_session_core(
 
         let artifact = read_text_file(&output_path).unwrap_or_default();
         let stdout = extract_stdout_block(&artifact).unwrap_or(artifact.as_str());
-        let serial_output = match validate_serial_turn_output(stdout, &result.status) {
+        let serial_output = match validate_serial_turn_output_with_identity(
+            stdout,
+            &result.status,
+            Some(spec.key),
+            Some(current_author_key),
+        ) {
             Ok(output) => output,
             Err(reason) => {
                 result.status = "CONTRACT_VIOLATION".to_string();
@@ -1973,7 +2025,7 @@ pub(crate) fn run_editorial_session_core(
                     final_path = path;
                     break;
                 }
-                round += 1;
+                round = next_circular_round(round)?;
                 round_turn_index = 0;
                 valid_round_agents.clear();
             }
@@ -2132,7 +2184,7 @@ pub(crate) fn run_editorial_session_core(
             consecutive_reviewer_outage_rounds += 1;
             round_turn_index += 1;
             if round_turn_index >= round_turn_count {
-                round += 1;
+                round = next_circular_round(round)?;
                 round_turn_index = 0;
                 valid_round_agents.clear();
             }
@@ -2220,7 +2272,7 @@ pub(crate) fn run_editorial_session_core(
                 final_path = path;
                 break;
             }
-            round += 1;
+            round = next_circular_round(round)?;
             round_turn_index = 0;
             valid_round_agents.clear();
         }
@@ -2378,12 +2430,32 @@ struct CircularResumeProgress {
     had_editorial_divergence: bool,
 }
 
+fn next_circular_round(round: usize) -> Result<usize, String> {
+    round
+        .checked_add(1)
+        .ok_or_else(|| "circular review round counter overflow".to_string())
+}
+
 fn restore_persisted_circular_progress(
     state: CircularReviewState,
     round_turn_specs: &[crate::EditorialAgentSpec],
     current_draft_author_key: Option<&str>,
     review_context_sha256: &str,
-) -> CircularResumeProgress {
+) -> Result<CircularResumeProgress, String> {
+    if round_turn_specs.is_empty() {
+        return Ok(CircularResumeProgress {
+            round: state.round.max(1),
+            turn_index: 0,
+            valid_agents: BTreeSet::new(),
+            stable_approvals: BTreeSet::new(),
+            retry_accounting_authoritative: state.schema_version >= 3
+                && state.retry_accounting_authoritative,
+            paid_corrective_retries_by_round: state.paid_corrective_retries_by_round,
+            corrective_contract_retry_counts: state.corrective_contract_retry_counts,
+            had_substantive_change: false,
+            had_editorial_divergence: false,
+        });
+    }
     let current_roster = round_turn_specs
         .iter()
         .map(|spec| spec.key)
@@ -2399,14 +2471,14 @@ fn restore_persisted_circular_progress(
         state.schema_version >= 3 && state.retry_accounting_authoritative;
     let context_matches = state.review_context_sha256.as_deref() == Some(review_context_sha256);
 
-    let mut round = state.round.max(1);
-    let mut turn_index = state.turn_index;
-    let mut crossed_round_boundary = false;
-    while turn_index >= round_turn_specs.len() {
-        round += 1;
-        turn_index -= round_turn_specs.len();
-        crossed_round_boundary = true;
-    }
+    let completed_rounds = state.turn_index / round_turn_specs.len();
+    let round = state
+        .round
+        .max(1)
+        .checked_add(completed_rounds)
+        .ok_or_else(|| "circular review state position overflows the round counter".to_string())?;
+    let mut turn_index = state.turn_index % round_turn_specs.len();
+    let crossed_round_boundary = completed_rounds > 0;
     if !roster_matches || !context_matches {
         turn_index = 0;
     }
@@ -2430,7 +2502,7 @@ fn restore_persisted_circular_progress(
         })
         .collect();
 
-    CircularResumeProgress {
+    Ok(CircularResumeProgress {
         round,
         turn_index,
         valid_agents,
@@ -2440,7 +2512,7 @@ fn restore_persisted_circular_progress(
         retry_accounting_authoritative,
         had_substantive_change: false,
         had_editorial_divergence: false,
-    }
+    })
 }
 
 fn restore_circular_resume_progress(
@@ -2453,7 +2525,7 @@ fn restore_circular_resume_progress(
     protocol_hash: Option<&str>,
     manifest: Option<&CitationManifest>,
     previous_manifest: Option<&CitationManifest>,
-) -> CircularResumeProgress {
+) -> Result<CircularResumeProgress, String> {
     let mut progress = CircularResumeProgress {
         round: fallback_round.max(1),
         turn_index: 0,
@@ -2466,13 +2538,13 @@ fn restore_circular_resume_progress(
         had_editorial_divergence: false,
     };
     let Some(path) = current_draft_path else {
-        return progress;
+        return Ok(progress);
     };
     let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
-        return progress;
+        return Ok(progress);
     };
     let Some(current_artifact) = parse_agent_artifact_name(agent_dir, name) else {
-        return progress;
+        return Ok(progress);
     };
 
     progress.round = current_artifact.round.max(1);
@@ -2522,23 +2594,28 @@ fn restore_circular_resume_progress(
         };
         let artifact_text = read_text_file(&artifact.path).unwrap_or_default();
         let stdout = extract_stdout_block(&artifact_text).unwrap_or(artifact_text.as_str());
-        let Ok(serial_output) = validate_serial_turn_output(stdout, &agent.status) else {
+        let artifact_modified = fs::metadata(&artifact.path)
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        let Ok(serial_output) = validate_serial_turn_output_with_identity(
+            stdout,
+            &agent.status,
+            Some(artifact.agent.as_str()),
+            (artifact_modified > current_modified).then_some(current_artifact.agent.as_str()),
+        ) else {
             continue;
         };
         progress.valid_agents.insert(artifact.agent.clone());
         if agent.status != "READY" {
             progress.had_editorial_divergence = true;
         }
-        let artifact_modified = fs::metadata(&artifact.path)
-            .and_then(|metadata| metadata.modified())
-            .unwrap_or(std::time::UNIX_EPOCH);
         if artifact_modified <= current_modified {
             continue;
         }
         let text_unchanged = serial_output
             .final_text
             .as_ref()
-            .map(|text| text.split_whitespace().eq(current_draft.split_whitespace()))
+            .map(|text| canonical_editorial_text(text) == canonical_editorial_text(current_draft))
             .unwrap_or(true);
         if agent.status == "READY"
             && text_unchanged
@@ -2557,11 +2634,11 @@ fn restore_circular_resume_progress(
         progress.turn_index = index + 1;
     }
     if progress.turn_index >= round_turn_specs.len() {
-        progress.round += 1;
+        progress.round = next_circular_round(progress.round)?;
         progress.turn_index = 0;
         progress.valid_agents.clear();
     }
-    progress
+    Ok(progress)
 }
 
 #[derive(Debug)]
@@ -2571,7 +2648,17 @@ struct SerialTurnOutput {
     operator_evidence_required: bool,
 }
 
+#[cfg(test)]
 fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnOutput, String> {
+    validate_serial_turn_output_with_identity(stdout, status, None, None)
+}
+
+fn validate_serial_turn_output_with_identity(
+    stdout: &str,
+    status: &str,
+    expected_reviewer: Option<&str>,
+    expected_author: Option<&str>,
+) -> Result<SerialTurnOutput, String> {
     if status != "READY" && status != "NOT_READY" {
         return Err(format!("invalid serial status: {status}"));
     }
@@ -2588,6 +2675,28 @@ fn validate_serial_turn_output(stdout: &str, status: &str) -> Result<SerialTurnO
         return Err("empty maestro_revision_report block".to_string());
     }
     let parsed_report = parse_revision_report(&report)?;
+    if parsed_report
+        .status
+        .as_deref()
+        .is_some_and(|declared| declared != status)
+    {
+        return Err("report status contradicts the serial status marker".to_string());
+    }
+    if let (Some(declared), Some(expected)) = (parsed_report.reviewer.as_deref(), expected_reviewer)
+    {
+        if declared != expected {
+            return Err("report reviewer contradicts the scheduled reviewer".to_string());
+        }
+    }
+    if let (Some(declared), Some(expected)) =
+        (parsed_report.current_author.as_deref(), expected_author)
+    {
+        if declared != expected {
+            return Err(
+                "report current_author contradicts the accepted version author".to_string(),
+            );
+        }
+    }
     let final_text = extract_tagged_block(stdout, "maestro_final_text");
     let has_revised_custody = parsed_report.custody.as_deref() == Some("revised");
     let has_unchanged_custody = parsed_report.custody.as_deref() == Some("unchanged");
@@ -2710,6 +2819,7 @@ enum UnrevisedSerialTurnRuntimeAction {
     RetryExhausted { retry_count: u32 },
 }
 
+#[cfg(test)]
 fn unrevised_serial_turn_audit_decision(
     status: &str,
     serial_output: &SerialTurnOutput,
@@ -2765,6 +2875,7 @@ fn unrevised_serial_turn_audit_decision_with_release_failure(
     None
 }
 
+#[cfg(test)]
 fn unrevised_serial_turn_runtime_action(
     status: &str,
     serial_output: &SerialTurnOutput,
@@ -2987,13 +3098,31 @@ fn citation_operator_evidence_failure(
     manifest: Option<&CitationManifest>,
     previous_manifest: Option<&CitationManifest>,
 ) -> Option<(String, serde_json::Value)> {
-    let audit = audit_abnt_citations_inner(AbntAuditRequest {
+    let audit = match audit_abnt_citations_inner(AbntAuditRequest {
         text: text.to_string(),
         protocol_hash: protocol_hash.map(str::to_string),
         manifest: manifest.cloned(),
         previous_manifest: previous_manifest.cloned(),
-    })
-    .ok()?;
+    }) {
+        Ok(audit) => audit,
+        Err(error)
+            if error == "citation manifest source URLs must not contain credentials or sensitive parameters"
+                || error.starts_with("failed to hash citation manifest:") =>
+        {
+            // The peer cannot edit the operator's immutable manifest. Stop
+            // before another paid turn, without reflecting its source URLs.
+            return Some((
+                "citation gate requires an updated citation manifest".to_string(),
+                json!({
+                    "gate": "abnt_citation_operator_evidence",
+                    "code": "citation_manifest_validation_failed",
+                    "required_action": "attach_or_replace_citation_manifest_then_resume; do_not_spend_additional_peer_turns",
+                    "policy": "operator_evidence_blockers_pause_before_the_next_paid_reviewer"
+                }),
+            ));
+        }
+        Err(_) => return None,
+    };
     let manifest_update_codes = [
         "manifest_schema_invalid",
         "manifest_protocol_hash_missing",
@@ -3238,13 +3367,7 @@ fn is_operational_only_review_round(round_results: &[EditorialAgentResult]) -> b
 }
 
 fn normalized_editorial_text(text: &str) -> String {
-    text.replace("\r\n", "\n")
-        .replace('\r', "\n")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim()
-        .to_string()
+    canonical_editorial_text(text)
 }
 
 fn is_substantive_editorial_change(before: &str, after: &str) -> bool {
@@ -3289,6 +3412,9 @@ fn current_version_has_all_independent_approvals(
     let Some(author_key) = current_author_key else {
         return false;
     };
+    if !round_turn_specs.iter().any(|spec| spec.key == author_key) {
+        return false;
+    }
     let required = round_turn_specs
         .iter()
         .filter(|spec| spec.key != author_key)
@@ -3309,7 +3435,10 @@ fn select_serial_reviewer_index(
     stable_serial_approval_agents: &BTreeSet<String>,
     selection_seed: u64,
 ) -> Option<usize> {
-    if round_turn_specs.is_empty() {
+    if !round_turn_specs
+        .iter()
+        .any(|spec| spec.key == current_author_key)
+    {
         return None;
     }
     let nominal_turn_index = nominal_turn_index % round_turn_specs.len();
@@ -3318,6 +3447,8 @@ fn select_serial_reviewer_index(
         round_turn_specs,
         draft_lead_key,
         valid_round_agents,
+        Some(current_author_key),
+        stable_serial_approval_agents,
     );
     let nominal_is_pending = nominal.key != current_author_key
         && !stable_serial_approval_agents.contains(nominal.key)
@@ -3347,6 +3478,8 @@ fn closing_turn_has_required_prior_reviews(
     round_turn_specs: &[crate::EditorialAgentSpec],
     draft_lead_key: &str,
     valid_round_agents: &BTreeSet<String>,
+    current_author_key: Option<&str>,
+    stable_serial_approval_agents: &BTreeSet<String>,
 ) -> bool {
     let required = round_turn_specs
         .iter()
@@ -3354,9 +3487,15 @@ fn closing_turn_has_required_prior_reviews(
         .map(|spec| spec.key)
         .collect::<Vec<_>>();
     !required.is_empty()
-        && required
-            .iter()
-            .all(|agent| valid_round_agents.contains(*agent))
+        && required.iter().all(|agent| {
+            // Custody of this accepted version survives a round boundary:
+            // its author transferred it, and retained stable approvals are
+            // genuine reviews bound to this version and review context.
+            // These participation credits never create an author vote.
+            valid_round_agents.contains(*agent)
+                || current_author_key == Some(*agent)
+                || stable_serial_approval_agents.contains(*agent)
+        })
 }
 
 fn agent_attempt_output_path(agent_dir: &Path, round: usize, agent: &str, role: &str) -> PathBuf {
@@ -3567,6 +3706,19 @@ mod tests {
             " Linha 1\nLinha 2 "
         ));
         assert!(is_substantive_editorial_change("Linha 1.", "Linha 1"));
+    }
+
+    #[test]
+    fn substantive_markdown_change_clears_prior_approval_state() {
+        let before = "- alpha\n- beta";
+        let after = "- alpha - beta";
+        let mut approvals = BTreeSet::from(["codex".to_string(), "claude".to_string()]);
+        assert!(is_substantive_editorial_change(before, after));
+        apply_stable_approval_transition(
+            &mut approvals,
+            StableApprovalTransition::AcceptedVersionAdvanced,
+        );
+        assert!(approvals.is_empty());
     }
 
     #[test]
@@ -3823,7 +3975,8 @@ mod tests {
             &specs,
             Some("perplexity"),
             "context-test",
-        );
+        )
+        .unwrap();
 
         assert_eq!(progress.round, 5);
         assert_eq!(progress.turn_index, 0);
@@ -3840,7 +3993,370 @@ mod tests {
         assert!(!super::closing_turn_has_required_prior_reviews(
             &specs,
             "claude",
-            &progress.valid_agents
+            &progress.valid_agents,
+            Some("perplexity"),
+            &progress.stable_approvals,
+        ));
+    }
+
+    #[test]
+    fn empty_resume_roster_drops_votes_without_looping_or_replenishing_retries() {
+        let progress = restore_persisted_circular_progress(
+            CircularReviewState {
+                schema_version: CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+                run_id: "run-empty-roster".to_string(),
+                current_draft_artifact: "round-004-gemini-revision.md".to_string(),
+                current_draft_author_key: "gemini".to_string(),
+                current_draft_sha256: "position-normalizer-fixture".to_string(),
+                review_context_sha256: Some("context-empty-roster".to_string()),
+                round: 4,
+                turn_index: usize::MAX,
+                round_roster: vec!["gemini".to_string(), "codex".to_string()],
+                valid_round_agents: vec!["gemini".to_string(), "codex".to_string()],
+                stable_serial_approval_agents: vec!["codex".to_string()],
+                paid_corrective_retries_by_round: BTreeMap::from([(4, 3)]),
+                corrective_contract_retry_counts: BTreeMap::from([("retry".to_string(), 2)]),
+                retry_accounting_authoritative: true,
+                updated_at: "2026-10-05T00:00:00Z".to_string(),
+            },
+            &[],
+            Some("gemini"),
+            "context-empty-roster",
+        )
+        .unwrap();
+        assert_eq!(progress.round, 4);
+        assert_eq!(progress.turn_index, 0);
+        assert!(progress.valid_agents.is_empty());
+        assert!(progress.stable_approvals.is_empty());
+        assert_eq!(progress.paid_corrective_retries_by_round.get(&4), Some(&3));
+        assert_eq!(
+            progress.corrective_contract_retry_counts.get("retry"),
+            Some(&2)
+        );
+        assert!(progress.retry_accounting_authoritative);
+        assert!(!current_version_has_all_independent_approvals(
+            &[],
+            Some("gemini"),
+            &progress.stable_approvals,
+        ));
+    }
+
+    #[test]
+    fn persisted_resume_bounds_extreme_position_and_preserves_retry_debt_and_votes() {
+        for selected in [
+            vec!["codex".to_string(), "gemini".to_string()],
+            vec![
+                "codex".to_string(),
+                "gemini".to_string(),
+                "deepseek".to_string(),
+            ],
+        ] {
+            let specs = circular_round_turn_specs("codex", &selected);
+            let expected_round = 4 + usize::MAX / specs.len();
+            let paid = BTreeMap::from([(4, u32::MAX), (expected_round, u32::MAX)]);
+            let corrective = BTreeMap::from([("retained-retry".to_string(), u32::MAX)]);
+            let roster = specs
+                .iter()
+                .map(|spec| spec.key.to_string())
+                .collect::<Vec<_>>();
+            let state = CircularReviewState {
+                schema_version: CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+                run_id: "run-extreme-position".to_string(),
+                current_draft_artifact: "round-004-gemini-revision.md".to_string(),
+                current_draft_author_key: "gemini".to_string(),
+                current_draft_sha256: "position-fixture".to_string(),
+                review_context_sha256: Some("same-context".to_string()),
+                round: 4,
+                turn_index: usize::MAX,
+                round_roster: roster.clone(),
+                valid_round_agents: roster.clone(),
+                stable_serial_approval_agents: roster,
+                paid_corrective_retries_by_round: paid.clone(),
+                corrective_contract_retry_counts: corrective.clone(),
+                retry_accounting_authoritative: true,
+                updated_at: "2026-10-05T00:00:00Z".to_string(),
+            };
+            let mut overflowing = state.clone();
+            overflowing.round = usize::MAX;
+            overflowing.turn_index = specs.len();
+            assert!(restore_persisted_circular_progress(
+                overflowing,
+                &specs,
+                Some("gemini"),
+                "same-context",
+            )
+            .err()
+            .unwrap()
+            .contains("overflows"));
+
+            let progress =
+                restore_persisted_circular_progress(state, &specs, Some("gemini"), "same-context")
+                    .unwrap();
+            assert_eq!(progress.round, expected_round);
+            assert_eq!(progress.turn_index, usize::MAX % specs.len());
+            assert!(progress.valid_agents.is_empty());
+            assert_eq!(progress.paid_corrective_retries_by_round, paid);
+            assert_eq!(progress.corrective_contract_retry_counts, corrective);
+            assert!(progress.retry_accounting_authoritative);
+            assert_eq!(
+                progress.stable_approvals,
+                specs
+                    .iter()
+                    .filter(|spec| spec.key != "gemini")
+                    .map(|spec| spec.key.to_string())
+                    .collect()
+            );
+            assert!(matches!(
+                paid_corrective_retry_admission(
+                    true,
+                    u32::MAX,
+                    progress.paid_corrective_retries_by_round[&expected_round]
+                ),
+                PaidCorrectiveRetryAdmission::RoundLimitReached { used: u32::MAX },
+            ));
+        }
+        assert_eq!(
+            super::next_circular_round(usize::MAX - 1).unwrap(),
+            usize::MAX
+        );
+        assert!(super::next_circular_round(usize::MAX)
+            .unwrap_err()
+            .contains("overflow"));
+    }
+
+    #[test]
+    fn resumed_two_peer_circuit_retries_original_redactor_without_author_self_review() {
+        let specs =
+            circular_round_turn_specs("codex", &["codex".to_string(), "gemini".to_string()]);
+        // Gemini revised the initial Codex draft, then Codex's closing turn
+        // failed operationally. Persisted progress is at the round boundary.
+        let progress = restore_persisted_circular_progress(
+            CircularReviewState {
+                schema_version: CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+                run_id: "run-two-peer-resume".to_string(),
+                current_draft_artifact: "round-001-gemini-revision.md".to_string(),
+                current_draft_author_key: "gemini".to_string(),
+                current_draft_sha256: "position-normalizer-fixture".to_string(),
+                review_context_sha256: Some("context-two-peer".to_string()),
+                round: 1,
+                turn_index: specs.len(),
+                round_roster: specs.iter().map(|spec| spec.key.to_string()).collect(),
+                valid_round_agents: vec!["gemini".to_string()],
+                stable_serial_approval_agents: Vec::new(),
+                paid_corrective_retries_by_round: BTreeMap::new(),
+                corrective_contract_retry_counts: BTreeMap::new(),
+                retry_accounting_authoritative: true,
+                updated_at: "2026-10-05T00:00:00Z".to_string(),
+            },
+            &specs,
+            Some("gemini"),
+            "context-two-peer",
+        )
+        .unwrap();
+        assert_eq!(progress.round, 2);
+        assert!(progress.valid_agents.is_empty());
+        assert!(!current_version_has_all_independent_approvals(
+            &specs,
+            Some("gemini"),
+            &progress.stable_approvals,
+        ));
+        let selected = select_serial_reviewer_index(
+            &specs,
+            progress.turn_index,
+            "gemini",
+            "codex",
+            &progress.valid_agents,
+            &progress.stable_approvals,
+            0,
+        )
+        .expect("missing original redactor approval must be retried, never implicitly granted");
+        assert_eq!(specs[selected].key, "codex");
+        assert!(progress.stable_approvals.is_empty());
+    }
+
+    #[test]
+    fn resumed_multi_peer_circuit_retains_genuine_reviews_before_original_redactor_closes() {
+        let keys = [
+            "codex",
+            "gemini",
+            "deepseek",
+            "claude",
+            "grok",
+            "perplexity",
+        ];
+        for peer_count in [3, 6] {
+            let active = keys[..peer_count]
+                .iter()
+                .map(|key| key.to_string())
+                .collect::<Vec<_>>();
+            let specs = circular_round_turn_specs("codex", &active);
+            let approvals = specs
+                .iter()
+                .filter(|spec| spec.key != "gemini" && spec.key != "codex")
+                .map(|spec| spec.key.to_string())
+                .collect::<Vec<_>>();
+            // Gemini transferred a revision; every other peer approved it,
+            // but the original redactor's closing turn failed operationally.
+            let progress = restore_persisted_circular_progress(
+                CircularReviewState {
+                    schema_version: CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+                    run_id: format!("run-{peer_count}-peer-resume"),
+                    current_draft_artifact: "round-001-gemini-revision.md".to_string(),
+                    current_draft_author_key: "gemini".to_string(),
+                    current_draft_sha256: "position-normalizer-fixture".to_string(),
+                    review_context_sha256: Some("context-multi-peer".to_string()),
+                    round: 1,
+                    turn_index: specs.len(),
+                    round_roster: specs.iter().map(|spec| spec.key.to_string()).collect(),
+                    valid_round_agents: std::iter::once("gemini".to_string())
+                        .chain(approvals.iter().cloned())
+                        .collect(),
+                    stable_serial_approval_agents: approvals.clone(),
+                    paid_corrective_retries_by_round: BTreeMap::new(),
+                    corrective_contract_retry_counts: BTreeMap::new(),
+                    retry_accounting_authoritative: true,
+                    updated_at: "2026-10-05T00:00:00Z".to_string(),
+                },
+                &specs,
+                Some("gemini"),
+                "context-multi-peer",
+            )
+            .unwrap();
+            assert_eq!(progress.round, 2);
+            assert!(progress.valid_agents.is_empty());
+            assert_eq!(progress.stable_approvals.len(), peer_count - 2);
+            assert!(!progress.stable_approvals.contains("gemini"));
+            assert!(!current_version_has_all_independent_approvals(
+                &specs,
+                Some("gemini"),
+                &progress.stable_approvals,
+            ));
+            let selected = select_serial_reviewer_index(
+                &specs,
+                progress.turn_index,
+                "gemini",
+                "codex",
+                &progress.valid_agents,
+                &progress.stable_approvals,
+                0,
+            )
+            .expect("retained reviews must permit the missing original-redactor closing turn");
+            assert_eq!(specs[selected].key, "codex");
+            let mut closed_approvals = progress.stable_approvals;
+            closed_approvals.insert("codex".to_string());
+            assert!(current_version_has_all_independent_approvals(
+                &specs,
+                Some("gemini"),
+                &closed_approvals,
+            ));
+            assert!(!closed_approvals.contains("gemini"));
+        }
+    }
+
+    #[test]
+    fn serial_scheduler_keeps_an_independent_pending_turn_for_every_incomplete_known_roster() {
+        let keys = [
+            "claude",
+            "codex",
+            "gemini",
+            "deepseek",
+            "grok",
+            "perplexity",
+        ];
+        for peer_count in 2..=keys.len() {
+            let active = keys[..peer_count]
+                .iter()
+                .map(|key| key.to_string())
+                .collect::<Vec<_>>();
+            for lead in &keys[..peer_count] {
+                let specs = circular_round_turn_specs(lead, &active);
+                for (author_index, author) in specs.iter().enumerate() {
+                    for approval_mask in 0..(1usize << peer_count) {
+                        // An accepted author can never supply an approval vote.
+                        if approval_mask & (1 << author_index) != 0 {
+                            continue;
+                        }
+                        let approvals = specs
+                            .iter()
+                            .enumerate()
+                            .filter(|(index, _)| approval_mask & (1 << index) != 0)
+                            .map(|(_, spec)| spec.key.to_string())
+                            .collect::<BTreeSet<_>>();
+                        let unanimous = current_version_has_all_independent_approvals(
+                            &specs,
+                            Some(author.key),
+                            &approvals,
+                        );
+                        for valid_mask in 0..(1usize << peer_count) {
+                            let valid = specs
+                                .iter()
+                                .enumerate()
+                                .filter(|(index, _)| valid_mask & (1 << index) != 0)
+                                .map(|(_, spec)| spec.key.to_string())
+                                .collect::<BTreeSet<_>>();
+                            for nominal_turn in 0..peer_count {
+                                let selected = select_serial_reviewer_index(
+                                    &specs,
+                                    nominal_turn,
+                                    author.key,
+                                    lead,
+                                    &valid,
+                                    &approvals,
+                                    valid_mask as u64,
+                                );
+                                assert_eq!(
+                                    selected.is_none(),
+                                    unanimous,
+                                    "peers={peer_count}, lead={lead}, author={}, approvals={approvals:?}, valid={valid:?}",
+                                    author.key,
+                                );
+                                if let Some(index) = selected {
+                                    let reviewer = specs[index].key;
+                                    assert_ne!(reviewer, author.key);
+                                    assert!(!approvals.contains(reviewer));
+                                    if reviewer == *lead {
+                                        assert!(specs.iter().all(|peer| {
+                                            peer.key == *lead
+                                                || peer.key == author.key
+                                                || valid.contains(peer.key)
+                                                || approvals.contains(peer.key)
+                                        }));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unavailable_serial_reviewer_does_not_prove_independent_approval() {
+        let specs =
+            circular_round_turn_specs("codex", &["codex".to_string(), "gemini".to_string()]);
+        let approvals = BTreeSet::from(["gemini".to_string()]);
+        // Unknown accepted-author identity is deliberately fail closed. There
+        // is no eligible pending reviewer, but Codex has not approved.
+        assert!(select_serial_reviewer_index(
+            &specs,
+            0,
+            "unknown",
+            "codex",
+            &BTreeSet::new(),
+            &approvals,
+            0,
+        )
+        .is_none());
+        assert!(!current_version_has_all_independent_approvals(
+            &specs,
+            Some("unknown"),
+            &approvals,
+        ));
+        assert!(!current_version_has_all_independent_approvals(
+            &specs,
+            Some("unknown"),
+            &BTreeSet::from(["codex".to_string(), "gemini".to_string()]),
         ));
     }
 
@@ -3887,7 +4403,8 @@ mod tests {
             &specs,
             Some("grok"),
             "context-test",
-        );
+        )
+        .unwrap();
 
         assert_eq!(progress.round, 4);
         assert_eq!(progress.turn_index, 0);
@@ -3949,14 +4466,16 @@ mod tests {
             &specs,
             Some("claude"),
             "old-context",
-        );
+        )
+        .unwrap();
         assert!(unchanged.stable_approvals.contains("codex"));
         let changed = restore_persisted_circular_progress(
             state.clone(),
             &specs,
             Some("claude"),
             "new-context",
-        );
+        )
+        .unwrap();
         assert_eq!(changed.turn_index, 0);
         assert!(changed.valid_agents.is_empty());
         assert!(changed.stable_approvals.is_empty());
@@ -3973,7 +4492,8 @@ mod tests {
             ..state
         };
         let migrated =
-            restore_persisted_circular_progress(old_schema, &specs, Some("claude"), "new-context");
+            restore_persisted_circular_progress(old_schema, &specs, Some("claude"), "new-context")
+                .unwrap();
         assert!(migrated.stable_approvals.is_empty());
         assert!(migrated.retry_accounting_authoritative);
     }
@@ -4122,7 +4642,8 @@ Texto revisado.
             None,
             None,
             None,
-        );
+        )
+        .unwrap();
 
         assert_eq!(progress.round, 1);
         assert_eq!(progress.turn_index, 1);
@@ -4141,6 +4662,76 @@ Texto revisado.
         let output = validate_serial_turn_output(stdout, "READY").unwrap();
 
         assert!(output.final_text.is_none());
+    }
+
+    #[test]
+    fn serial_runtime_rejects_explicit_report_status_or_identity_contradictions() {
+        let valid = json!({
+            "reviewer": "codex",
+            "current_author": "gemini",
+            "status": "READY",
+            "custody": "unchanged",
+            "changes": [],
+        });
+        for (field, wrong_value) in [
+            ("status", json!("NOT_READY")),
+            ("status", json!("ready")),
+            ("reviewer", json!("gemini")),
+            ("current_author", json!("codex")),
+            ("status", json!(null)),
+            ("reviewer", json!(null)),
+            ("current_author", json!(null)),
+            ("status", json!(true)),
+            ("reviewer", json!(["codex"])),
+            ("current_author", json!({"key": "gemini"})),
+        ] {
+            let mut report = valid.clone();
+            report[field] = wrong_value;
+            let stdout = format!(
+                "MAESTRO_STATUS: READY\n<maestro_revision_report>{report}</maestro_revision_report>"
+            );
+            let error = super::validate_serial_turn_output_with_identity(
+                &stdout,
+                "READY",
+                Some("codex"),
+                Some("gemini"),
+            )
+            .expect_err("contradictory or untyped metadata cannot establish an approval vote");
+            assert!(
+                error.contains("contradicts") || error.contains("JSON"),
+                "field={field}: {error}",
+            );
+        }
+        for report in [valid, json!({"custody": "unchanged", "changes": []})] {
+            let stdout = format!(
+                "MAESTRO_STATUS: READY\n<maestro_revision_report>{report}</maestro_revision_report>"
+            );
+            let output = super::validate_serial_turn_output_with_identity(
+                &stdout,
+                "READY",
+                Some("codex"),
+                Some("gemini"),
+            )
+            .expect("matching metadata and absent legacy metadata must remain compatible");
+            assert!(output.final_text.is_none());
+        }
+    }
+
+    #[test]
+    fn serial_runtime_rejects_ready_report_for_not_ready_revision() {
+        let stdout = r#"MAESTRO_STATUS: NOT_READY
+<maestro_revision_report>
+{"reviewer":"codex","current_author":"gemini","status":"READY","custody":"revised","changes":[]}
+</maestro_revision_report>
+<maestro_final_text>Texto completo com correção.</maestro_final_text>"#;
+        let error = super::validate_serial_turn_output_with_identity(
+            stdout,
+            "NOT_READY",
+            Some("codex"),
+            Some("gemini"),
+        )
+        .unwrap_err();
+        assert!(error.contains("status contradicts"), "{error}");
     }
 
     #[test]
@@ -4349,6 +4940,42 @@ Referencia removida.
             &output,
             "Texto ainda contem [EVIDENCIA_PENDENTE]."
         ));
+    }
+
+    #[test]
+    fn immutable_citation_manifest_credentials_pause_before_another_peer_turn() {
+        let manifest: CitationManifest = serde_json::from_value(json!({
+            "schema_version": "citation_manifest.v1",
+            "protocol_hash": "protocol-sha256",
+            "citations": [],
+            "sources": [{
+                "source_id": "source-1",
+                "source_type": "online",
+                "title": "Fonte",
+                "year": "2026",
+                "verification_status": "verified",
+                "url": "https://example.org/source?access_token=private-test-value"
+            }]
+        }))
+        .unwrap();
+        for previous in [false, true] {
+            let failure = super::citation_operator_evidence_failure(
+                "Texto sem citacao formal.",
+                Some("protocol-sha256"),
+                (!previous).then_some(&manifest),
+                previous.then_some(&manifest),
+            )
+            .expect("immutable unsafe source requires operator correction before dispatch");
+            let serialized = serde_json::to_string(&failure).unwrap();
+            assert!(!serialized.contains("private-test-value"));
+            assert!(!serialized.contains("example.org"));
+            assert!(!serialized.contains("normalized_references"));
+            assert_eq!(failure.1["code"], "citation_manifest_validation_failed");
+            assert!(failure.1["required_action"]
+                .as_str()
+                .unwrap()
+                .contains("do_not_spend_additional_peer_turns"));
+        }
     }
 
     #[test]

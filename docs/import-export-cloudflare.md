@@ -1,7 +1,7 @@
 # Import, Export, and Cloudflare D1
 
 Status: public shared-chat import, Markdown/MainSite HTML/PDF export, and API-first D1 publication implemented.
-Last reviewed: 2026-08-21.
+Last reviewed: 2026-10-05.
 
 ## Shared Chat Links
 
@@ -58,4 +58,4 @@ Maestro may read, preview, insert, and update records, but the write path is gat
 - MainSite sanitizer pass.
 - `PostReader` compatibility fixtures.
 
-For a local Windows desktop app, D1 access uses Cloudflare's API. Wrangler remains useful for separately authorized diagnostics, but this release deliberately has no Wrangler publication fallback: an API failure is reported and no second write path is attempted. API tokens, account IDs, database IDs, and Cloudflare credentials must never be committed.
+For a local Windows desktop app, D1 access uses Cloudflare's API. Wrangler remains useful for separately authorized diagnostics, but this release deliberately has no Wrangler publication fallback: an API failure is reported and no second write path is attempted. The fixed bootstrap version check requires its own operator approval and does not authorize publication. API tokens and other raw credentials must never be committed. Necessary nonsecret account/database identifiers and configuration metadata may be versioned under the repository's public-metadata policy; private editorial material and confidential values remain excluded.

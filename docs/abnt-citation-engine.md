@@ -1,7 +1,7 @@
 # ABNT Citation Engine
 
-Status: implemented; Rust validation runs in GitHub Actions for the consolidated release PR.
-Last updated: 2026-08-21.
+Status: implemented; validated with the permitted local Rust toolchain and repository release gates.
+Last updated: 2026-10-05.
 
 Maestro must apply the active editorial protocol as executable citation policy. The first profile is based on the attached Protocolo Editorial v1.10.0 and must treat ABNT formatting as a machine-checkable workflow, not as an optional style pass.
 
@@ -12,7 +12,7 @@ The private source protocol remains outside Git. Maestro stores operator-importe
 The engine must support:
 
 - ABNT NBR 10520:2023 citation formatting.
-- ABNT NBR 6023 reference formatting.
+- ABNT NBR 6023:2025 reference formatting.
 - Direct quote, indirect quote, paraphrase, apud, footnote, and final-reference workflows.
 - Mandatory locators for direct quotations.
 - Detection of famous phrases in quotation marks as direct quotations.
@@ -46,6 +46,8 @@ No direct quote may become publishable without a valid locator and a verified or
 
 The complete session manifest uses `citation_manifest.v1`, pins the same protocol hash as the session, and contains `citations` plus `sources`. Verified sources require a SHA-256 verification fingerprint; online sources also require URL and access date. Source metadata is always operator/evidence supplied. The engine never fills a missing author, title, year, publisher, locator, URL, access date, or verification fingerprint by inference.
 
+The engine validates fingerprint syntax and source-access attestations supplied by the operator; it does not retrieve each bibliographic source or recompute its content hash. A non-`apud` citation must use the same publication year, including any disambiguation suffix, as its verified source. An inconsistent immutable manifest requires operator evidence before another paid reviewer runs. Source URL/DOI links containing credentials or sensitive URL parameters are rejected before reference or audit exports are generated, including links in a previous manifest.
+
 ## Session transport
 
 Attach the current manifest to the session as UTF-8 JSON. The recommended name is `citation-manifest.json`; `manifesto-citacoes.json` is also recognized. An optional prior version named with `previous` or `anterior` is used only for semantic diff.
@@ -70,6 +72,8 @@ The engine must generate:
 - Machine-readable blockers.
 
 The implemented command is `audit_abnt_citations`. It returns `maestro_peer.v1`, a stable audit ID, normalized in-text citation and footnote candidates per citation, normalized references, Markdown, escaped MainSite-compatible HTML list items, blockers, an audit table, and a semantic diff. Free-text detection is conservative; authoritative normalization and verification use the attached manifest.
+
+Journal article references use the periodical's comma-separated publication sequence; `In:` remains for a chapter or contribution in a containing work. This follows section 7.7.5 of the [ABNT NBR 6023:2025 text hosted by FHO](https://www.fho.edu.br/assets/documentos/FHO_Biblioteca_Referencia_ABNT_6023_2025.pdf).
 
 ## Maestro as Fourth Peer
 

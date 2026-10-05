@@ -4,6 +4,63 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Treat Wrangler verification as an optional diagnostic, matching the native
+  Cloudflare API publication path without a CLI write fallback.
+- Preserve circular editorial custody through independent current-version
+  approvals, closing-author exclusion and resumed roster boundaries. Missing
+  peer votes pause the session; accepted edits clear earlier approvals.
+- Normalize saved review positions in constant time and reject overflowing
+  round arithmetic without restoring spent corrective retry credits.
+- Validate optional revision-report status and reviewer/author identities
+  against the actual turn. Detect Markdown structural changes in the
+  approved-content lock while preserving ordinary prose whitespace tolerance.
+- Acquire native per-session filesystem custody before run/resume writes and
+  reject concurrent cancellation registration without displacing its owner.
+- Keep Windows CLI input/output cancellation responsive with inherited pipes;
+  delegate batch argument escaping to Rust and require native executables
+  for PTY launchers that cannot safely transport batch arguments.
+- Place managed Windows pipe processes in a native Job Object before their
+  primary thread runs. Stop/deadline also terminate inherited descendants
+  after the direct process exits, with held-handle regression evidence.
+- Report Codex PowerShell language restrictions from the actual diagnostic
+  without inferring a version-wide upstream bug or recommending no sandbox.
+- Reject unsupported PowerShell shims on the Antigravity PTY route while
+  retaining the proven literal argument behavior of piped PowerShell scripts.
+- Prefer the official native Windows Antigravity executable over an earlier
+  batch shim while preserving explicit paths and other CLI search order.
+- Accept legitimate public documentation paths without interpreting the next
+  path segment as a credential (MAESTRO-38), retaining the other URL guards.
+- Verify stored shared-chat bytes, retain local draft provenance, and require
+  HTTPS for credentialed search connectors.
+- Enforce complete native provider responses, cancellable model catalogs,
+  documented attachment formats and aggregate request limits. Align current
+  flagship reasoning/cache contracts and preserve usage on rejected turns.
+- Use Perplexity Kimi K3's highest live-verified reasoning level, high;
+  native max/xhigh currently return HTTP 400 despite model documentation.
+- Deliver Grok PNG/JPEG attachments through native image inputs up to the
+  documented decoded 20 MiB limit. Keep text-only attachment previews explicit
+  and enforce DeepSeek's documented 48 MiB request-body limit before dispatch.
+- Correct ABNT source-year consistency, reference URL validation and journal
+  article punctuation before editorial release.
+  Export canonical Disponível em while accepting normalized legacy references.
+- Prevent stale editor/configuration operations; preserve literal replacement,
+  deletion, keyboard menus, native modal focus, filtered links and rounds beyond
+  999. Show actual protocol phase without fabricated reading percentages.
+- Re-evaluate stable Tauri 2.12.0/Wry 0.57.0 for MAESTRO-1. Remove obsolete UNIC
+  and officially withdrawn GTK exceptions; retain the two Linux-only findings
+  with their existing deadlines. Update yoke-derive to compatible 0.8.4.
+- Refresh exact runtime notices and WebView2 SDK 1.0.3800.47 provenance while
+  preserving the complete historical notice prefix.
+
+### Changed
+
+- Prepare source 0.5.71. Delivery still requires native GitHub checks, a
+  Windows archive, checksums, attestation and GHCR verification.
+- Align provider, protocol acknowledgment and budget documentation with
+  implemented behavior and distinguish it from proposed guarantees.
+
 ## [v0.5.70] - 03/10/2026
 
 ### Fixed

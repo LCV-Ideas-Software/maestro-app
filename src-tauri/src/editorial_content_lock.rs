@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use pulldown_cmark::{html, Event, Options, Parser, Tag, TagEnd};
 use regex::Regex;
 use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer};
@@ -27,6 +28,12 @@ struct ChangedBlockDeclaration {
 
 #[derive(Deserialize)]
 pub(crate) struct RevisionReport {
+    #[serde(default, deserialize_with = "deserialize_present_report_string")]
+    pub(crate) reviewer: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present_report_string")]
+    pub(crate) current_author: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present_report_string")]
+    pub(crate) status: Option<String>,
     #[serde(default)]
     changed_blocks: Vec<ChangedBlockEntry>,
     #[serde(default)]
@@ -35,6 +42,15 @@ pub(crate) struct RevisionReport {
     pub(crate) changes: Vec<Value>,
     #[serde(default)]
     pub(crate) operator_evidence_required: Vec<Value>,
+}
+
+fn deserialize_present_report_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // Missing legacy fields use the serde default. An explicitly present field
+    // must be a string; null must not silently erase contradictory metadata.
+    String::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -101,7 +117,10 @@ impl<'de> Deserialize<'de> for NoDuplicateJson {
                 Ok(NoDuplicateJson(Value::Null))
             }
 
-            fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
+            fn visit_seq<A: SeqAccess<'de>>(
+                self,
+                mut sequence: A,
+            ) -> Result<Self::Value, A::Error> {
                 let mut values = Vec::new();
                 while let Some(NoDuplicateJson(value)) = sequence.next_element()? {
                     values.push(value);
@@ -148,25 +167,50 @@ pub(crate) fn parse_revision_report(report: &str) -> Result<RevisionReport, Stri
 pub(crate) fn segment_editorial_blocks(text: &str) -> Vec<EditorialContentBlock> {
     let normalized_newlines = text.replace("\r\n", "\n").replace('\r', "\n");
     let blank_line = Regex::new(r"\n[\t ]*\n").expect("valid blank-line regex");
-    blank_line
-        .split(&normalized_newlines)
+    let mut code_start = None;
+    let mut code_ranges = Vec::new();
+    for (event, range) in Parser::new(&normalized_newlines).into_offset_iter() {
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => code_start = Some(range.start),
+            Event::End(TagEnd::CodeBlock) => {
+                if let Some(start) = code_start.take() {
+                    code_ranges.push(start..range.end);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut start = 0;
+    let mut raw_blocks = Vec::new();
+    for separator in blank_line.find_iter(&normalized_newlines) {
+        if code_ranges
+            .iter()
+            .any(|range| range.contains(&separator.end().saturating_sub(1)))
+        {
+            continue;
+        }
+        raw_blocks.push(&normalized_newlines[start..separator.start()]);
+        start = separator.end();
+    }
+    raw_blocks.push(&normalized_newlines[start..]);
+    raw_blocks
+        .into_iter()
         .filter_map(|raw_block| {
             let trimmed = raw_block.trim();
             if trimmed.is_empty() {
                 return None;
             }
-            Some(trimmed.to_string())
+            // Leading indentation may itself create a Markdown code block.
+            // Preserve it for identity while keeping manifest excerpts trimmed.
+            Some((trimmed.to_string(), canonical_editorial_text(raw_block)))
         })
         .enumerate()
-        .map(|(index, block)| {
-            let normalized = normalize_block_text(&block);
-            EditorialContentBlock {
-                id: format!("B{:04}", index + 1),
-                kind: classify_block_kind(&block),
-                chars: block.chars().count(),
-                normalized_hash: sha256_hex(&normalized),
-                text: block,
-            }
+        .map(|(index, (block, normalized))| EditorialContentBlock {
+            id: format!("B{:04}", index + 1),
+            kind: classify_block_kind(&block),
+            chars: block.chars().count(),
+            normalized_hash: sha256_hex(&normalized),
+            text: block,
         })
         .collect()
 }
@@ -250,13 +294,12 @@ pub(crate) fn validate_revision_content_lock(
             };
             let original_count = before_hash_counts.get(*hash).copied().unwrap_or(0);
             let after_count = after_hash_counts.get(*hash).copied().unwrap_or(0);
-            if original_count <= 1
-                || after_count == 0
-                || after_count >= original_count
-            {
+            if original_count <= 1 || after_count == 0 || after_count >= original_count {
                 return false;
             }
-            let Some(changed_index) = before_blocks.iter().position(|block| block.id == id.as_str())
+            let Some(changed_index) = before_blocks
+                .iter()
+                .position(|block| block.id == id.as_str())
             else {
                 return true;
             };
@@ -274,9 +317,8 @@ pub(crate) fn validate_revision_content_lock(
                         (other_index, changed_index)
                     };
                     other_is_matched
-                        && (start + 1..end).any(|between| {
-                            before_blocks[between].normalized_hash.as_str() != *hash
-                        })
+                        && (start + 1..end)
+                            .any(|between| before_blocks[between].normalized_hash.as_str() != *hash)
                 })
         })
         .cloned()
@@ -369,6 +411,36 @@ pub(crate) fn validate_revision_content_lock(
 
 fn normalize_block_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Keep the established prose-whitespace equivalence while preserving
+/// Markdown structures and whitespace that carry meaning in code or HTML.
+/// The native parser and renderer supply the structural representation;
+/// paragraph separation and soft wrapping remain intentionally equivalent.
+pub(crate) fn canonical_editorial_text(text: &str) -> String {
+    let normalized_newlines = text.replace("\r\n", "\n").replace('\r', "\n");
+    let options = Options::ENABLE_TABLES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_FOOTNOTES;
+    let mut in_code_block = false;
+    let events = Parser::new_ext(&normalized_newlines, options).filter_map(|event| match event {
+        Event::Start(Tag::CodeBlock(_)) => {
+            in_code_block = true;
+            Some(event)
+        }
+        Event::End(TagEnd::CodeBlock) => {
+            in_code_block = false;
+            Some(event)
+        }
+        Event::Start(Tag::Paragraph) | Event::End(TagEnd::Paragraph) | Event::SoftBreak => None,
+        Event::Text(_) if !in_code_block => None,
+        event => Some(event),
+    });
+    let mut structure = String::new();
+    html::push_html(&mut structure, events);
+    serde_json::to_string(&(normalize_block_text(&normalized_newlines), structure))
+        .expect("editorial text and native Markdown structure are serializable strings")
 }
 
 fn classify_block_kind(text: &str) -> &'static str {
@@ -513,8 +585,11 @@ fn matched_received_indices(
     let stable_hashes = before_by_hash
         .iter()
         .filter_map(|(hash, positions)| {
-            (positions.len() == 1 && after_by_hash.get(hash).is_some_and(|other| other.len() == 1))
-                .then_some(*hash)
+            (positions.len() == 1
+                && after_by_hash
+                    .get(hash)
+                    .is_some_and(|other| other.len() == 1))
+            .then_some(*hash)
         })
         .collect::<BTreeSet<_>>();
     let before_context = stable_neighbor_context(before_blocks, &stable_hashes);
@@ -578,7 +653,8 @@ fn matched_received_indices(
             if matched[*after_index].is_some() {
                 continue;
             }
-            if let Some(before_index) = positions.iter().copied().find(|index| !used_before[*index]) {
+            if let Some(before_index) = positions.iter().copied().find(|index| !used_before[*index])
+            {
                 matched[*after_index] = Some(before_index);
                 used_before[before_index] = true;
             }
@@ -623,7 +699,10 @@ fn validate_growth_anchors(
             received.is_none() && (*index == 0 || matched[*index - 1].is_some())
         })
         .count();
-    let changed_id_set = changed_ids.iter().map(String::as_str).collect::<BTreeSet<_>>();
+    let changed_id_set = changed_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
     let changed_indices = before_blocks
         .iter()
         .enumerate()
@@ -661,18 +740,15 @@ fn validate_growth_anchors(
                     }
                     (Some(left), None) => {
                         *received_index > left
-                            || (unmatched_gap_count == 1
-                                && changed_indices.len() == index - start)
+                            || (unmatched_gap_count == 1 && changed_indices.len() == index - start)
                     }
                     (None, Some(right)) => {
                         *received_index < right
-                            || (unmatched_gap_count == 1
-                                && changed_indices.len() == index - start)
+                            || (unmatched_gap_count == 1 && changed_indices.len() == index - start)
                     }
                     (None, None) => true,
                     (Some(left), Some(right)) if left > right => {
-                        unmatched_gap_count == 1
-                            && changed_indices.len() <= index - start
+                        unmatched_gap_count == 1 && changed_indices.len() <= index - start
                     }
                     _ => false,
                 }
@@ -732,7 +808,9 @@ fn validate_growth_anchors(
         }
         let source_index = *sources.iter().next().expect("one local growth source");
         let source_id = before_blocks[source_index].id.as_str();
-        let allowance = remaining_growth.get_mut(source_id).expect("declared growth source");
+        let allowance = remaining_growth
+            .get_mut(source_id)
+            .expect("declared growth source");
         if growth > *allowance {
             return Err(format!(
                 "approved-content lock violation: added blocks exceed new_block_count for insertion anchor {source_id}"
@@ -856,8 +934,49 @@ fn has_substantive_protocol_basis(value: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        format_block_manifest_for_prompt, segment_editorial_blocks, validate_revision_content_lock,
+        canonical_editorial_text, format_block_manifest_for_prompt, segment_editorial_blocks,
+        validate_revision_content_lock,
     };
+
+    #[test]
+    fn prose_whitespace_equivalence_preserves_the_existing_contract() {
+        assert_eq!(
+            canonical_editorial_text("Linha 1\r\n\r\nLinha    2"),
+            canonical_editorial_text(" Linha 1\nLinha 2 ")
+        );
+    }
+
+    #[test]
+    fn markdown_structure_and_code_whitespace_cannot_hide_as_prose_whitespace() {
+        for (before, after) in [
+            ("- alpha\n- beta", "- alpha - beta"),
+            ("- alpha\n  - beta", "- alpha\n- beta"),
+            ("alpha  \nbeta", "alpha\nbeta"),
+            ("Use `a  b`.", "Use `a b`."),
+            ("```text\na  b\n```", "```text\na b\n```"),
+            ("    a  b", "a b"),
+            ("```text\na\n\nb  c\n```", "```text\na\n\nb c\n```"),
+        ] {
+            assert_ne!(
+                canonical_editorial_text(before),
+                canonical_editorial_text(after)
+            );
+            let error = validate_revision_content_lock(
+                before,
+                after,
+                r#"{"custody":"revised","changed_blocks":[]}"#,
+            )
+            .expect_err("structural changes must declare the changed received block");
+            assert!(error.contains("B0001"), "{before:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn code_block_internal_blank_lines_do_not_split_its_custody_identity() {
+        let blocks = segment_editorial_blocks("Before.\n\n```text\na\n\nb  c\n```\n\nAfter.");
+        assert_eq!(blocks.len(), 3);
+        assert!(blocks[1].text.contains("a\n\nb  c"));
+    }
 
     #[test]
     fn changed_block_without_changed_blocks_declaration_is_rejected() {
@@ -1017,7 +1136,10 @@ mod tests {
         ],"custody":"revised"}"#;
 
         let error = validate_revision_content_lock(before, after, report).unwrap_err();
-        assert!(error.contains("B0001") || error.contains("B0002"), "{error}");
+        assert!(
+            error.contains("B0001") || error.contains("B0002"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -1029,7 +1151,10 @@ mod tests {
         ],"custody":"revised"}"#;
 
         let error = validate_revision_content_lock(before, after, report).unwrap_err();
-        assert!(error.contains("B0001") && error.contains("B0002"), "{error}");
+        assert!(
+            error.contains("B0001") && error.contains("B0002"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -1270,8 +1395,7 @@ mod tests {
         ]}"#;
 
         let error =
-            validate_revision_content_lock("Original.", "Original.\n\nNovo.", report)
-                .unwrap_err();
+            validate_revision_content_lock("Original.", "Original.\n\nNovo.", report).unwrap_err();
         assert!(error.contains("added new blocks"), "{error}");
     }
 
@@ -1281,12 +1405,8 @@ mod tests {
             {"block_id":"B0001","change_type":"addition","new_block_count":2,"protocol_basis":"required context"}
         ]}"#;
 
-        validate_revision_content_lock(
-            "Original.",
-            "Original.\n\nNovo um.\n\nNovo dois.",
-            report,
-        )
-        .unwrap();
+        validate_revision_content_lock("Original.", "Original.\n\nNovo um.\n\nNovo dois.", report)
+            .unwrap();
     }
 
     #[test]
@@ -1296,8 +1416,7 @@ mod tests {
         ]}"#;
 
         let error =
-            validate_revision_content_lock("Alpha\n\nAlpha", "Novo\n\nAlpha", report)
-                .unwrap_err();
+            validate_revision_content_lock("Alpha\n\nAlpha", "Novo\n\nAlpha", report).unwrap_err();
         assert!(error.contains("ambiguous"), "{error}");
     }
 
@@ -1309,8 +1428,8 @@ mod tests {
             "{\"changed_blocks\":[]} trailing",
             "[[]]",
         ] {
-            let error = validate_revision_content_lock("Original.", "Original.", report)
-                .unwrap_err();
+            let error =
+                validate_revision_content_lock("Original.", "Original.", report).unwrap_err();
             assert!(error.contains("strict JSON object"), "{error}");
         }
     }
@@ -1351,12 +1470,11 @@ mod tests {
             {"block_id":"B0001","block_id":"B0002","protocol_basis":"correction"}
         ]}"#;
 
-        let error =
-            validate_revision_content_lock("Original.", "Revisado.", duplicate_entries)
-                .unwrap_err();
-        assert!(error.contains("duplicate changed_blocks"), "{error}");
-        let error = validate_revision_content_lock("Original.", "Revisado.", duplicate_field)
+        let error = validate_revision_content_lock("Original.", "Revisado.", duplicate_entries)
             .unwrap_err();
+        assert!(error.contains("duplicate changed_blocks"), "{error}");
+        let error =
+            validate_revision_content_lock("Original.", "Revisado.", duplicate_field).unwrap_err();
         assert!(error.contains("strict JSON object"), "{error}");
     }
 
@@ -1488,8 +1606,8 @@ mod tests {
             let report = format!(
                 "{{\"changed_blocks\":[{{\"block_id\":\"B0001\",\"protocol_basis\":{basis}}}]}}"
             );
-            let error = validate_revision_content_lock("Original.", "Revisado.", &report)
-                .unwrap_err();
+            let error =
+                validate_revision_content_lock("Original.", "Revisado.", &report).unwrap_err();
             assert!(error.contains("protocol_basis"), "{error}");
         }
     }
@@ -1500,8 +1618,12 @@ mod tests {
             {"block_id":"B0001","change_type":"addition","protocol_basis":"context"},
             {"block_id":"B0002","change_type":"addition","protocol_basis":"context"}
         ]}"#;
-        let error = validate_revision_content_lock("Primeiro.\n\nSegundo.", "Primeiro.\n\nNovo.\n\nSegundo.", report)
-            .unwrap_err();
+        let error = validate_revision_content_lock(
+            "Primeiro.\n\nSegundo.",
+            "Primeiro.\n\nNovo.\n\nSegundo.",
+            report,
+        )
+        .unwrap_err();
         assert!(error.contains("unambiguous local"), "{error}");
     }
 
@@ -1517,7 +1639,10 @@ mod tests {
             report,
         )
         .unwrap_err();
-        assert!(error.contains("new_block_count for insertion anchor B0001"), "{error}");
+        assert!(
+            error.contains("new_block_count for insertion anchor B0001"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -1542,12 +1667,7 @@ mod tests {
             {"block_id":"B0003","protocol_basis":"correction"},
             {"block_id":"B0004","change_type":"reorder","protocol_basis":"required order"}
         ]}"#;
-        validate_revision_content_lock(
-            "A\n\nB\n\nC\n\nD",
-            "D\n\nB2\n\nC2\n\nA",
-            report,
-        )
-        .unwrap();
+        validate_revision_content_lock("A\n\nB\n\nC\n\nD", "D\n\nB2\n\nC2\n\nA", report).unwrap();
     }
 
     #[test]
@@ -1564,12 +1684,8 @@ mod tests {
             {"block_id":"B0001","protocol_basis":"correction"},
             {"block_id":"B0004","change_type":"addition","protocol_basis":"new closing context"}
         ]}"#;
-        validate_revision_content_lock(
-            "A\n\nX\n\nA\n\nY",
-            "N\n\nX\n\nA\n\nY\n\nZ",
-            report,
-        )
-        .unwrap();
+        validate_revision_content_lock("A\n\nX\n\nA\n\nY", "N\n\nX\n\nA\n\nY\n\nZ", report)
+            .unwrap();
     }
 
     #[test]
@@ -1588,8 +1704,7 @@ mod tests {
         ]}"#;
 
         let error =
-            validate_revision_content_lock("Original.", "Original.\n\nNovo.", report)
-                .unwrap_err();
+            validate_revision_content_lock("Original.", "Original.\n\nNovo.", report).unwrap_err();
         assert!(error.contains("received manifest"), "{error}");
     }
 

@@ -42,8 +42,8 @@ mod human_logs;
 mod link_audit;
 mod link_integrity;
 mod logging;
-mod mainsite_d1;
 mod mainsite_citation;
+mod mainsite_d1;
 mod mainsite_draft;
 mod provider_config;
 mod provider_deepseek;
@@ -206,6 +206,8 @@ pub(crate) struct AiProviderConfig {
     schema_version: u8,
     provider_mode: String,
     credential_storage_mode: String,
+    #[serde(default)]
+    pub(crate) gemini_cli_project_id: Option<String>,
     #[serde(default)]
     pub(crate) openai_api_key: Option<String>,
     #[serde(default)]
@@ -789,6 +791,7 @@ impl Default for AiProviderConfig {
             schema_version: 1,
             provider_mode: "hybrid".to_string(),
             credential_storage_mode: "local_json".to_string(),
+            gemini_cli_project_id: None,
             openai_api_key: None,
             anthropic_api_key: None,
             gemini_api_key: None,
@@ -1397,6 +1400,7 @@ mod tests {
             schema_version: 1,
             provider_mode: "api".to_string(),
             credential_storage_mode: "cloudflare".to_string(),
+            gemini_cli_project_id: Some("local-native-project".to_string()),
             openai_api_key: Some("sk-test-value".to_string()),
             anthropic_api_key: Some("sk-ant-test-value".to_string()),
             gemini_api_key: Some("AIza-test-value".to_string()),
@@ -1432,6 +1436,11 @@ mod tests {
 
         let text = fs::read_to_string(checked_data_child_path(&path).unwrap()).unwrap();
         assert!(text.contains("\"credential_storage_mode\": \"cloudflare\""));
+        let marker: AiProviderConfig = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            marker.gemini_cli_project_id.as_deref(),
+            Some("local-native-project")
+        );
         assert!(text.contains("\"openai_api_key_remote\": true"));
         assert!(text.contains("\"anthropic_api_key_remote\": true"));
         assert!(text.contains("\"gemini_api_key_remote\": true"));
@@ -1453,6 +1462,7 @@ mod tests {
             schema_version: 1,
             provider_mode: "api".to_string(),
             credential_storage_mode: "cloudflare".to_string(),
+            gemini_cli_project_id: Some("local-native-project".to_string()),
             openai_api_key: Some("sk-test-value".to_string()),
             anthropic_api_key: None,
             gemini_api_key: Some("AIza-test-value".to_string()),

@@ -30,9 +30,13 @@
 // surfaces the bool but treats both cases as "stop request acknowledged".
 
 use std::collections::HashMap;
+use std::fs::{self, File, TryLockError};
+use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
 use tokio_util::sync::CancellationToken;
+
+use crate::app_paths::{checked_data_child_path, sanitize_path_segment, sessions_dir};
 
 static SESSION_CANCEL: OnceLock<Mutex<HashMap<String, CancellationToken>>> = OnceLock::new();
 
@@ -41,15 +45,84 @@ fn cancel_map() -> &'static Mutex<HashMap<String, CancellationToken>> {
 }
 
 /// Register a cancellation token for the given run_id and return a clone
-/// usable by the session loop. If a stale token exists for the same run_id
-/// (e.g. a previous session crashed without cleanup), it is overwritten.
-pub(crate) fn register_session_cancel(run_id: &str) -> CancellationToken {
+/// usable by the session loop. A live registration cannot be replaced:
+/// cancellation and guard cleanup must continue to address its owner.
+fn register_session_cancel(run_id: &str) -> Result<CancellationToken, String> {
     let token = CancellationToken::new();
     let mut guard = cancel_map()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.insert(run_id.to_string(), token.clone());
-    token
+    match guard.entry(run_id.to_string()) {
+        std::collections::hash_map::Entry::Vacant(entry) => {
+            entry.insert(token.clone());
+            Ok(token)
+        }
+        std::collections::hash_map::Entry::Occupied(_) => {
+            Err("session is already running".to_string())
+        }
+    }
+}
+
+fn acquire_session_file_lock(session_dir: &Path) -> Result<File, String> {
+    let session_dir = checked_data_child_path(session_dir)?;
+    fs::create_dir_all(&session_dir)
+        .map_err(|error| format!("failed to create session custody directory: {error}"))?;
+    let lock_path = checked_data_child_path(&session_dir.join(".editorial-custody"))?;
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)
+        .map_err(|error| format!("failed to open session custody handle: {error}"))?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(TryLockError::WouldBlock) => Err("session is already running".to_string()),
+        Err(TryLockError::Error(error)) => {
+            Err(format!("failed to acquire session custody: {error}"))
+        }
+    }
+}
+
+/// The native OS lock excludes another worker or app process. File Drop
+/// releases custody even after an error or panic; no stale-file cleanup is
+/// needed. Remove the process-local token before releasing OS custody.
+pub(crate) struct SessionExecutionGuard {
+    _cancel_guard: CancelTokenGuard,
+    _session_lock: File,
+}
+
+pub(crate) fn acquire_session_execution(
+    run_id: &str,
+) -> Result<(CancellationToken, SessionExecutionGuard), String> {
+    if run_id.is_empty() || sanitize_path_segment(run_id, 120) != run_id {
+        return Err("invalid session run_id".to_string());
+    }
+    let session_lock = acquire_session_file_lock(&sessions_dir().join(run_id))?;
+    let token = register_session_cancel(run_id)?;
+    Ok((
+        token,
+        SessionExecutionGuard {
+            _cancel_guard: CancelTokenGuard::new(run_id.to_string()),
+            _session_lock: session_lock,
+        },
+    ))
+}
+
+pub(crate) fn session_execution_is_active(session_dir: &Path) -> Result<bool, String> {
+    let lock_path = checked_data_child_path(&session_dir.join(".editorial-custody"))?;
+    let file = match File::options().read(true).write(true).open(&lock_path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("failed to inspect session custody: {error}")),
+    };
+    match file.try_lock() {
+        Ok(()) => Ok(false),
+        Err(TryLockError::WouldBlock) => Ok(true),
+        Err(TryLockError::Error(error)) => {
+            Err(format!("failed to inspect session custody: {error}"))
+        }
+    }
 }
 
 /// Signal cancellation for the given run_id. Returns true if a matching
@@ -111,7 +184,7 @@ mod tests {
     #[test]
     fn register_then_signal_then_unregister_roundtrips() {
         let id = "test-register-roundtrip-8e9b0f1d";
-        let token = register_session_cancel(id);
+        let token = register_session_cancel(id).unwrap();
         assert!(!token.is_cancelled(), "fresh token must not be cancelled");
         assert!(
             signal_session_cancel(id),
@@ -128,7 +201,7 @@ mod tests {
     #[test]
     fn signal_is_idempotent_after_first_cancel() {
         let id = "test-idempotent-cancel-2a3b4c5d";
-        let _token = register_session_cancel(id);
+        let _token = register_session_cancel(id).unwrap();
         assert!(signal_session_cancel(id));
         assert!(
             signal_session_cancel(id),
@@ -140,7 +213,7 @@ mod tests {
     #[test]
     fn cancel_token_guard_unregisters_on_drop() {
         let id = "test-guard-drop-9f0e1d2c";
-        let _token = register_session_cancel(id);
+        let _token = register_session_cancel(id).unwrap();
         {
             let _guard = CancelTokenGuard::new(id.to_string());
             assert!(signal_session_cancel(id));
@@ -156,7 +229,7 @@ mod tests {
         // Anti-regression: ensures the cancel registry stays clean even when
         // the session loop panics mid-flight.
         let id = "test-guard-panic-3a4b5c6d";
-        let _token = register_session_cancel(id);
+        let _token = register_session_cancel(id).unwrap();
         let result = std::panic::catch_unwind(|| {
             let _guard = CancelTokenGuard::new(id.to_string());
             panic!("synthetic panic for Drop semantics test");
@@ -166,5 +239,91 @@ mod tests {
             !signal_session_cancel(id),
             "guard Drop must run on panic so subsequent signal returns false"
         );
+    }
+
+    #[test]
+    fn duplicate_registration_preserves_the_original_cancellation_owner() {
+        let id = "test-duplicate-registration-b93c2d";
+        let original = register_session_cancel(id).unwrap();
+        let original_guard = CancelTokenGuard::new(id.to_string());
+        assert!(register_session_cancel(id).is_err());
+        assert!(signal_session_cancel(id));
+        assert!(original.is_cancelled());
+        drop(original_guard);
+        assert!(!signal_session_cancel(id));
+        let replacement = register_session_cancel(id).unwrap();
+        assert!(!replacement.is_cancelled());
+        unregister_session_cancel(id);
+    }
+
+    fn custody_fixture_id(label: &str) -> String {
+        format!(
+            "test-custody-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        )
+    }
+
+    #[test]
+    fn session_custody_and_token_are_released_after_a_panicking_worker() {
+        let id = custody_fixture_id("panic");
+        let dir = sessions_dir().join(&id);
+        let result = std::panic::catch_unwind(|| {
+            let (token, _guard) = acquire_session_execution(&id).unwrap();
+            assert!(session_execution_is_active(&dir).unwrap());
+            assert!(acquire_session_execution(&id).is_err());
+            assert!(signal_session_cancel(&id));
+            assert!(token.is_cancelled());
+            panic!("synthetic worker panic");
+        });
+        assert!(result.is_err());
+        assert!(!session_execution_is_active(&dir).unwrap());
+        assert!(!signal_session_cancel(&id));
+        let (token, guard) = acquire_session_execution(&id).unwrap();
+        assert!(!token.is_cancelled());
+        drop(guard);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn another_app_process_cannot_acquire_an_active_sessions_custody() {
+        let id = custody_fixture_id("process");
+        let dir = sessions_dir().join(&id);
+        let (_token, guard) = acquire_session_execution(&id).unwrap();
+        let child = crate::hidden_command(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "session_cancel::tests::session_lock_child_fixture",
+            ])
+            .env("MAESTRO_SESSION_CUSTODY_FIXTURE_DIR", &dir)
+            .output()
+            .unwrap();
+        drop(guard);
+        let reacquired = acquire_session_file_lock(&dir).unwrap();
+        drop(reacquired);
+        let inactive = session_execution_is_active(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        assert!(
+            child.status.success(),
+            "separate-process custody check failed: {} {}",
+            String::from_utf8_lossy(&child.stdout),
+            String::from_utf8_lossy(&child.stderr),
+        );
+        assert!(!inactive);
+        assert!(!signal_session_cancel(&id));
+    }
+
+    #[test]
+    #[ignore = "invoked as a separate-process custody fixture by the parent test"]
+    fn session_lock_child_fixture() {
+        let dir = std::env::var_os("MAESTRO_SESSION_CUSTODY_FIXTURE_DIR").unwrap();
+        let dir = std::path::PathBuf::from(dir);
+        assert!(session_execution_is_active(&dir).unwrap());
+        let error = acquire_session_file_lock(&dir).unwrap_err();
+        assert_eq!(error, "session is already running");
     }
 }

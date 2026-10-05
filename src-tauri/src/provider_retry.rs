@@ -1,17 +1,11 @@
 //! Provider HTTP networking primitives shared by every editorial API peer.
 //!
 //! Extracted from `lib.rs` in the v0.3.20 split per `docs/code-split-plan.md`
-//! migration order step 3 ("AI provider credentials/probes"). Behavior
-//! preserved: retry policy, Retry-After parsing, and `build_api_client`
-//! defaults are identical to the pre-extraction inline definitions.
-//!
-//! The 4 provider runner functions themselves (`run_deepseek_api_agent`,
-//! `run_openai_api_agent`, `run_anthropic_api_agent`, `run_gemini_api_agent`)
-//! stay in `lib.rs` for this batch and will move in v0.3.21 along with the
-//! provider-specific request body shapes and response parsers.
+//! migration order step 3 ("AI provider credentials/probes"). Editorial
+//! requests and model discovery now share the asynchronous, cancellable
+//! client; no blocking client is constructed inside a Tokio runtime.
 
 use chrono::{DateTime, Utc};
-use reqwest::blocking::Client;
 use serde_json::json;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -29,22 +23,8 @@ pub(crate) enum ProviderRequestOutcome {
     Network(reqwest::Error),
 }
 
-/// Build a `reqwest::blocking::Client` with the Maestro user-agent and an
-/// optional per-request timeout. `None` means rely on the OS-level connect
-/// timeout (~30s on Windows). Used by sync probe paths.
-pub(crate) fn build_api_client(timeout: Option<Duration>) -> Result<Client, reqwest::Error> {
-    let mut client_builder = Client::builder().user_agent(format!(
-        "Maestro Editorial AI/{}",
-        env!("CARGO_PKG_VERSION")
-    ));
-    if let Some(timeout) = timeout {
-        client_builder = client_builder.timeout(timeout);
-    }
-    client_builder.build()
-}
-
-/// Async equivalent of `build_api_client`: returns a `reqwest::Client`
-/// (async) with the same user-agent and optional timeout. Used by every
+/// Build an async `reqwest::Client` with the Maestro user-agent and an
+/// optional editorial request timeout. Used by every
 /// editorial API runner since v0.5.0 so an in-flight HTTP request can be
 /// dropped via `tokio::select!` against a cancellation token.
 pub(crate) fn build_api_client_async(
@@ -117,9 +97,8 @@ pub(crate) fn parse_retry_after_header(headers: &reqwest::header::HeaderMap) -> 
 // `send_with_retry` (sync) was removed in v0.5.0 along with the migration
 // to `send_with_retry_async`. The 4 provider runners and DeepSeek now go
 // through the async path so an in-flight HTTP request honors the operator's
-// cancellation token. The blocking `Client` is still built via
-// `build_api_client` for the short-lived `/models` resolve probe inside
-// each runner.
+// cancellation token. Model discovery also uses the async client and
+// cancellation token.
 
 /// Async send-with-retry that races the request future against a
 /// `CancellationToken` so an operator-driven "Stop session" press aborts

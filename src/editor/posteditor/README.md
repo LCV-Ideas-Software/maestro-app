@@ -27,7 +27,7 @@ When `admin-app/MainSite/PostEditor` changes, Maestro must receive the equivalen
 
 ## Change History
 
-**Status.** Reviewed compatibility snapshot. Current review: **2026-08-21**. See [CHANGELOG.md](../../../CHANGELOG.md) for the full release history.
+**Status.** Reviewed compatibility snapshot. Current review: **2026-10-05**. See [CHANGELOG.md](../../../CHANGELOG.md) for the full release history.
 
 The version history at a glance:
 
@@ -35,12 +35,15 @@ The version history at a glance:
 | ------------------ | -------------------------------------------------------------------------------------- |
 | 2026-04-26 snapshot | Maestro-local compatibility copy imported from `admin-app/src/modules/mainsite/`.      |
 | 2026-08-21 review   | Final allowlist, all non-YouTube link parity, durable draft custody, fixtures and CI drift gate. |
+| 2026-10-05 review   | Literal search replacement, async editing custody, durable shared-chat evidence, keyboard actions and truthful desktop capabilities. |
 
 ## Source Snapshot
 
 [`parity-snapshot.json`](parity-snapshot.json) is the machine-checked record of the reviewed `admin-app` editor/sanitizer, `mainsite-app` reader, and Maestro compatibility files. `npm run parity:check` fails when a protected local file changes without a reviewed snapshot update.
 
 Maestro intentionally differs from the admin UI only at explicit boundaries: imported HTML receives additional ingress sanitization, Link Integrity blocks unresolved links, and saves enter the portable `mainsite_draft.v1` envelope instead of calling the admin API. Direct D1 publication belongs to MAESTRO-7 and must sanitize independently on the remote side.
+
+The 2026-10-05 audit preserves the reviewed extension set and public HTML contract while correcting local custody: search replacements are literal text (including empty replacement), delayed AI responses target the original unchanged document, and native editing pauses during save/AI requests. Formatting and media buttons support native keyboard activation while preserving the editor selection on pointer presses. Shared-chat provenance persists in the local draft envelope and stays outside the article HTML. Admin HTTP endpoints are unavailable in a portable desktop bundle; AI transformation and image-upload controls require explicit native capability callbacks and remain disabled with an explanation until those callbacks exist. Public image URLs, Word/Markdown imports, and the native shared-chat connector remain available.
 
 ## Repository conventions
 

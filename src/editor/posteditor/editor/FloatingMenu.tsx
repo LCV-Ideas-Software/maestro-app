@@ -98,7 +98,14 @@ export function EditorFloatingMenu({ editor, onInsertTable }: EditorFloatingMenu
     };
     popupWin?.addEventListener("scroll", handleScroll, true);
     popupWin?.addEventListener("scrollend", handleScrollEnd, true);
-    const handleBlur = () => {
+    const handleBlur = ({ event }: { event: FocusEvent }) => {
+      const NodeClass = ref.current?.ownerDocument.defaultView?.Node;
+      if (
+        NodeClass &&
+        event.relatedTarget instanceof NodeClass &&
+        ref.current?.contains(event.relatedTarget)
+      )
+        return;
       setAutoPos(null);
       setDragPos(null);
     };
@@ -156,10 +163,8 @@ export function EditorFloatingMenu({ editor, onInsertTable }: EditorFloatingMenu
     <button
       key={title}
       type="button"
-      onMouseDown={(e) => {
-        e.preventDefault();
-        onClick();
-      }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
       className={active ? "is-active" : ""}
       title={title}
     >

@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::link_audit::is_public_http_url;
+use crate::web_evidence::validate_public_url;
 use crate::{
     checked_data_child_path, sanitize_path_segment, sanitize_text, write_binary_file,
     write_text_file, SessionContract,
@@ -55,13 +55,12 @@ pub(crate) fn process_session_evidence(
     attachments: Option<&Vec<PromptAttachmentRequest>>,
     saved: Option<&SessionContract>,
 ) -> Result<SessionEvidence, String> {
-    let normalized_links = if let Some(links) = links {
-        normalize_session_links(links)?
-    } else {
-        saved
-            .map(|contract| contract.links.clone())
-            .unwrap_or_default()
-    };
+    let normalized_links = normalize_session_links(
+        links
+            .map(Vec::as_slice)
+            .or_else(|| saved.map(|contract| contract.links.as_slice()))
+            .unwrap_or_default(),
+    )?;
     let attachment_entries = if let Some(attachments) = attachments {
         persist_session_attachments(session_dir, attachments)?
     } else {
@@ -117,12 +116,12 @@ pub(crate) fn normalize_session_links(values: &[String]) -> Result<Vec<String>, 
         if trimmed.is_empty() {
             continue;
         }
-        if !is_public_http_url(trimmed) {
-            return Err(format!(
-                "link rejeitado para anexos da sessao: {}",
-                sanitize_text(trimmed, 160)
-            ));
-        }
+        // Apply the same credential and public-network checks as collected
+        // evidence before a URL is written to artifacts or sent to AI peers.
+        // Keep the original normalized fragment after validation: ordinary
+        // anchors are meaningful operator-supplied source references.
+        validate_public_url(trimmed)
+            .map_err(|reason| format!("link rejeitado para anexos da sessao: {reason}"))?;
         let parsed = Url::parse(trimmed).map_err(|error| format!("link invalido: {error}"))?;
         links.insert(parsed.to_string());
     }
@@ -373,14 +372,6 @@ pub(crate) fn is_image_attachment(entry: &AttachmentManifestEntry) -> bool {
     )
 }
 
-pub(crate) fn is_audio_attachment(entry: &AttachmentManifestEntry) -> bool {
-    normalized_attachment_media_type(entry).starts_with("audio/")
-}
-
-pub(crate) fn is_video_attachment(entry: &AttachmentManifestEntry) -> bool {
-    normalized_attachment_media_type(entry).starts_with("video/")
-}
-
 pub(crate) fn is_known_document_attachment(entry: &AttachmentManifestEntry) -> bool {
     if is_text_like_attachment(entry) || is_pdf_attachment(entry) {
         return true;
@@ -435,6 +426,43 @@ mod tests {
         assert_eq!(links, vec!["https://example.com/a".to_string()]);
         assert!(normalize_session_links(&["http://localhost:8787/x".to_string()]).is_err());
         assert!(normalize_session_links(&["file:///C:/secret.txt".to_string()]).is_err());
+    }
+
+    #[test]
+    fn session_links_reject_credentials_without_returning_the_sensitive_url() {
+        for url in [
+            "https://user:private-test-value@example.com/source",
+            "https://example.com/source?access_token=private-test-value",
+            "https://example.com/source#api_key=private-test-value",
+            "https://example.com/source?utm_source=x;sig=private-test-value",
+            "https://example.com/source/api_key:private-test-value",
+            "https://example.com/source/%61ccess_token%3Dprivate-test-value",
+        ] {
+            let error = normalize_session_links(&[url.to_string()]).unwrap_err();
+            assert!(!error.contains("private-test-value"), "{error}");
+        }
+        let url = "https://example.com/password/reset#public-anchor";
+        assert_eq!(normalize_session_links(&[url.to_string()]).unwrap(), [url]);
+    }
+
+    #[test]
+    fn resumed_session_links_are_validated_before_artifacts_are_written() {
+        let saved: SessionContract = serde_json::from_value(serde_json::json!({
+            "run_id": "run-reject-saved-credential-link",
+            "session_name": "test",
+            "created_at": "2026-10-05T00:00:00Z",
+            "links": ["https://example.com/source?access_token=private-test-value"]
+        }))
+        .unwrap();
+        let session_dir = sessions_dir().join("run-reject-saved-credential-link");
+        let error = process_session_evidence(&session_dir, None, None, Some(&saved))
+            .err()
+            .expect("saved credential-bearing source must be rejected");
+        assert!(!error.contains("private-test-value"));
+        assert!(
+            !session_dir.exists(),
+            "validation must precede file creation"
+        );
     }
 
     #[test]

@@ -3,7 +3,21 @@
 Status: active security register.
 Scope: `src-tauri/Cargo.lock`.
 
-## Current Rust Alerts
+## Current checkpoint - 05/10/2026
+
+The native repository read found zero open Dependabot alerts. Final local
+Cargo audit found zero active vulnerabilities, retaining the Linux-only glib
+unsoundness and proc-macro-error maintenance warnings. OSV-Scanner 2.6.0
+found 454 locked packages. Eight earlier GTK advisories were officially
+withdrawn on 14/08/2026, as confirmed through their native OSV records.
+Those obsolete exceptions were removed together with the five absent UNIC
+dependencies. The two remaining Linux-only exceptions retain 03/11/2026.
+These local results do not certify GitHub checks or a published artifact.
+
+## Historical Rust alert decisions
+
+These records describe earlier graphs. Their alert numbers and old Tauri
+versions must not be read as current open findings.
 
 ### GHSA-wrw7-89jp-8q8g - `glib`
 
@@ -47,27 +61,39 @@ Scope: `src-tauri/Cargo.lock`.
 
 OpenSSF Scorecard SARIF can report RustSec/OSV advisories from every package recorded in `src-tauri/Cargo.lock`, including cross-platform dependencies that do not resolve for the shipped Windows target.
 
-The current Scorecard `VulnerabilitiesID` alert maps to `cargo audit` warnings, not active cargo-audit vulnerabilities:
+The 05/10/2026 re-evaluation of the stable locked graph reports no active
+Cargo advisories. The previous five UNIC exceptions no longer apply:
+Tauri 2.12.0 resolves tauri-runtime-wry 2.12.1, Wry 0.57.0 and
+tauri-utils 2.10.1, which selects urlpattern 0.6.0 without rust-unic.
+This stable change satisfies the MAESTRO-1 re-evaluation trigger.
 
-- `cargo audit --json`: `vulnerabilities.found=false`.
-- Warning shape on the 27/09/2026 integrated lockfile: 6 `unmaintained` advisories plus 1 `unsound` advisory.
-- GTK/glib evidence: `cargo tree --locked --target x86_64-pc-windows-msvc -i gtk` and `cargo tree --locked --target x86_64-pc-windows-msvc -i glib` print no dependency path.
-- Cross-platform evidence: `cargo tree --locked --target all -i gtk` and `cargo tree --locked --target all -i glib` show the Linux GTK/WebKit path through Tauri/Wry.
+- `cargo audit --file src-tauri/Cargo.lock --json`: zero active vulnerabilities.
+- Remaining warning categories: one unmaintained macro dependency
+  (`proc-macro-error`) and one unsound Linux dependency (`glib`).
+- `cargo tree --locked --target x86_64-pc-windows-msvc -i gtk`,
+  `-i glib` and `-i proc-macro-error`: no dependency path.
+- `cargo tree --locked --target all -i gtk` and `-i proc-macro-error`:
+  the Linux GTK/WebKit path remains in the cross-platform lock.
+- The yanked `yoke-derive 0.8.3` resolution was replaced with the compatible
+  published `0.8.4` using the official Cargo updater.
 
-`src-tauri/osv-scanner.toml` records the OSV exceptions with explicit reasons and technical expiry `ignoreUntil = 2026-11-03`. The 05/08/2026 review used Tauri 2.11.5 and Wry 0.55.0. After the merged [Tauri 2.11.6](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.11.6) update, the locked graph selects Wry 0.55.1. On 27/09/2026, `cargo audit --file src-tauri/Cargo.lock --json` reported no active vulnerabilities and the warning counts above; the Windows-target Cargo tree still has no `gtk` or `glib` path. Wry 0.56.0 remains outside this locked Tauri dependency range:
+`src-tauri/osv-scanner.toml` retains two exceptions, each with its existing
+`ignoreUntil = 2026-11-03` and target-specific reason. The five obsolete
+rust-unic exceptions and eight withdrawn GTK advisories were removed;
+historical bundled license text is retained.
 
-- GTK3 / glib stack: `RUSTSEC-2024-0411`, `RUSTSEC-2024-0412`, `RUSTSEC-2024-0413`, `RUSTSEC-2024-0415`, `RUSTSEC-2024-0416`, `RUSTSEC-2024-0418`, `RUSTSEC-2024-0419`, `RUSTSEC-2024-0420`, `RUSTSEC-2024-0429`.
-- GTK macro transitives: `RUSTSEC-2024-0370`.
-- Tauri/urlpattern rust-unic transitives: `RUSTSEC-2025-0075`, `RUSTSEC-2025-0080`, `RUSTSEC-2025-0081`, `RUSTSEC-2025-0098`, `RUSTSEC-2025-0100`.
+- Linux glib unsoundness: `RUSTSEC-2024-0429`.
+- GTK macro transitive: `RUSTSEC-2024-0370`.
 
-Tauri's development branch has [migrated `urlpattern` to
-0.6](https://github.com/tauri-apps/tauri/pull/15660), away from the affected
-`rust-unic` chain, but that change is not available in a stable Tauri release
-yet. The GTK4/WebKitGTK 6 migration is planned for Tauri v3; forcing either
-unreleased graph into the current application would be a breaking platform
-change rather than a safe advisory update.
+Upstream references: [stable Tauri 2.12.0](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.0),
+[published tauri-utils 2.10.1 manifest](https://docs.rs/crate/tauri-utils/2.10.1/source/Cargo.toml),
+[published Wry 0.57.0 manifest](https://docs.rs/crate/wry/0.57.0/source/Cargo.toml)
+and [RustSec glib advisory](https://rustsec.org/advisories/RUSTSEC-2024-0429.html).
 
-Do not remove these exceptions without either upgrading the upstream Tauri/Wry graph or adding a supported Linux build target and re-triaging the GTK/WebKit runtime surface.
+The GTK4/WebKitGTK 6 migration remains a Tauri v3 platform change. Preserve the
+remaining Linux exceptions until a supported stable graph fixes their premises
+or Linux support is separately assessed. Do not infer that removing the UNIC
+chain also removed the Linux GTK advisories.
 
 ## Follow-up Policy
 

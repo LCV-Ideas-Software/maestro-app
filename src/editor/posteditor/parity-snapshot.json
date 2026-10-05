@@ -1,6 +1,6 @@
 {
   "schema_version": "posteditor_parity_snapshot.v1",
-  "reviewed_at": "2026-09-27",
+  "reviewed_at": "2026-10-05",
   "sanitizer_profile": "mainsite_post_html.v1",
   "admin_commit": "034951b9c15307388b48154336880a5002f5fe86",
   "mainsite_commit": "5aefab43084e2028b28757ed798e3aefecb9c797",
@@ -25,29 +25,35 @@
     "mainsite-worker/src/lib/sanitize.ts": "b4286d4c2009ba43390f268d51302df99f18cb2cb814e460c4a087306aca685f"
   },
   "maestro_files": {
-    "src/editor/posteditor/PostEditor.tsx": "723b6829447e011bf1cf476653d51f9b5edee2ce50ac442ec888a0eeacf93767",
-    "src/editor/posteditor/README.md": "bab0dc8a5c54aa431fbe6a2917172da61c4e4e31fc19f368651eec1a034df007",
-    "src/editor/posteditor/editor/BubbleMenu.tsx": "ca64d3af51bca65d6233d1a52363b67d64735059779d209bd58b3e2e9f968fb8",
+    "src/editor/posteditor/PostEditor.tsx": "6c63fef217bdb1788aaf60b8f19b6f0882640b5ab7416f94894d16550ed57879",
+    "src/editor/posteditor/README.md": "5c426d7b34af99c1085b1462401c0eefd09b9efb88e0a3bf083ed27dafb8b4d3",
+    "src/editor/posteditor/editor/BubbleMenu.tsx": "25dfeb6531f1ebaa6e95122e751aec0240ca19f279384323cb9a02b2ebe08b5d",
     "src/editor/posteditor/editor/extensions.ts": "a0321cd72bc753e554aaf797a6aac4af57b4a4de25a6c231c4199c0fb54e88ff",
-    "src/editor/posteditor/editor/FloatingMenu.tsx": "07a08af591d04be4b7d3d8920bbe486865e5128921e0a47f50c5297796c16da5",
+    "src/editor/posteditor/editor/FloatingMenu.tsx": "af8f03c1ee9c319980dd2aca365756557f5ad4fbc1d5411c2b611bb03c93283f",
     "src/editor/posteditor/editor/markdownImport.ts": "88e0c5448c55f3e1c716f6db41ffda51466b447d1007e43a4a9e451976c0dedd",
-    "src/editor/posteditor/editor/NodeViews.tsx": "7d1890bfd70d965848a51a0e79dd1491d092f5d0d6713db01212c2fecb68c4ae",
+    "src/editor/posteditor/editor/NodeViews.tsx": "45ca19ec85395b5e34bef12780d160092902e8c6f16c66fc27ea2126341d5a32",
     "src/editor/posteditor/editor/PromptModal.tsx": "79b14621f1f8b2d4af495f2eeaca44548428cb3ce01e271d9fbeaa9249a2d817",
     "src/editor/posteditor/editor/promptModalState.ts": "a8b6a636bb72714dd862d7089d05bcf4a7027b672c1129f470e3c1e5d328cf7c",
-    "src/editor/posteditor/editor/SearchReplace.tsx": "ef0d6d1e770455ec84ec1933688589b34f60d1dd99f75e1e9fd8eab7888ad380",
+    "src/editor/posteditor/editor/SearchReplace.tsx": "fbb74a0f81418dffcf4859277b7bd4f6b274b52fbf4c21710aa4aea1f6e11ca9",
     "src/editor/posteditor/editor/searchReplaceCore.ts": "c53d78d7418249e5ca06cfb4592b8d3cf81b1674071f91481db2e10e6656dec9",
     "src/editor/posteditor/editor/SlashCommands.ts": "65b9edd5a787e1f0799022f0a4ba22465257d71a1b1e4558de315d4cc78debac",
     "src/editor/posteditor/editor/utils.ts": "16cd5cbbc1aa0e26187a21958950bc87a16c96244108f0036cd4ae1165abe36a",
     "src/editor/posteditor/editor/sanitizeFinalHtml.ts": "a346780ebf1adb7f4c03608c867af1ffa7325c5545f250203281499827c53f15",
     "src/editor/posteditor/editor/finalHtmlFixtures.ts": "6700eac7871a1febe04fe9657ae05bac4351a11f49a051f679718ba976977670",
-    "src/editor/posteditor/editor/sharedChatImport.ts": "ef2c31b2ee2b81b030803e9acf479c9a923ef57219a490ac7a8e6e7c35e7806e",
-    "src/editor/posteditor/editor/exportFinalContent.ts": "9cb0b56c04aa4fb671de669d965f5c04546f7c61cb3a0296226658349086181f"
+    "src/editor/posteditor/editor/sharedChatImport.ts": "da2111247dbb9fe1b007fbdd6bf899272fcda6faae0d12a53aefed699279a024",
+    "src/editor/posteditor/editor/exportFinalContent.ts": "9cb0b56c04aa4fb671de669d965f5c04546f7c61cb3a0296226658349086181f",
+    "src/editor/posteditor/editor/editorOperation.ts": "cb939fd6592da9bf82d3374d9dc84986b3073f9425b678f7dffe82a3418757ae"
   },
   "intentional_divergences": [
     "All imported or AI-produced HTML is sanitized before entering TipTap.",
     "Link Integrity must clear every link before a durable save.",
     "Shared-chat imports and final exports keep provenance outside the public article HTML.",
     "The citation audit converts sanitized PostEditor HTML into visible Markdown before applying the ABNT gate.",
-    "Remote D1 publication requires a read-only preview, explicit confirmation, optimistic concurrency guards, independent native validation, and post-write readback."
+    "Remote D1 publication requires a read-only preview, explicit confirmation, optimistic concurrency guards, independent native validation, and post-write readback.",
+    "Search replacement uses native literal-text transactions, including empty replacement.",
+    "Delayed AI responses use the captured unchanged document and range; native editing pauses during save and AI requests.",
+    "Shared-chat evidence is durable local draft metadata and never part of the public HTML.",
+    "Desktop AI transformation and image upload require explicit native capability callbacks; unavailable callbacks expose disabled controls instead of relative admin HTTP requests.",
+    "Formatting and media buttons support native keyboard clicks while preserving editor selection on pointer presses."
   ]
 }

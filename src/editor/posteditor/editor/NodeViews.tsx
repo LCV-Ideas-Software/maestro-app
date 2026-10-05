@@ -49,6 +49,9 @@ export const SelectMediaButton = ({ onSelect }: { onSelect: () => void }) => (
       e.stopPropagation();
       onSelect();
     }}
+    onClick={(event) => {
+      if (event.detail === 0) onSelect();
+    }}
     title="Selecionar mídia"
     aria-label="Selecionar mídia"
   >

@@ -105,12 +105,7 @@ export function SearchReplacePanel({ editor }: SearchReplacePanelProps) {
     const safeIndex = Math.min(currentIndex, matches.length - 1);
     const match = matches[safeIndex];
     if (!match) return;
-    editor
-      .chain()
-      .focus()
-      .deleteRange({ from: match.from, to: match.to })
-      .insertContentAt(match.from, replaceTerm)
-      .run();
+    editor.view.dispatch(editor.state.tr.insertText(replaceTerm, match.from, match.to));
   };
 
   const replaceAll = () => {
@@ -120,7 +115,7 @@ export function SearchReplacePanel({ editor }: SearchReplacePanelProps) {
     matches.forEach((m) => {
       const from = m.from + offset;
       const to = m.to + offset;
-      tr.replaceWith(from, to, editor.state.schema.text(replaceTerm));
+      tr.insertText(replaceTerm, from, to);
       offset += replaceTerm.length - (m.to - m.from);
     });
     editor.view.dispatch(tr);

@@ -80,7 +80,14 @@ export function EditorBubbleMenu({ editor, onLinkClick }: EditorBubbleMenuProps)
       }
     };
 
-    const onBlur = () => {
+    const onBlur = ({ event }: { event: FocusEvent }) => {
+      const NodeClass = ref.current?.ownerDocument.defaultView?.Node;
+      if (
+        NodeClass &&
+        event.relatedTarget instanceof NodeClass &&
+        ref.current?.contains(event.relatedTarget)
+      )
+        return;
       setAutoPos(null);
       setDragPos(null);
     };
@@ -148,8 +155,8 @@ export function EditorBubbleMenu({ editor, onLinkClick }: EditorBubbleMenuProps)
     >
       <button
         type="button"
-        onMouseDown={(e) => {
-          e.preventDefault();
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
           editor.chain().focus().toggleBold().run();
         }}
         className={editor.isActive("bold") ? "is-active" : ""}
@@ -159,8 +166,8 @@ export function EditorBubbleMenu({ editor, onLinkClick }: EditorBubbleMenuProps)
       </button>
       <button
         type="button"
-        onMouseDown={(e) => {
-          e.preventDefault();
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
           editor.chain().focus().toggleItalic().run();
         }}
         className={editor.isActive("italic") ? "is-active" : ""}
@@ -170,8 +177,8 @@ export function EditorBubbleMenu({ editor, onLinkClick }: EditorBubbleMenuProps)
       </button>
       <button
         type="button"
-        onMouseDown={(e) => {
-          e.preventDefault();
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
           editor.chain().focus().toggleUnderline().run();
         }}
         className={editor.isActive("underline") ? "is-active" : ""}
@@ -181,8 +188,8 @@ export function EditorBubbleMenu({ editor, onLinkClick }: EditorBubbleMenuProps)
       </button>
       <button
         type="button"
-        onMouseDown={(e) => {
-          e.preventDefault();
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
           editor.chain().focus().toggleStrike().run();
         }}
         className={editor.isActive("strike") ? "is-active" : ""}
@@ -193,8 +200,8 @@ export function EditorBubbleMenu({ editor, onLinkClick }: EditorBubbleMenuProps)
       <span className="bubble-divider" />
       <button
         type="button"
-        onMouseDown={(e) => {
-          e.preventDefault();
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
           editor.chain().focus().toggleHighlight().run();
         }}
         className={editor.isActive("highlight") ? "is-active" : ""}
@@ -204,8 +211,8 @@ export function EditorBubbleMenu({ editor, onLinkClick }: EditorBubbleMenuProps)
       </button>
       <button
         type="button"
-        onMouseDown={(e) => {
-          e.preventDefault();
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
           editor.chain().focus().toggleSubscript().run();
         }}
         className={editor.isActive("subscript") ? "is-active" : ""}
@@ -215,8 +222,8 @@ export function EditorBubbleMenu({ editor, onLinkClick }: EditorBubbleMenuProps)
       </button>
       <button
         type="button"
-        onMouseDown={(e) => {
-          e.preventDefault();
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
           editor.chain().focus().toggleSuperscript().run();
         }}
         className={editor.isActive("superscript") ? "is-active" : ""}
@@ -227,8 +234,8 @@ export function EditorBubbleMenu({ editor, onLinkClick }: EditorBubbleMenuProps)
       <span className="bubble-divider" />
       <button
         type="button"
-        onMouseDown={(e) => {
-          e.preventDefault();
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
           editor.chain().focus().toggleCode().run();
         }}
         className={editor.isActive("code") ? "is-active" : ""}
@@ -238,8 +245,8 @@ export function EditorBubbleMenu({ editor, onLinkClick }: EditorBubbleMenuProps)
       </button>
       <button
         type="button"
-        onMouseDown={(e) => {
-          e.preventDefault();
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
           if (editor.isActive("link")) editor.chain().focus().unsetLink().run();
           else onLinkClick?.();
         }}
