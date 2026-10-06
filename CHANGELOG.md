@@ -15,6 +15,9 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Fixed
 
+- Align the current tokio-rustls 0.26.6 notice identity and selected MIT text
+  with merged PR #445, preserving the historical notice prefix and recording
+  the 297-crate Windows runtime graph.
 - Store PostEditor Markdown/HTML and provenance exports in the portable app's
   native `data/exports/` subtype directories instead of Windows Downloads.
   Verify atomic writes before reporting success; preserve the native PDF dialog.

@@ -323,3 +323,29 @@ The complete SDK grant and current NOTICE are included without claiming its
 managed or generator sources are shipped. Vite independently emits bundled
 npm licenses through native build.license. A new portable release still
 requires checking delivered notices, checksums and attestation.
+
+## v0.5.73 PR #445 notice reconciliation - 06/10/2026
+
+Merged PR #445 replaced `tokio-rustls 0.26.5` with `0.26.6`. Its official
+locked Windows normal-dependency traversal reaches 297 upstream identities,
+compared with the preceding 294. Three already locked packages also became
+runtime-reachable: `windows-sys 0.59.0`, `windows-targets 0.52.6`, and
+`windows_x86_64_msvc 0.52.6`. Their exact-version headings and complete selected
+Microsoft MIT texts are already present in the preserved notice bundle.
+The v0.5.73 nonapplication locked packages are unchanged from that reviewed
+PR #445 graph. Current Cargo.lock SHA-256:
+`60ef8f722d3812a32a00e38e69d31ab6fffbc708796dce70cb451eb3cac0c69e`.
+
+The checksum-verified official `tokio-rustls 0.26.6` archive declares
+`MIT OR Apache-2.0`; the MIT alternative remains selected. Its complete
+1,056-byte `LICENSE-MIT`, SHA-256
+`e20fa2b8e0a2565f24a792b94b4bf4b6c2b9d36f781d8a9516e218a036e6677a`,
+is byte-identical to the 0.26.5 grant. The new structured notice section
+identifies 0.26.6, its locked archive checksum and that complete upstream text.
+The entire preceding notice bundle, including the documented historical
+3,237,673-byte prefix and the 0.26.5 header inside it, remains byte-identical.
+
+This is a bounded reconciliation of PR #445's changed and newly reachable
+identities. Earlier dated graph counts and fingerprints remain historical;
+this entry does not regenerate or certify the complete legal inventory, restore
+a repository-owned legal generator, or replace final release artifact checks.
