@@ -36,16 +36,11 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use serde::Deserialize;
-use tokio_util::sync::CancellationToken;
-
 use crate::command_path::resolve_command;
-use crate::command_spawn::{
-    run_resolved_command_observed_piped, run_resolved_command_with_timeout,
-};
+use crate::command_spawn::run_resolved_command_with_timeout;
 use crate::{
-    app_root, sanitize_short, sanitize_text, AiProviderConfig, CliAdapterProbeResult,
-    CliAdapterSmokeRequest, CliAdapterSpec,
+    sanitize_short, sanitize_text, AiProviderConfig, CliAdapterProbeResult, CliAdapterSmokeRequest,
+    CliAdapterSpec,
 };
 
 pub(crate) fn cli_adapter_specs(request: &CliAdapterSmokeRequest) -> Vec<CliAdapterSpec> {
@@ -110,7 +105,7 @@ pub(crate) fn cli_adapter_specs(request: &CliAdapterSmokeRequest) -> Vec<CliAdap
 }
 
 pub(crate) fn run_cli_adapter_probe(
-    mut spec: CliAdapterSpec,
+    spec: CliAdapterSpec,
     config: &AiProviderConfig,
 ) -> CliAdapterProbeResult {
     let started = Instant::now();
@@ -126,21 +121,25 @@ pub(crate) fn run_cli_adapter_probe(
         };
     };
 
+    run_cli_adapter_probe_resolved(spec, config, &path, started)
+}
+
+fn run_cli_adapter_probe_resolved(
+    mut spec: CliAdapterSpec,
+    config: &AiProviderConfig,
+    path: &Path,
+    started: Instant,
+) -> CliAdapterProbeResult {
     if spec.command == "agy" {
-        match verify_agy_cli_project_permissions(
-            &path,
-            config,
-            &app_root(),
-            Some(spec.timeout),
-            None,
-        ) {
-            Ok(project_argument) => spec.args.push(project_argument),
+        match agy_cli_project_argument(config) {
+            Ok(Some(project_argument)) => spec.args.push(project_argument),
+            Ok(None) => {}
             Err(status) => {
                 return CliAdapterProbeResult {
                     name: spec.name.to_string(),
                     cli: spec.command.to_string(),
                     tone: "blocked".to_string(),
-                    status,
+                    status: status.to_string(),
                     duration_ms: started.elapsed().as_millis(),
                     exit_code: None,
                     marker_found: false,
@@ -154,13 +153,13 @@ pub(crate) fn run_cli_adapter_probe(
             name: spec.name.to_string(),
             cli: spec.command.to_string(),
             tone: "blocked".to_string(),
-            status: "prazo da CLI expirou durante a verificacao nativa".to_string(),
+            status: "prazo da CLI expirou antes da execucao".to_string(),
             duration_ms: started.elapsed().as_millis(),
             exit_code: None,
             marker_found: false,
         };
     }
-    match run_resolved_command_with_timeout(&path, &spec.args, remaining, None) {
+    match run_resolved_command_with_timeout(path, &spec.args, remaining, None) {
         Ok(result) => {
             let exit_code = result.output.status.code();
             let stdout = String::from_utf8_lossy(&result.output.stdout);
@@ -199,251 +198,121 @@ pub(crate) fn run_cli_adapter_probe(
     }
 }
 
-const AGY_PROJECT_PERMISSION_GUIDANCE: &str = "AGY CLI bloqueada: selecione um projeto nativo Antigravity com negativas de escrita, comandos, MCP e execute_url verificaveis por /permissions, ou selecione explicitamente a API.";
-const AGY_PROJECT_DENIES: [&str; 4] = ["write_file(*)", "command(*)", "mcp(*)", "execute_url(*)"];
-
-/// Read the installed CLI's effective project policy before every prompt.
-/// /permissions is a native metadata command; zero model turns and zero usage
-/// are mandatory. Vendor files are neither inferred nor rewritten here.
-pub(crate) fn verify_agy_cli_project_permissions(
-    path: &Path,
+/// Select an optional native project; an empty setting leaves the CLI default.
+/// This only validates the existing identifier shape, never project permissions.
+pub(crate) fn agy_cli_project_argument(
     config: &AiProviderConfig,
-    working_dir: &Path,
-    timeout: Option<Duration>,
-    cancel_token: Option<&CancellationToken>,
-) -> Result<String, String> {
-    let timeout = timeout
-        .unwrap_or(Duration::from_secs(30))
-        .min(Duration::from_secs(30));
-    admit_agy_cli_project(config, |args| {
-        if timeout.is_zero() || cancel_token.is_some_and(CancellationToken::is_cancelled) {
-            return Err(AGY_PROJECT_PERMISSION_GUIDANCE.to_string());
-        }
-        let result = run_resolved_command_observed_piped(
-            path,
-            args,
-            Some(timeout),
-            None,
-            None,
-            cancel_token,
-            Some(working_dir),
-        )
-        .map_err(|_| AGY_PROJECT_PERMISSION_GUIDANCE.to_string())?;
-        if result.timed_out
-            || !result.output.status.success()
-            || result.stdout_pipe_error.is_some()
-            || result.stderr_pipe_error.is_some()
-        {
-            return Err(AGY_PROJECT_PERMISSION_GUIDANCE.to_string());
-        }
-        Ok(result.output.stdout)
-    })
-}
-
-fn admit_agy_cli_project(
-    config: &AiProviderConfig,
-    read_native_policy: impl FnOnce(&[String]) -> Result<Vec<u8>, String>,
-) -> Result<String, String> {
-    let project = config
-        .agy_cli_project_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|project| {
-            !project.is_empty()
-                && project.len() <= 128
-                && project
-                    .bytes()
-                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, b'-' | b'_'))
-        })
-        .ok_or_else(|| AGY_PROJECT_PERMISSION_GUIDANCE.to_string())?;
-    let project_argument = format!("--project={project}");
-    let args = vec![
-        project_argument.clone(),
-        "--print".to_string(),
-        "/permissions".to_string(),
-        "--output-format".to_string(),
-        "json".to_string(),
-    ];
-    let bytes = read_native_policy(&args)?;
-    validate_agy_project_permissions(&bytes)
-        .map_err(|_| AGY_PROJECT_PERMISSION_GUIDANCE.to_string())?;
-    Ok(project_argument)
-}
-
-#[derive(Deserialize)]
-struct NativePermissionsReadback {
-    status: String,
-    num_turns: u64,
-    usage: NativePermissionsUsage,
-    command: NativePermissionsCommand,
-}
-
-#[derive(Deserialize)]
-struct NativePermissionsUsage {
-    input_tokens: u64,
-    output_tokens: u64,
-    thinking_tokens: u64,
-    cache_read_tokens: u64,
-    total_tokens: u64,
-}
-
-#[derive(Deserialize)]
-struct NativePermissionsCommand {
-    name: String,
-    data: NativePermissionsData,
-}
-
-#[derive(Deserialize)]
-struct NativePermissionsData {
-    permissions: Vec<NativePermissionScope>,
-}
-
-#[derive(Deserialize)]
-struct NativePermissionScope {
-    scope: String,
-    #[serde(default)]
-    deny: Vec<String>,
-}
-
-fn validate_agy_project_permissions(bytes: &[u8]) -> Result<(), ()> {
-    let readback: NativePermissionsReadback = serde_json::from_slice(bytes).map_err(|_| ())?;
-    if readback.status != "SUCCESS"
-        || readback.num_turns != 0
-        || readback.command.name != "permissions"
-        || readback.usage.input_tokens != 0
-        || readback.usage.output_tokens != 0
-        || readback.usage.thinking_tokens != 0
-        || readback.usage.cache_read_tokens != 0
-        || readback.usage.total_tokens != 0
+) -> Result<Option<String>, &'static str> {
+    let Some(raw_project) = config.agy_cli_project_id.as_deref() else {
+        return Ok(None);
+    };
+    let project = raw_project.trim();
+    if raw_project.chars().any(char::is_control)
+        || project.len() > 128
+        || !project
+            .bytes()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, b'-' | b'_'))
     {
-        return Err(());
+        return Err("AGY CLI: ID de projeto nativo invalido.");
     }
-    let projects = readback
-        .command
-        .data
-        .permissions
-        .iter()
-        .filter(|scope| scope.scope == "project")
-        .collect::<Vec<_>>();
-    if projects.len() != 1
-        || !AGY_PROJECT_DENIES
-            .iter()
-            .all(|required| projects[0].deny.iter().any(|deny| deny == required))
-    {
-        return Err(());
+    if project.is_empty() {
+        return Ok(None);
     }
-    Ok(())
+    Ok(Some(format!("--project={project}")))
 }
 
 #[cfg(test)]
-mod native_permission_tests {
+mod project_tests {
     use super::*;
-    use serde_json::json;
-
-    // Synthetic positive schema fixture, not evidence that an installed
-    // Antigravity project has accepted this policy. Real metadata readback is
-    // always required at runtime; its absence never admits an agent turn.
-    fn policy() -> serde_json::Value {
-        json!({"status":"SUCCESS","num_turns":0,
-        "usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,
-            "cache_read_tokens":0,"total_tokens":0},
-        "command":{"name":"permissions","data":{"permissions":[
-            {"scope":"project","deny":AGY_PROJECT_DENIES},
-            {"scope":"shared","allow":["write_file(*)","command(*)","mcp(*)"]}
-        ]}}})
-    }
 
     #[test]
-    fn agy_native_permissions_current_unprotected_project_is_rejected() {
-        // Shape read back from the installed native /permissions command:
-        // Project is present, while dangerous allow grants are in shared scope.
-        let mut current = policy();
-        current["command"]["data"]["permissions"][0] = json!({"scope":"project"});
-        assert!(validate_agy_project_permissions(&serde_json::to_vec(&current).unwrap()).is_err());
-        current["command"]["data"]["permissions"][1]["deny"] = json!(AGY_PROJECT_DENIES);
-        assert!(validate_agy_project_permissions(&serde_json::to_vec(&current).unwrap()).is_err());
-    }
-
-    #[test]
-    fn agy_native_permissions_require_exact_project_denies_and_zero_turns() {
-        assert!(validate_agy_project_permissions(&serde_json::to_vec(&policy()).unwrap()).is_ok());
-        for index in 0..AGY_PROJECT_DENIES.len() {
-            let mut value = policy();
-            value["command"]["data"]["permissions"][0]["deny"]
-                .as_array_mut()
-                .unwrap()
-                .remove(index);
-            assert!(
-                validate_agy_project_permissions(&serde_json::to_vec(&value).unwrap()).is_err()
-            );
-        }
-        for pointer in [
-            "/num_turns",
-            "/usage/input_tokens",
-            "/usage/output_tokens",
-            "/usage/thinking_tokens",
-            "/usage/cache_read_tokens",
-            "/usage/total_tokens",
-        ] {
-            let mut value = policy();
-            *value.pointer_mut(pointer).unwrap() = json!(1);
-            assert!(
-                validate_agy_project_permissions(&serde_json::to_vec(&value).unwrap()).is_err(),
-                "{pointer}"
-            );
-        }
-        for pointer in ["/status", "/command/name"] {
-            let mut value = policy();
-            *value.pointer_mut(pointer).unwrap() = json!("unexpected");
-            assert!(
-                validate_agy_project_permissions(&serde_json::to_vec(&value).unwrap()).is_err()
-            );
-        }
-        let mut value = policy();
-        let duplicate = value["command"]["data"]["permissions"][0].clone();
-        value["command"]["data"]["permissions"]
-            .as_array_mut()
-            .unwrap()
-            .push(duplicate);
-        assert!(validate_agy_project_permissions(&serde_json::to_vec(&value).unwrap()).is_err());
-        for bytes in [b"{}".as_slice(), b"null", b"not JSON"] {
-            assert!(validate_agy_project_permissions(bytes).is_err());
-        }
-    }
-
-    #[test]
-    fn agy_native_permissions_bind_selected_project_and_never_query_missing_selection() {
-        for project in [None, Some(""), Some("../other"), Some("id --force")] {
+    fn agy_optional_project_uses_native_default_and_rejects_malformed_identifiers() {
+        for project in [None, Some(""), Some("  ")] {
             let config = AiProviderConfig {
                 agy_cli_project_id: project.map(str::to_string),
                 ..AiProviderConfig::default()
             };
-            assert!(
-                admit_agy_cli_project(&config, |_| panic!("invalid selection launched CLI"))
-                    .is_err()
-            );
+            assert_eq!(agy_cli_project_argument(&config).unwrap(), None);
         }
+        for project in [
+            "native\0project",
+            "\nnative-project",
+            "../other",
+            "id --force",
+        ] {
+            let config = AiProviderConfig {
+                agy_cli_project_id: Some(project.to_string()),
+                ..AiProviderConfig::default()
+            };
+            assert!(agy_cli_project_argument(&config).is_err());
+        }
+    }
+
+    #[cfg(windows)]
+    fn run_native_project_fixture(project: Option<&str>) {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let directory = std::env::temp_dir().join(format!(
+            "maestro-agy-optional-project-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let script = directory.join("native-probe.cmd");
+        let called = directory.join("called-once.txt");
+        let expected = project
+            .map(|id| format!("--project={}", id.trim()))
+            .unwrap_or_default();
+        fs::write(
+            &script,
+            format!(
+                "@echo off\r\nif not \"%~1\"==\"--print\" exit /b 11\r\nif not \"%~3\"==\"--print-timeout\" exit /b 12\r\nif not \"%~4\"==\"90s\" exit /b 13\r\nif not \"%~5\"==\"{expected}\" exit /b 14\r\nif not \"%~6\"==\"\" exit /b 15\r\nif exist \"%~dp0called-once.txt\" exit /b 16\r\n> \"%~dp0called-once.txt\" echo native-prompt\r\necho MAESTRO_CLI_SMOKE_AGY_READY\r\n"
+            ),
+        )
+        .unwrap();
+        let request = CliAdapterSmokeRequest {
+            run_id: "native-project-fixture".to_string(),
+            prompt_chars: 32,
+            protocol_name: "fixture".to_string(),
+            protocol_lines: 1,
+            protocol_hash: "fixture".to_string(),
+        };
+        let spec = cli_adapter_specs(&request)
+            .into_iter()
+            .find(|spec| spec.command == "agy")
+            .unwrap();
         let config = AiProviderConfig {
-            agy_cli_project_id: Some("  native-test-project  ".to_string()),
+            agy_cli_project_id: project.map(str::to_string),
             ..AiProviderConfig::default()
         };
-        let admitted = admit_agy_cli_project(&config, |args| {
-            assert_eq!(
-                args,
-                &[
-                    "--project=native-test-project",
-                    "--print",
-                    "/permissions",
-                    "--output-format",
-                    "json"
-                ]
-            );
-            Ok(serde_json::to_vec(&policy()).unwrap())
-        })
-        .unwrap();
-        assert_eq!(admitted, "--project=native-test-project");
-        let error =
-            admit_agy_cli_project(&config, |_| Ok(b"private policy content".to_vec())).unwrap_err();
-        assert!(!error.contains("private policy content"));
+        // The actual managed Windows child receives the production print args.
+        // A metadata query or extra permissions flag cannot produce this marker.
+        let result = run_cli_adapter_probe_resolved(spec, &config, &script, Instant::now());
+        let invocation = fs::read_to_string(&called);
+        fs::remove_file(&script).unwrap();
+        if called.exists() {
+            fs::remove_file(&called).unwrap();
+        }
+        fs::remove_dir(&directory).unwrap();
+        assert_eq!(result.tone, "ok", "{}", result.status);
+        assert!(result.marker_found);
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(invocation.unwrap().trim(), "native-prompt");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn agy_smoke_launches_native_prompt_without_a_selected_project_or_policy_query() {
+        run_native_project_fixture(None);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn agy_smoke_passes_the_optional_native_project_without_a_policy_query() {
+        run_native_project_fixture(Some("  selected-native-project  "));
     }
 }

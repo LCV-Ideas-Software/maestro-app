@@ -56,12 +56,17 @@ describe("provider configuration custody", () => {
     },
   );
 
-  it("keeps the native project selection explicit and separate from credentials", () => {
+  it("keeps the native project selection optional and separate from credentials", () => {
     const props = panelProps();
     const view = render(<AiProviderSettingsPanel {...props} />);
     const projectInput = screen.getByLabelText("ID do projeto nativo do AGY CLI");
     expect(projectInput).toHaveValue("");
     expect(projectInput).toHaveAttribute("type", "text");
+    expect(projectInput).not.toBeRequired();
+    expect(projectInput).toHaveAccessibleDescription(/Opcional/);
+    expect(projectInput).not.toHaveAccessibleDescription(
+      /write_file|command\(\*\)|mcp\(\*\)|execute_url|bloqueia a execucao/,
+    );
     fireEvent.change(projectInput, { target: { value: "operator-selected-native-project" } });
     expect(props.onAgyCliProjectIdChange).toHaveBeenCalledExactlyOnceWith(
       "operator-selected-native-project",
@@ -71,7 +76,7 @@ describe("provider configuration custody", () => {
     expect(props.onSave).not.toHaveBeenCalled();
     view.rerender(<AiProviderSettingsPanel {...props} agyCliProjectId="saved-native-project" />);
     expect(projectInput).toHaveValue("saved-native-project");
-    expect(projectInput).toHaveAccessibleDescription(/bloqueia a execucao/);
+    expect(projectInput).toHaveAccessibleDescription(/permissoes.*configuracoes nativas/);
   });
 
   it("preserves the configured CLI selection across explicit API mode changes", () => {

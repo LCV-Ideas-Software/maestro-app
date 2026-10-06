@@ -1,7 +1,7 @@
 # Runtime Bootstrapper
 
 Status: implemented; release publication requires the repository validation gates.
-Updated: 2026-10-06 (source 0.5.72; publication awaits operator testing).
+Updated: 2026-10-06 (source 0.5.74; release publication pending).
 
 Maestro must be able to prepare a Windows 11+ machine for full operation on first run.
 
@@ -97,7 +97,7 @@ Lifecycle operations:
 
 - Detect executable path and version.
 - Version metadata uses the bounded managed-pipe transport, including `agy --version`. A timeout reports an inconclusive diagnostic for an executable that was found; it does not prove absence or authentication. Editorial PTY execution keeps its separate transport and security guards.
-- AGY executable/version readiness does not attest authentication. Setup does not create an unverified `agy_auth` dependency: the headless editorial invocation reuses the vendor's existing native session and reports actual authentication failures. The selected project's native permission check remains mandatory before editorial or smoke model turns; no login process, browser authentication flow or custom OAuth is launched by Maestro for AGY.
+- AGY executable/version readiness does not attest authentication. Setup does not create an unverified `agy_auth` dependency: the headless editorial invocation reuses the vendor's existing native session and reports actual authentication failures. AGY applies its native permissions; selecting a native project in Maestro is optional. No login process, browser authentication flow or custom OAuth is launched by Maestro for AGY.
 - Run a headless smoke probe for each agent CLI after installation/authentication.
 - Install when missing.
 - Update when outdated and authorized.
