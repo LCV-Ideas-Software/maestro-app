@@ -195,6 +195,9 @@ export function App() {
     hash: "aguardando importacao",
   });
   const [protocolText, setProtocolText] = useState("");
+  const protocolImportGenerationRef = useRef(0);
+  const protocolImportPendingRef = useRef(false);
+  const [isImportingProtocol, setIsImportingProtocol] = useState(false);
   const [sessionName, setSessionName] = useState("Artigo academico sem titulo");
   const [verbosity, setVerbosity] = useState<VerbosityMode>("detalhado");
   const [editorialPrompt, setEditorialPrompt] = useState(
@@ -224,6 +227,10 @@ export function App() {
   const [maxSessionCostUsd, setMaxSessionCostUsd] = useState("");
   const [maxSessionMinutes, setMaxSessionMinutes] = useState("");
   const [promptAttachments, setPromptAttachments] = useState<PromptAttachmentPayload[]>([]);
+  const promptAttachmentsRef = useRef<PromptAttachmentPayload[]>([]);
+  const attachmentImportGenerationRef = useRef(0);
+  const attachmentImportPendingRef = useRef(false);
+  const [isReadingPromptAttachments, setIsReadingPromptAttachments] = useState(false);
   const [sessionLinks, setSessionLinks] = useState("");
   const [credentialStorageMode, setCredentialStorageMode] =
     useState<CredentialStorageMode>("local_json");
@@ -249,7 +256,7 @@ export function App() {
     grok: "",
     perplexity: "",
   });
-  const [geminiCliProjectId, setGeminiCliProjectId] = useState("");
+  const [agyCliProjectId, setAgyCliProjectId] = useState("");
   const [providerInputUsdPerMillion, setProviderInputUsdPerMillion] = useState<
     Record<ProviderRateKey, string>
   >({
@@ -294,9 +301,26 @@ export function App() {
   >(initialCloudflarePermissionChecks);
   const [aiProviderRowsState, setAiProviderRowsState] =
     useState<AiProviderProbeRow[]>(initialAiProviderChecks);
-  const [bootstrapRows, setBootstrapRows] = useState<BootstrapCheckRow[]>(initialBootstrapChecks);
   const [runtimeBootstrapPlan, setRuntimeBootstrapPlan] = useState<RuntimeBootstrapPlan | null>(
     null,
+  );
+  const bootstrapRows = useMemo<BootstrapCheckRow[]>(
+    () =>
+      runtimeBootstrapPlan
+        ? runtimeBootstrapPlan.dependencies.map((dependency) => ({
+            label: dependency.label,
+            value: dependency.detail,
+            tone:
+              dependency.state === "ready"
+                ? "ok"
+                : dependency.required && dependency.state === "missing"
+                  ? "blocked"
+                  : dependency.state === "outdated" || dependency.state === "misconfigured"
+                    ? "warn"
+                    : "pending",
+          }))
+        : initialBootstrapChecks,
+    [runtimeBootstrapPlan],
   );
   const [runtimeBootstrapResult, setRuntimeBootstrapResult] =
     useState<RuntimeBootstrapActionResult | null>(null);
@@ -315,6 +339,9 @@ export function App() {
   const [isSavingAiConfig, setIsSavingAiConfig] = useState(false);
   const configWritesInFlightRef = useRef(0);
   const configWriteVersionRef = useRef(0);
+  const runtimeBootstrapRequestRef = useRef(0);
+  const runtimeBootstrapPlanningRef = useRef(false);
+  const activeRuntimeBootstrapActionRef = useRef<string | null>(null);
   const [pendingConfigWrites, setPendingConfigWrites] = useState(0);
   const [isVerifyingAiProviders, setIsVerifyingAiProviders] = useState(false);
   const [isAuditingEvidence, setIsAuditingEvidence] = useState(false);
@@ -323,6 +350,14 @@ export function App() {
   const [isResumeLoading, setIsResumeLoading] = useState(false);
   const [useLoadedProtocolForResume, setUseLoadedProtocolForResume] = useState(false);
   const sessionRunIdRef = useRef<string | null>(null);
+
+  useEffect(
+    () => () => {
+      protocolImportGenerationRef.current += 1;
+      attachmentImportGenerationRef.current += 1;
+    },
+    [],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -485,6 +520,7 @@ export function App() {
     return activityItems;
   }, [activityItems, verbosity]);
   const isRunPreparing = operation.status === "preparing" || operation.status === "running";
+  const isSessionInputBusy = isImportingProtocol || isReadingPromptAttachments;
   const runActionLabel =
     operation.status === "paused" ||
     operation.status === "blocked" ||
@@ -586,6 +622,9 @@ export function App() {
     void loadBootstrapConfig();
     void loadAiProviderConfig();
     void refreshRuntimeBootstrapPlan();
+    return () => {
+      runtimeBootstrapRequestRef.current += 1;
+    };
   }, []);
 
   function activityTimestamp() {
@@ -601,25 +640,30 @@ export function App() {
     setActivityItems((current) => [{ ...item, time: activityTimestamp() }, ...current].slice(0, 8));
   }
 
+  function invalidateRuntimeBootstrapPlan() {
+    runtimeBootstrapRequestRef.current += 1;
+    runtimeBootstrapPlanningRef.current = false;
+    setIsPlanningRuntimeBootstrap(false);
+    setRuntimeBootstrapPlan(null);
+  }
+
   async function refreshRuntimeBootstrapPlan() {
+    if (configWritesInFlightRef.current > 0 || activeRuntimeBootstrapActionRef.current !== null)
+      return;
+    const requestId = ++runtimeBootstrapRequestRef.current;
+    const writeVersion = configWriteVersionRef.current;
+    runtimeBootstrapPlanningRef.current = true;
     setIsPlanningRuntimeBootstrap(true);
+    setRuntimeBootstrapPlan(null);
     try {
       const plan = await createRuntimeBootstrapPlan();
+      if (
+        requestId !== runtimeBootstrapRequestRef.current ||
+        writeVersion !== configWriteVersionRef.current ||
+        configWritesInFlightRef.current > 0
+      )
+        return;
       setRuntimeBootstrapPlan(plan);
-      setBootstrapRows(
-        plan.dependencies.map((dependency) => ({
-          label: dependency.label,
-          value: dependency.detail,
-          tone:
-            dependency.state === "ready"
-              ? "ok"
-              : dependency.required && dependency.state === "missing"
-                ? "blocked"
-                : dependency.state === "outdated" || dependency.state === "misconfigured"
-                  ? "warn"
-                  : "pending",
-        })),
-      );
       appendActivity({
         level: "detail",
         title: "Plano de setup atualizado",
@@ -637,6 +681,7 @@ export function App() {
         },
       });
     } catch (error) {
+      if (requestId !== runtimeBootstrapRequestRef.current) return;
       appendActivity({
         level: "diagnostic",
         title: "Falha ao planejar setup",
@@ -649,11 +694,20 @@ export function App() {
         context: { error },
       });
     } finally {
-      setIsPlanningRuntimeBootstrap(false);
+      if (requestId === runtimeBootstrapRequestRef.current) {
+        runtimeBootstrapPlanningRef.current = false;
+        setIsPlanningRuntimeBootstrap(false);
+      }
     }
   }
 
   async function authorizeRuntimeBootstrapAction(actionId: string) {
+    if (
+      configWritesInFlightRef.current > 0 ||
+      runtimeBootstrapPlanningRef.current ||
+      activeRuntimeBootstrapActionRef.current !== null
+    )
+      return;
     const plan = runtimeBootstrapPlan;
     const action = plan?.actions.find((candidate) => candidate.action_id === actionId);
     if (!plan || !action) return;
@@ -672,6 +726,7 @@ export function App() {
     );
     if (!approved) return;
 
+    activeRuntimeBootstrapActionRef.current = actionId;
     setActiveRuntimeBootstrapActionId(actionId);
     setRuntimeBootstrapResult(null);
     try {
@@ -707,6 +762,7 @@ export function App() {
         context: { action_id: actionId, plan_hash: plan.plan_hash, error },
       });
     } finally {
+      activeRuntimeBootstrapActionRef.current = null;
       setActiveRuntimeBootstrapActionId(null);
     }
   }
@@ -738,7 +794,6 @@ export function App() {
   async function verifyAgentsNow() {
     try {
       const preflight = await dependencyPreflight();
-      setBootstrapRows(preflight.checks);
       const byLabel = new Map(preflight.checks.map((check) => [check.label, check]));
       setAgentCards((current) =>
         current.map((agent) => {
@@ -1095,13 +1150,6 @@ export function App() {
       if (configWritesInFlightRef.current > 0 || writeVersion !== configWriteVersionRef.current)
         return;
 
-      setBootstrapRows(
-        initialBootstrapChecks.map((row) => ({
-          ...row,
-          value: row.label === "WebView2" ? "ativo pelo runtime Tauri" : "verificando",
-          tone: row.label === "WebView2" ? "ok" : row.tone,
-        })),
-      );
       setCredentialStorageMode(config.credential_storage_mode);
       setCloudflareTokenSource(
         envSnapshot.api_token_present ? "windows_env" : config.cloudflare_api_token_source,
@@ -1143,36 +1191,6 @@ export function App() {
           cloudflare_api_token_present: envSnapshot.api_token_present,
         },
       });
-      void dependencyPreflight()
-        .then((preflight) => {
-          setBootstrapRows(preflight.checks);
-          void logEvent({
-            level: "info",
-            category: "bootstrap.dependency_preflight.completed",
-            message: "background dependency preflight completed",
-            context: {
-              checks: preflight.checks.map((check) => ({
-                label: check.label,
-                tone: check.tone,
-              })),
-            },
-          });
-        })
-        .catch((error) => {
-          setBootstrapRows((current) =>
-            current.map((row) =>
-              row.label === "WebView2"
-                ? row
-                : { ...row, value: "falha na verificacao; consulte diagnostico", tone: "warn" },
-            ),
-          );
-          void logEvent({
-            level: "warn",
-            category: "bootstrap.dependency_preflight.failed",
-            message: "background dependency preflight failed",
-            context: { error },
-          });
-        });
     } catch (error) {
       setBootstrapConfigStatus("falha ao carregar bootstrap.json");
       void logEvent({
@@ -1185,9 +1203,11 @@ export function App() {
   }
 
   async function persistBootstrapConfig(nextMode = credentialStorageMode) {
+    if (activeRuntimeBootstrapActionRef.current !== null) return;
     configWriteVersionRef.current += 1;
     configWritesInFlightRef.current += 1;
     setPendingConfigWrites(configWritesInFlightRef.current);
+    invalidateRuntimeBootstrapPlan();
     try {
       const saved = await writeBootstrapConfig(buildBootstrapConfig(nextMode));
       setBootstrapConfigStatus(`bootstrap.json salvo em ${saved.updated_at}`);
@@ -1213,6 +1233,7 @@ export function App() {
     } finally {
       configWritesInFlightRef.current -= 1;
       setPendingConfigWrites(configWritesInFlightRef.current);
+      void refreshRuntimeBootstrapPlan();
     }
   }
 
@@ -1221,7 +1242,7 @@ export function App() {
       schema_version: 1,
       provider_mode: nextProviderMode,
       credential_storage_mode: credentialStorageMode,
-      gemini_cli_project_id: geminiCliProjectId.trim() || null,
+      agy_cli_project_id: agyCliProjectId.trim() || null,
       openai_api_key: aiCredentials.openai.trim() || null,
       anthropic_api_key: aiCredentials.anthropic.trim() || null,
       gemini_api_key: aiCredentials.gemini.trim() || null,
@@ -1327,7 +1348,7 @@ export function App() {
       if (configWritesInFlightRef.current > 0 || writeVersion !== configWriteVersionRef.current)
         return;
       setProviderMode(config.provider_mode);
-      setGeminiCliProjectId(config.gemini_cli_project_id ?? "");
+      setAgyCliProjectId(config.agy_cli_project_id ?? "");
       setAiCredentials({
         openai: config.openai_api_key ?? "",
         anthropic: config.anthropic_api_key ?? "",
@@ -1397,18 +1418,24 @@ export function App() {
   }
 
   async function saveAiProviderConfig(nextProviderMode = providerMode) {
-    if (configWritesInFlightRef.current > 0 || isVerifyingCloudflare) return null;
+    if (
+      configWritesInFlightRef.current > 0 ||
+      isVerifyingCloudflare ||
+      activeRuntimeBootstrapActionRef.current !== null
+    )
+      return null;
     configWriteVersionRef.current += 1;
     configWritesInFlightRef.current += 1;
     setPendingConfigWrites(configWritesInFlightRef.current);
     setIsSavingAiConfig(true);
+    invalidateRuntimeBootstrapPlan();
     try {
       const saved = await writeAiProviderConfig(
         buildAiProviderConfig(nextProviderMode),
         credentialStorageMode === "cloudflare" ? buildCloudflareProviderStorageRequest() : null,
       );
       setProviderMode(saved.provider_mode);
-      setGeminiCliProjectId(saved.gemini_cli_project_id ?? "");
+      setAgyCliProjectId(saved.agy_cli_project_id ?? "");
       setAiCredentials({
         openai: saved.openai_api_key ?? "",
         anthropic: saved.anthropic_api_key ?? "",
@@ -1479,6 +1506,7 @@ export function App() {
       configWritesInFlightRef.current -= 1;
       setPendingConfigWrites(configWritesInFlightRef.current);
       setIsSavingAiConfig(false);
+      void refreshRuntimeBootstrapPlan();
     }
   }
 
@@ -1515,22 +1543,47 @@ export function App() {
   async function importProtocol(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    const nextProtocol = {
-      name: file.name,
-      size: file.size,
-      lines: text.split(/\r?\n/).length,
-      hash: await sha256(text),
-    };
-    setProtocol(nextProtocol);
-    setProtocolText(text);
-    void logEvent({
-      level: "info",
-      category: "protocol.imported",
-      message: "operator imported editorial protocol",
-      context: nextProtocol,
-    });
     event.target.value = "";
+    const generation = ++protocolImportGenerationRef.current;
+    protocolImportPendingRef.current = true;
+    setIsImportingProtocol(true);
+    try {
+      const text = await file.text();
+      if (generation !== protocolImportGenerationRef.current) return;
+      const nextProtocol = {
+        name: file.name,
+        size: file.size,
+        lines: text.split(/\r?\n/).length,
+        hash: await sha256(text),
+      };
+      if (generation !== protocolImportGenerationRef.current) return;
+      setProtocol(nextProtocol);
+      setProtocolText(text);
+      void logEvent({
+        level: "info",
+        category: "protocol.imported",
+        message: "operator imported editorial protocol",
+        context: nextProtocol,
+      });
+    } catch (error) {
+      if (generation !== protocolImportGenerationRef.current) return;
+      appendActivity({
+        level: "summary",
+        title: "Falha ao ler protocolo",
+        detail: "Nao foi possivel ler o arquivo selecionado. Importe o protocolo novamente.",
+      });
+      void logEvent({
+        level: "error",
+        category: "protocol.import_failed",
+        message: "editorial protocol import failed",
+        context: { error },
+      });
+    } finally {
+      if (generation === protocolImportGenerationRef.current) {
+        protocolImportPendingRef.current = false;
+        setIsImportingProtocol(false);
+      }
+    }
   }
 
   function formatSessionActivity(session: ResumableSessionInfo) {
@@ -1552,6 +1605,9 @@ export function App() {
   }
 
   async function requestResumeSession() {
+    if (protocolImportPendingRef.current || attachmentImportPendingRef.current) return;
+    const protocolGeneration = protocolImportGenerationRef.current;
+    const attachmentGeneration = attachmentImportGenerationRef.current;
     setIsResumeLoading(true);
     setOperation({
       title: "Buscando sessoes",
@@ -1563,6 +1619,20 @@ export function App() {
 
     try {
       const sessions = await listResumableSessions();
+      if (
+        protocolGeneration !== protocolImportGenerationRef.current ||
+        attachmentGeneration !== attachmentImportGenerationRef.current
+      ) {
+        setOperation({
+          title: "Entradas alteradas",
+          progress: 0,
+          current:
+            "O protocolo ou os anexos mudaram durante a busca. Solicite a retomada novamente.",
+          eta: "aguardando entradas atuais",
+          status: "paused",
+        });
+        return;
+      }
       setResumeCandidates(sessions);
       setUseLoadedProtocolForResume(hasLoadedProtocolForResume);
 
@@ -1629,11 +1699,6 @@ export function App() {
   }
 
   async function startResumeSession(session: ResumableSessionInfo, useLoadedProtocol: boolean) {
-    setShowResumePicker(false);
-    sessionRunIdRef.current = session.run_id;
-    setSessionRunId(session.run_id);
-    setActiveAgentNow(null);
-    setSessionName(session.session_name);
     const protocolOverride = resumeProtocolOptions(useLoadedProtocol);
 
     // B21 fix (v0.5.1, operator-reported "maestro-app importa os peers
@@ -1670,6 +1735,11 @@ export function App() {
       });
       return;
     }
+    setShowResumePicker(false);
+    sessionRunIdRef.current = session.run_id;
+    setSessionRunId(session.run_id);
+    setActiveAgentNow(null);
+    setSessionName(session.session_name);
     void logEvent({
       level: "info",
       category: "session.resume.contract_applied",
@@ -1793,6 +1863,9 @@ export function App() {
   }
 
   function currentSessionRunOptions(): SessionRunOptions {
+    if (protocolImportPendingRef.current || attachmentImportPendingRef.current) {
+      throw new Error("Aguarde a leitura do protocolo e dos anexos antes de iniciar ou retomar.");
+    }
     if (activeAgents.length < 1 || activeAgents.length > 6) {
       throw new Error("Selecione de 1 a 6 peers para a sessao.");
     }
@@ -1834,7 +1907,7 @@ export function App() {
       activeAgents,
       maxSessionCostUsd: maxCostUsd,
       maxSessionMinutes: parseOptionalPositiveInteger(maxSessionMinutes, "Limite de tempo"),
-      attachments: promptAttachments,
+      attachments: promptAttachmentsRef.current,
       links: parseSessionLinks(),
     };
   }
@@ -1842,9 +1915,12 @@ export function App() {
   async function handlePromptAttachments(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
-    if (files.length === 0) return;
-    const nextTotal = attachmentTotalBytes + files.reduce((total, file) => total + file.size, 0);
-    if (promptAttachments.length + files.length > attachmentLimits.maxFiles) {
+    if (files.length === 0 || attachmentImportPendingRef.current || isRunPreparing) return;
+    const accepted = promptAttachmentsRef.current;
+    const nextTotal =
+      accepted.reduce((total, file) => total + file.size_bytes, 0) +
+      files.reduce((total, file) => total + file.size, 0);
+    if (accepted.length + files.length > attachmentLimits.maxFiles) {
       appendActivity({
         level: "summary",
         title: "Anexos recusados",
@@ -1863,8 +1939,33 @@ export function App() {
       });
       return;
     }
-    const payloads = await Promise.all(files.map(fileToAttachmentPayload));
-    setPromptAttachments((current) => [...current, ...payloads]);
+    const generation = ++attachmentImportGenerationRef.current;
+    attachmentImportPendingRef.current = true;
+    setIsReadingPromptAttachments(true);
+    try {
+      const payloads = await Promise.all(files.map(fileToAttachmentPayload));
+      if (generation !== attachmentImportGenerationRef.current) return;
+      promptAttachmentsRef.current = [...accepted, ...payloads];
+      setPromptAttachments(promptAttachmentsRef.current);
+    } catch (error) {
+      if (generation !== attachmentImportGenerationRef.current) return;
+      appendActivity({
+        level: "summary",
+        title: "Falha ao ler anexos",
+        detail: "Nenhum arquivo deste lote foi adicionado. Selecione os anexos novamente.",
+      });
+      void logEvent({
+        level: "error",
+        category: "session.attachments.import_failed",
+        message: "prompt attachment import failed",
+        context: { error, file_count: files.length },
+      });
+    } finally {
+      if (generation === attachmentImportGenerationRef.current) {
+        attachmentImportPendingRef.current = false;
+        setIsReadingPromptAttachments(false);
+      }
+    }
   }
 
   async function fileToAttachmentPayload(file: File): Promise<PromptAttachmentPayload> {
@@ -1884,9 +1985,12 @@ export function App() {
   }
 
   function removePromptAttachment(name: string, sizeBytes: number) {
-    setPromptAttachments((current) =>
-      current.filter((item) => !(item.name === name && item.size_bytes === sizeBytes)),
+    if (attachmentImportPendingRef.current || isRunPreparing) return;
+    attachmentImportGenerationRef.current += 1;
+    promptAttachmentsRef.current = promptAttachmentsRef.current.filter(
+      (item) => !(item.name === name && item.size_bytes === sizeBytes),
     );
+    setPromptAttachments(promptAttachmentsRef.current);
   }
 
   function startEditorialSession() {
@@ -2499,6 +2603,16 @@ export function App() {
   }
 
   function updateAiCredential(provider: AiCredentialKey, value: string) {
+    if (aiCredentials[provider].trim() !== value.trim()) {
+      const label = aiProviderRows.find((row) => row.key === provider)?.name;
+      setAiProviderRowsState((current) =>
+        current.map((row) =>
+          row.label === label
+            ? { ...row, value: "credencial alterada; verificacao pendente", tone: "pending" }
+            : row,
+        ),
+      );
+    }
     setAiCredentials((current) => ({ ...current, [provider]: value }));
   }
 
@@ -2564,7 +2678,12 @@ export function App() {
   }
 
   function chooseProviderMode(nextMode: ProviderMode) {
-    if (configWritesInFlightRef.current > 0 || isVerifyingAiProviders || isVerifyingCloudflare)
+    if (
+      configWritesInFlightRef.current > 0 ||
+      isVerifyingAiProviders ||
+      isVerifyingCloudflare ||
+      activeRuntimeBootstrapActionRef.current !== null
+    )
       return;
     setProviderMode(nextMode);
     if (nextMode === "cli") {
@@ -2587,7 +2706,12 @@ export function App() {
   }
 
   function chooseCredentialStorage(nextMode: CredentialStorageMode) {
-    if (configWritesInFlightRef.current > 0 || isVerifyingAiProviders || isVerifyingCloudflare)
+    if (
+      configWritesInFlightRef.current > 0 ||
+      isVerifyingAiProviders ||
+      isVerifyingCloudflare ||
+      activeRuntimeBootstrapActionRef.current !== null
+    )
       return;
     setCredentialStorageMode(nextMode);
     void persistBootstrapConfig(nextMode);
@@ -2600,7 +2724,12 @@ export function App() {
   }
 
   async function verifyCloudflareCredentials() {
-    if (configWritesInFlightRef.current > 0 || isVerifyingAiProviders || isVerifyingCloudflare)
+    if (
+      configWritesInFlightRef.current > 0 ||
+      isVerifyingAiProviders ||
+      isVerifyingCloudflare ||
+      activeRuntimeBootstrapActionRef.current !== null
+    )
       return;
     setIsVerifyingCloudflare(true);
     await persistBootstrapConfig();
@@ -2689,7 +2818,12 @@ export function App() {
   }
 
   async function verifyAiProviderCredentials() {
-    if (configWritesInFlightRef.current > 0 || isVerifyingAiProviders || isVerifyingCloudflare)
+    if (
+      configWritesInFlightRef.current > 0 ||
+      isVerifyingAiProviders ||
+      isVerifyingCloudflare ||
+      activeRuntimeBootstrapActionRef.current !== null
+    )
       return;
     setIsVerifyingAiProviders(true);
     setAiProviderRowsState(
@@ -3179,10 +3313,10 @@ export function App() {
           activeLabel={activeNavItem?.label ?? "Workspace"}
           sessionName={sessionName}
           isResumeLoading={isResumeLoading}
-          isRunPreparing={isRunPreparing}
+          isRunPreparing={isRunPreparing || isSessionInputBusy}
           isStopRequested={isStopRequested}
           runActionLabel={runActionLabel}
-          sessionRunId={sessionRunId}
+          sessionRunId={isRunPreparing ? sessionRunId : null}
           onSessionNameChange={setSessionName}
           onRevalidate={() => void revalidateRuntime()}
           onRequestResume={() => void requestResumeSession()}
@@ -3226,7 +3360,7 @@ export function App() {
             initialAgent={initialAgent}
             initialAgentLabel={initialAgentLabel}
             isResumeLoading={isResumeLoading}
-            isRunPreparing={isRunPreparing}
+            isRunPreparing={isRunPreparing || isSessionInputBusy}
             linkEvidenceState={linkEvidenceState}
             isSavingPostEditor={isSavingPostEditor}
             mainSiteAuthor={mainSiteAuthor}
@@ -3323,7 +3457,11 @@ export function App() {
                 cloudflareTokenEnvVar={cloudflareTokenEnvVar}
                 credentialStorageMode={credentialStorageMode}
                 isVerifying={isVerifyingCloudflare}
-                isBusy={pendingConfigWrites > 0 || isVerifyingAiProviders}
+                isBusy={
+                  pendingConfigWrites > 0 ||
+                  isVerifyingAiProviders ||
+                  activeRuntimeBootstrapActionId !== null
+                }
                 onAccountIdChange={setCloudflareAccountId}
                 onApiTokenChange={setCloudflareApiToken}
                 onChooseCredentialStorage={chooseCredentialStorage}
@@ -3336,8 +3474,9 @@ export function App() {
               <AiProviderSettingsPanel
                 aiConfigStatus={aiConfigStatus}
                 aiCredentials={aiCredentials}
-                geminiCliProjectId={geminiCliProjectId}
+                agyCliProjectId={agyCliProjectId}
                 isSaving={isSavingAiConfig || pendingConfigWrites > 0}
+                isBusy={activeRuntimeBootstrapActionId !== null}
                 isVerifying={isVerifyingAiProviders || isVerifyingCloudflare}
                 probeRows={aiProviderRowsState}
                 providerInputRates={providerInputUsdPerMillion}
@@ -3345,7 +3484,7 @@ export function App() {
                 providerOutputRates={providerOutputUsdPerMillion}
                 onChooseProviderMode={chooseProviderMode}
                 onCredentialChange={updateAiCredential}
-                onGeminiCliProjectIdChange={setGeminiCliProjectId}
+                onAgyCliProjectIdChange={setAgyCliProjectId}
                 onInputRateChange={updateProviderInputRate}
                 onOutputRateChange={updateProviderOutputRate}
                 onSave={() => void saveAiProviderConfig()}

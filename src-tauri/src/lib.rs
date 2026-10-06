@@ -206,8 +206,9 @@ pub(crate) struct AiProviderConfig {
     schema_version: u8,
     provider_mode: String,
     credential_storage_mode: String,
-    #[serde(default)]
-    pub(crate) gemini_cli_project_id: Option<String>,
+    // Version 0.5.71 used this older JSON name for the same native AGY project.
+    #[serde(default, alias = "gemini_cli_project_id")]
+    pub(crate) agy_cli_project_id: Option<String>,
     #[serde(default)]
     pub(crate) openai_api_key: Option<String>,
     #[serde(default)]
@@ -791,7 +792,7 @@ impl Default for AiProviderConfig {
             schema_version: 1,
             provider_mode: "hybrid".to_string(),
             credential_storage_mode: "local_json".to_string(),
-            gemini_cli_project_id: None,
+            agy_cli_project_id: None,
             openai_api_key: None,
             anthropic_api_key: None,
             gemini_api_key: None,
@@ -940,7 +941,6 @@ pub fn run() {
                             "claude": resolve_command("claude").map(|path| path.to_string_lossy().to_string()),
                             "codex": resolve_command("codex").map(|path| path.to_string_lossy().to_string()),
                             "agy": resolve_command("agy").map(|path| path.to_string_lossy().to_string()),
-                            "gemini_legacy": resolve_command("gemini").map(|path| path.to_string_lossy().to_string()),
                             "node": resolve_command("node").map(|path| path.to_string_lossy().to_string()),
                             "npm": resolve_command("npm").map(|path| path.to_string_lossy().to_string()),
                             "cargo": resolve_command("cargo").map(|path| path.to_string_lossy().to_string()),
@@ -1395,12 +1395,32 @@ mod tests {
     }
 
     #[test]
+    fn agy_project_config_preserves_previous_native_selection_and_writes_canonical_name() {
+        let mut previous = serde_json::to_value(AiProviderConfig::default()).unwrap();
+        previous
+            .as_object_mut()
+            .unwrap()
+            .remove("agy_cli_project_id");
+        previous["gemini_cli_project_id"] = json!("native-agy-project");
+        let config: AiProviderConfig = serde_json::from_value(previous.clone()).unwrap();
+        assert_eq!(
+            config.agy_cli_project_id.as_deref(),
+            Some("native-agy-project")
+        );
+        let canonical = serde_json::to_value(config).unwrap();
+        assert_eq!(canonical["agy_cli_project_id"], "native-agy-project");
+        assert!(canonical.get("gemini_cli_project_id").is_none());
+        previous["agy_cli_project_id"] = json!("different-native-agy-project");
+        assert!(serde_json::from_value::<AiProviderConfig>(previous).is_err());
+    }
+
+    #[test]
     fn cloudflare_ai_provider_marker_does_not_store_secret_values_locally() {
         let config = sanitize_ai_provider_config(AiProviderConfig {
             schema_version: 1,
             provider_mode: "api".to_string(),
             credential_storage_mode: "cloudflare".to_string(),
-            gemini_cli_project_id: Some("local-native-project".to_string()),
+            agy_cli_project_id: Some("local-native-project".to_string()),
             openai_api_key: Some("sk-test-value".to_string()),
             anthropic_api_key: Some("sk-ant-test-value".to_string()),
             gemini_api_key: Some("AIza-test-value".to_string()),
@@ -1438,7 +1458,7 @@ mod tests {
         assert!(text.contains("\"credential_storage_mode\": \"cloudflare\""));
         let marker: AiProviderConfig = serde_json::from_str(&text).unwrap();
         assert_eq!(
-            marker.gemini_cli_project_id.as_deref(),
+            marker.agy_cli_project_id.as_deref(),
             Some("local-native-project")
         );
         assert!(text.contains("\"openai_api_key_remote\": true"));
@@ -1462,7 +1482,7 @@ mod tests {
             schema_version: 1,
             provider_mode: "api".to_string(),
             credential_storage_mode: "cloudflare".to_string(),
-            gemini_cli_project_id: Some("local-native-project".to_string()),
+            agy_cli_project_id: Some("local-native-project".to_string()),
             openai_api_key: Some("sk-test-value".to_string()),
             anthropic_api_key: None,
             gemini_api_key: Some("AIza-test-value".to_string()),
@@ -2067,8 +2087,7 @@ mod tests {
     fn editorial_agent_environment_sets_utf8_for_all_clis() {
         #[allow(clippy::disallowed_methods)]
         let mut command = std::process::Command::new("printf");
-        let path = Path::new("printf");
-        apply_editorial_agent_environment(&mut command, path);
+        apply_editorial_agent_environment(&mut command);
         let envs: Vec<(String, String)> = command
             .get_envs()
             .filter_map(|(key, value)| {
@@ -2083,44 +2102,6 @@ mod tests {
         assert_eq!(envs_map.get("PYTHONUTF8").map(String::as_str), Some("1"));
         assert_eq!(envs_map.get("LC_ALL").map(String::as_str), Some("C.UTF-8"));
         assert_eq!(envs_map.get("LANG").map(String::as_str), Some("C.UTF-8"));
-        assert_eq!(envs_map.get("GEMINI_CLI_TRUST_WORKSPACE"), None);
-    }
-
-    #[test]
-    fn editorial_agent_environment_sets_gemini_trust_only_for_legacy_gemini_cli() {
-        #[allow(clippy::disallowed_methods)]
-        let mut command = std::process::Command::new("gemini");
-        let path = Path::new("gemini");
-        apply_editorial_agent_environment(&mut command, path);
-        let envs: Vec<(String, String)> = command
-            .get_envs()
-            .filter_map(|(key, value)| {
-                Some((key.to_str()?.to_string(), value?.to_str()?.to_string()))
-            })
-            .collect();
-        let envs_map: std::collections::BTreeMap<_, _> = envs.into_iter().collect();
-        assert_eq!(
-            envs_map
-                .get("GEMINI_CLI_TRUST_WORKSPACE")
-                .map(String::as_str),
-            Some("true")
-        );
-    }
-
-    #[test]
-    fn editorial_agent_environment_does_not_apply_legacy_gemini_trust_to_agy() {
-        #[allow(clippy::disallowed_methods)]
-        let mut command = std::process::Command::new("agy");
-        let path = Path::new("agy");
-        apply_editorial_agent_environment(&mut command, path);
-        let envs: Vec<(String, String)> = command
-            .get_envs()
-            .filter_map(|(key, value)| {
-                Some((key.to_str()?.to_string(), value?.to_str()?.to_string()))
-            })
-            .collect();
-        let envs_map: std::collections::BTreeMap<_, _> = envs.into_iter().collect();
-        assert_eq!(envs_map.get("GEMINI_CLI_TRUST_WORKSPACE"), None);
     }
 
     #[test]

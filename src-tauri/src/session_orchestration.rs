@@ -3683,7 +3683,7 @@ mod tests {
     fn operational_only_review_round_excludes_editorial_blockers() {
         let round = vec![
             review_result("Codex", "CODEX_CLI_NO_FINAL_OUTPUT", "error"),
-            review_result("Gemini", "GEMINI_RIPGREP_UNAVAILABLE", "error"),
+            review_result("Gemini", "AGY_CLI_NO_FINAL_OUTPUT", "error"),
         ];
 
         assert!(is_operational_only_review_round(&round));
@@ -3693,7 +3693,7 @@ mod tests {
     fn operational_only_review_round_rejects_mixed_not_ready() {
         let round = vec![
             review_result("Codex", "NOT_READY", "warn"),
-            review_result("Gemini", "GEMINI_CLI_NO_FINAL_OUTPUT", "error"),
+            review_result("Gemini", "AGY_CLI_NO_FINAL_OUTPUT", "error"),
         ];
 
         assert!(!is_operational_only_review_round(&round));

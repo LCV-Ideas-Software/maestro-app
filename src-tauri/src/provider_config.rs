@@ -84,8 +84,8 @@ pub(crate) fn sanitize_ai_provider_config(config: AiProviderConfig) -> AiProvide
         provider_mode: normalize_provider_mode(&config.provider_mode).to_string(),
         credential_storage_mode: normalize_storage_mode(&config.credential_storage_mode)
             .to_string(),
-        gemini_cli_project_id: config
-            .gemini_cli_project_id
+        agy_cli_project_id: config
+            .agy_cli_project_id
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()),
         openai_api_key: sanitize_optional_secret(config.openai_api_key),
@@ -281,7 +281,7 @@ mod tests {
             schema_version: 99,
             provider_mode: "api".to_string(),
             credential_storage_mode: "windows_env".to_string(),
-            gemini_cli_project_id: Some("  local-native-project  ".to_string()),
+            agy_cli_project_id: Some("  local-native-project  ".to_string()),
             openai_api_key: Some("  sk-test-value  ".to_string()),
             anthropic_api_key: Some("   ".to_string()),
             gemini_api_key: None,
@@ -315,7 +315,7 @@ mod tests {
         assert_eq!(config.provider_mode, "api");
         assert_eq!(config.credential_storage_mode, "windows_env");
         assert_eq!(
-            config.gemini_cli_project_id.as_deref(),
+            config.agy_cli_project_id.as_deref(),
             Some("local-native-project")
         );
         assert_eq!(config.openai_api_key.as_deref(), Some("sk-test-value"));
@@ -330,19 +330,16 @@ mod tests {
     }
 
     #[test]
-    fn gemini_cli_project_selection_is_optional_and_empty_selection_is_removed() {
+    fn agy_cli_project_selection_is_optional_and_empty_selection_is_removed() {
         let mut legacy = serde_json::to_value(AiProviderConfig::default()).unwrap();
-        legacy
-            .as_object_mut()
-            .unwrap()
-            .remove("gemini_cli_project_id");
+        legacy.as_object_mut().unwrap().remove("agy_cli_project_id");
         let restored: AiProviderConfig = serde_json::from_value(legacy).unwrap();
-        assert!(restored.gemini_cli_project_id.is_none());
+        assert!(restored.agy_cli_project_id.is_none());
         let sanitized = sanitize_ai_provider_config(AiProviderConfig {
-            gemini_cli_project_id: Some("  ".to_string()),
+            agy_cli_project_id: Some("  ".to_string()),
             ..AiProviderConfig::default()
         });
-        assert!(sanitized.gemini_cli_project_id.is_none());
+        assert!(sanitized.agy_cli_project_id.is_none());
     }
 
     #[test]

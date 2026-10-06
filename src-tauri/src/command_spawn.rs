@@ -28,9 +28,7 @@
 //     -ExecutionPolicy Bypass -File`; everything else via `hidden_command`.
 //     Always applies `apply_editorial_agent_environment`.
 //   - `apply_editorial_agent_environment` — sets UTF-8 (`PYTHONIOENCODING`/
-//     `PYTHONUTF8`/`LC_ALL`/`LANG`) on every child + the legacy
-//     `GEMINI_CLI_TRUST_WORKSPACE` shim only when the executable's stem is
-//     `gemini`.
+//     `PYTHONUTF8`/`LC_ALL`/`LANG`) and terminal policy on every child.
 //
 // What stays in lib.rs (consumed via `pub(crate)` imports):
 //   - `TimedCommandOutput` struct (pub(crate) since v0.3.35 with all 5
@@ -90,7 +88,17 @@ pub(crate) fn command_check(label: &str, command: &str, args: &[&str]) -> Value 
         .iter()
         .map(|arg| (*arg).to_string())
         .collect::<Vec<_>>();
-    let output = run_resolved_command_with_timeout(&path, &args, Duration::from_secs(12), None);
+    // Version diagnostics need ordinary stdout, including agy metadata. The
+    // PTY transport is reserved for editorial calls that require a terminal.
+    let output = run_resolved_command_observed_piped(
+        &path,
+        &args,
+        Some(Duration::from_secs(12)),
+        None,
+        None,
+        None,
+        None,
+    );
 
     match output {
         Ok(result) if result.timed_out => json!({
@@ -825,7 +833,7 @@ fn run_resolved_command_observed_pty(
         .map_err(pty_io_error)?;
     let mut command = pty_command_builder(path, args);
     command.cwd(working_dir.as_os_str());
-    apply_editorial_agent_environment_to_pty(&mut command, path);
+    apply_editorial_agent_environment_to_pty(&mut command);
     let mut child = pair.slave.spawn_command(command).map_err(pty_io_error)?;
     let child_id = child.process_id().unwrap_or(0);
     if let Some(progress) = progress.as_ref() {
@@ -1034,7 +1042,7 @@ fn resolved_command_builder(path: &Path, args: &[String]) -> Command {
                 .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
                 .arg(path)
                 .args(args);
-            apply_editorial_agent_environment(&mut command, path);
+            apply_editorial_agent_environment(&mut command);
             return command;
         }
     }
@@ -1044,7 +1052,7 @@ fn resolved_command_builder(path: &Path, args: &[String]) -> Command {
     // that boundary and reinterpret embedded quotes as shell commands.
     let mut command = hidden_command(path);
     command.args(args);
-    apply_editorial_agent_environment(&mut command, path);
+    apply_editorial_agent_environment(&mut command);
     command
 }
 
@@ -1098,19 +1106,19 @@ fn kill_pty_process_tree(child: &mut dyn portable_pty::Child) {
     let _ = child.kill();
 }
 
-pub(crate) fn apply_editorial_agent_environment(command: &mut Command, path: &Path) {
-    for (key, value) in editorial_agent_environment(path) {
+pub(crate) fn apply_editorial_agent_environment(command: &mut Command) {
+    for (key, value) in editorial_agent_environment() {
         command.env(key, value);
     }
 }
 
-fn apply_editorial_agent_environment_to_pty(command: &mut CommandBuilder, path: &Path) {
-    for (key, value) in editorial_agent_environment(path) {
+fn apply_editorial_agent_environment_to_pty(command: &mut CommandBuilder) {
+    for (key, value) in editorial_agent_environment() {
         command.env(key, value);
     }
 }
 
-fn editorial_agent_environment(path: &Path) -> Vec<(&'static str, OsString)> {
+fn editorial_agent_environment() -> Vec<(&'static str, OsString)> {
     let mut values = vec![
         ("PYTHONIOENCODING", OsString::from("utf-8")),
         ("PYTHONUTF8", OsString::from("1")),
@@ -1123,15 +1131,6 @@ fn editorial_agent_environment(path: &Path) -> Vec<(&'static str, OsString)> {
 
     if let Ok(path) = std::env::join_paths(command_search_dirs()) {
         values.push(("PATH", path));
-    }
-
-    let stem = path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if stem == "gemini" {
-        values.push(("GEMINI_CLI_TRUST_WORKSPACE", OsString::from("true")));
     }
 
     values
@@ -1259,12 +1258,14 @@ mod tests {
         let path = directory.join("probe.ps1");
         std::fs::write(&path, b"param([string]$Prompt)\r\n[Console]::WriteLine('MAESTRO_LITERAL_PROMPT:' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Prompt)))\r\n").unwrap();
         let prompt = "Evidence with \"literal quoted words\" and an ampersand & kept verbatim";
+        let started = Instant::now();
         let result = run_resolved_command_with_timeout(
             &path,
             &[prompt.to_string()],
-            Duration::from_secs(15),
+            Duration::from_secs(60),
             None,
         );
+        let elapsed = started.elapsed();
         std::fs::remove_file(&path).unwrap();
         std::fs::remove_dir(&directory).unwrap();
         let result = result
@@ -1274,12 +1275,17 @@ mod tests {
             base64::engine::general_purpose::STANDARD.encode(prompt)
         );
         let stdout = String::from_utf8_lossy(&result.output.stdout);
+        let stderr = String::from_utf8_lossy(&result.output.stderr);
         println!(
-            "actual harmless PowerShell piped result: timed_out={}, success={}, stdout={stdout:?}",
+            "actual harmless PowerShell piped result: elapsed={elapsed:?}, timed_out={}, success={}, stdout={stdout:?}, stderr={stderr:?}",
             result.timed_out,
             result.output.status.success()
         );
         assert!(!result.timed_out, "harmless PowerShell fixture must finish");
+        assert!(
+            result.output.status.success(),
+            "harmless PowerShell fixture must exit successfully"
+        );
         assert!(
             stdout.contains(&expected),
             "actual piped prompt bytes changed: {stdout}"

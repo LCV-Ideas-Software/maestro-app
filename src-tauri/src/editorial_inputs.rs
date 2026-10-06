@@ -4,7 +4,7 @@
 // `docs/code-split-plan.md` migration step 5.
 //
 // What's here (4 functions):
-//   - `effective_agent_input` — CLI-aware adapter. Gemini/Antigravity receives
+//   - `effective_agent_input` — CLI-aware adapter. AGY/Antigravity receives
 //     inline prompts or sidecar pointers through argv (`--print <text>`);
 //     Codex receives the full prompt through stdin to avoid a shell/tool loop
 //     trying to read the sidecar file; other CLIs keep the compact stdin pointer.
@@ -54,7 +54,7 @@ pub(crate) fn effective_agent_input(
         };
     }
 
-    if command == "agy" || command == "antigravity" || command == "gemini" {
+    if command == "agy" || command == "antigravity" {
         let mut next_args = args;
         if let Some(prompt_index) = next_args
             .iter()
