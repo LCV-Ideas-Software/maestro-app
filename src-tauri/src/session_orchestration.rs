@@ -584,6 +584,7 @@ where
                 &protocol_ack_source,
                 &cost_scope_id,
                 spec.key,
+                &output_path,
                 &mut result,
             )?;
             let _ = write_log_record(log_session, LogEventInput {
@@ -4109,6 +4110,147 @@ mod protocol_ack_integration_tests {
             );
             assert!(result.final_markdown_path.is_none() && result.draft_path.is_none());
         }
+    }
+
+    #[test]
+    fn protocol_ack_real_start_records_native_failure_without_a_raw_artifact() {
+        for (status, tone, exit_code, empty_path) in [
+            ("COST_LIMIT_REACHED", "blocked", None, false),
+            ("CLI_NOT_FOUND", "blocked", None, false),
+            ("API_KEY_NOT_AVAILABLE", "blocked", None, false),
+            ("REMOTE_SECRET_NOT_READABLE", "blocked", None, false),
+            ("STOPPED_BY_USER", "blocked", None, false),
+            ("DRAFT_CREATED", "ok", Some(0), false),
+            ("DRAFT_CREATED", "ok", Some(0), true),
+        ] {
+            let (request, log, config) = fixture("absent-native-artifact");
+            let cancel = tokio_util::sync::CancellationToken::new();
+            let mut calls = 0;
+            let mut attempted_path = PathBuf::new();
+            let result = run_editorial_session_core_with_runner(
+                &request,
+                &log,
+                None,
+                &cancel,
+                &config,
+                &mut |spec, invocation, _, cancellation| {
+                    assert_eq!(invocation.role, "protocol_ack");
+                    calls += 1;
+                    attempted_path = invocation.output_path.to_path_buf();
+                    assert!(!attempted_path.exists());
+                    if status == "STOPPED_BY_USER" {
+                        cancellation.cancel();
+                    }
+                    EditorialAgentResult {
+                        name: spec.name.to_string(),
+                        role: invocation.role.to_string(),
+                        cli: format!("{}-api", spec.key),
+                        tone: tone.to_string(),
+                        status: status.to_string(),
+                        duration_ms: 1,
+                        exit_code,
+                        output_path: if empty_path {
+                            String::new()
+                        } else {
+                            attempted_path.to_string_lossy().to_string()
+                        },
+                        usage_input_tokens: Some(100),
+                        usage_output_tokens: Some(20),
+                        cost_usd: Some(0.17),
+                        cost_estimated: Some(false),
+                        cache: None,
+                    }
+                },
+            )
+            .expect("a missing raw artifact must not abort the native session pause");
+            assert_eq!(calls, 1);
+            assert_eq!(
+                result.status,
+                match status {
+                    "COST_LIMIT_REACHED" => "COST_LIMIT_REACHED",
+                    "STOPPED_BY_USER" => "STOPPED_BY_USER",
+                    _ => "PAUSED_PROTOCOL_ACK_REQUIRED",
+                }
+            );
+            assert_eq!(result.observed_cost_usd, Some(0.17));
+            assert!(result.final_markdown_path.is_none() && result.draft_path.is_none());
+            assert!(!attempted_path.exists());
+            let journal: serde_json::Value = serde_json::from_str(
+                &read_text_file(&attempted_path.with_extension("json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(journal["admitted"], false);
+            assert_eq!(journal["native_status"], status);
+            assert_eq!(journal["native_tone"], tone);
+            assert!(journal["acknowledgement"].is_null());
+            assert!(journal["validation_error"].as_str().unwrap().len() > 10);
+            assert_eq!(journal["artifact_path"], result.agents[0].output_path);
+            assert_eq!(
+                result.agents[0].status,
+                if tone == "ok" {
+                    "PROTOCOL_ACK_INVALID"
+                } else {
+                    status
+                }
+            );
+            let minutes = read_text_file(Path::new(&result.session_minutes_path)).unwrap();
+            assert!(minutes.contains("\"admitted\": false"));
+            assert!(minutes.contains(status));
+        }
+    }
+
+    #[test]
+    fn protocol_ack_real_native_missing_cli_write_failure_still_records_a_pause() {
+        let (request, log, config) = fixture("native-missing-cli-artifact-write-failure");
+        let mut attempted_path = PathBuf::new();
+        let mut calls = 0;
+        let result = run_editorial_session_core_with_runner(
+            &request,
+            &log,
+            None,
+            &tokio_util::sync::CancellationToken::new(),
+            &config,
+            &mut |mut spec, invocation, _, cancellation| {
+                calls += 1;
+                assert_eq!(invocation.role, "protocol_ack");
+                attempted_path = invocation.output_path.to_path_buf();
+                // The native runner attempts a best-effort raw write. A real
+                // filesystem collision rejects that write but leaves its
+                // sibling JSON journal writable and the native result intact.
+                std::fs::create_dir_all(&attempted_path).unwrap();
+                spec.command = "maestro-ack-regression-cli-that-does-not-exist";
+                run_editorial_agent_for_spec(
+                    invocation.log_session,
+                    invocation.run_id,
+                    spec,
+                    invocation.role,
+                    invocation.prompt,
+                    invocation.attachments,
+                    invocation.output_path,
+                    invocation.timeout,
+                    invocation.config,
+                    invocation.cost_guard,
+                    false,
+                    cancellation,
+                )
+            },
+        )
+        .expect("actual native CLI failure must remain a recorded pause");
+        assert_eq!(calls, 1);
+        assert_eq!(result.status, "PAUSED_PROTOCOL_ACK_REQUIRED");
+        assert_eq!(result.agents[0].status, "CLI_NOT_FOUND");
+        assert_eq!(result.agents[0].tone, "blocked");
+        assert!(attempted_path.is_dir());
+        assert!(result.final_markdown_path.is_none() && result.draft_path.is_none());
+        let journal: serde_json::Value =
+            serde_json::from_str(&read_text_file(&attempted_path.with_extension("json")).unwrap())
+                .unwrap();
+        assert_eq!(journal["admitted"], false);
+        assert_eq!(journal["native_status"], "CLI_NOT_FOUND");
+        assert!(journal["validation_error"].as_str().unwrap().len() > 10);
+        assert!(read_text_file(Path::new(&result.session_minutes_path))
+            .unwrap()
+            .contains("\"native_status\": \"CLI_NOT_FOUND\""));
     }
 
     #[test]

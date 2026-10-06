@@ -161,15 +161,32 @@ pub(crate) fn record_protocol_acknowledgement(
     source: &ProtocolAckSource,
     invocation_id: &str,
     agent_key: &str,
+    expected_output_path: &Path,
     result: &mut EditorialAgentResult,
 ) -> Result<bool, String> {
-    let artifact_path = checked_data_child_path(Path::new(&result.output_path))?;
-    let artifact = read_text_file(&artifact_path)?;
+    // Bind the journal to the invocation-owned checked path. A native failure
+    // can return even when its best-effort raw artifact write failed; neither
+    // that read failure nor an empty/different reported path may abort the
+    // normal cost/cancel/ACK pause or redirect this read to another artifact.
+    let artifact_path = checked_data_child_path(expected_output_path)?;
+    let artifact = if Path::new(&result.output_path) == expected_output_path {
+        read_text_file(&artifact_path)
+    } else {
+        Err("native invocation artifact path does not match its pinned attempt".to_string())
+    };
     let mut acknowledgement = None;
     let validation = if result.tone != "ok" || result.exit_code != Some(0) {
-        Err("native invocation failed; no protocol coverage is admitted".to_string())
+        Err(match artifact {
+            Ok(_) => "native invocation failed; no protocol coverage is admitted".to_string(),
+            Err(error) => {
+                format!("native invocation failed; no protocol coverage is admitted; {error}")
+            }
+        })
     } else {
-        extract_native_ack_stdout(&artifact)
+        artifact
+            .as_deref()
+            .map_err(Clone::clone)
+            .and_then(extract_native_ack_stdout)
             .and_then(|stdout| {
                 serde_json::from_str::<ProtocolAcknowledgement>(stdout.trim()).map_err(|error| {
                     format!("acknowledgement must be one strict JSON object: {error}")
@@ -527,6 +544,7 @@ mod tests {
                 &source,
                 &invocation_id,
                 "claude",
+                &output_path,
                 &mut result,
             )
             .unwrap();
