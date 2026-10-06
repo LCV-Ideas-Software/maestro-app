@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Private security report
-    url: https://github.com/LCV-Ideas-Software
-    about: Report vulnerabilities privately. Do not disclose secrets or exploit details in public issues.
+    url: https://github.com/LCV-Ideas-Software/maestro-app/security/policy
+    about: Follow SECURITY.md and report privately to security@lcv.dev. Do not disclose secrets or exploit details in public issues.
   - name: Ask a question (Discussions)
     url: https://github.com/LCV-Ideas-Software/maestro-app/discussions/new?category=q-a
     about: Technical questions about this repository. Answers are marked and become the durable record.

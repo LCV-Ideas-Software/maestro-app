@@ -13,8 +13,10 @@ body:
   - type: markdown
     attributes:
       value: |
-        Use placeholders instead of real infrastructure identifiers. This repository is public.
-        Never paste cloud project IDs, database names, tokens, or account identifiers.
+        Necessary nonsecret identifiers and configuration metadata may be included
+        when useful for scope or validation under AGENTS.md. Use placeholders for
+        confidential values; never paste credentials, private editorial material,
+        personal data, or confidential agreement contents.
   - type: textarea
     id: question
     attributes:
