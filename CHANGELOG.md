@@ -64,6 +64,10 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Changed
 
+- Update the official Linear Release Action to v0.18.1 at its full commit SHA,
+  select the official CLI v0.18.0 explicitly and retain upstream checksum
+  verification (LCV-316).
+
 - Prepare source 0.5.74 with native AGY permission handling.
 
 ## [v0.5.71] - 05/10/2026
