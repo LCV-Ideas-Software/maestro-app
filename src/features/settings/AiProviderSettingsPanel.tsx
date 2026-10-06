@@ -127,9 +127,8 @@ export function AiProviderSettingsPanel({
             />
           </label>
           <em id="agy-cli-project-help">
-            Configure no projeto nativo as regras Deny: write_file(*), command(*), mcp(*) e
-            execute_url(*). O Maestro verifica essa politica antes de cada chamada CLI e bloqueia a
-            execucao se ela nao for confirmada. Para usar a API, selecione o modo API.
+            Opcional. Informe o ID de um projeto nativo para selecionar o projeto no AGY CLI. As
+            permissoes seguem as configuracoes nativas do Antigravity.
           </em>
         </div>
       )}

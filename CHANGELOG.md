@@ -15,6 +15,9 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Fixed
 
+- Remove Maestro's mandatory AGY Project deny policy and its per-prompt
+  permission metadata gate. Use the provider's native permission settings and
+  make the selected native project optional for editorial calls and diagnostics.
 - Align the current tokio-rustls 0.26.6 notice identity and selected MIT text
   with merged PR #445, preserving the historical notice prefix and recording
   the 297-crate Windows runtime graph.
@@ -61,7 +64,7 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Changed
 
-- Prepare source 0.5.72 for operator testing before the next release PR.
+- Prepare source 0.5.74 with native AGY permission handling.
 
 ## [v0.5.71] - 05/10/2026
 

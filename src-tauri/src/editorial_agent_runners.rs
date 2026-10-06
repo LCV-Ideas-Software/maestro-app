@@ -55,7 +55,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use crate::cli_adapter::verify_agy_cli_project_permissions;
+use crate::cli_adapter::agy_cli_project_argument;
 use crate::command_path::{command_search_dirs, resolve_command};
 use crate::command_spawn::{run_resolved_command_observed, CommandProgressContext};
 use crate::editorial_helpers::{
@@ -268,26 +268,17 @@ fn run_editorial_agent(
     };
 
     if command == "agy" {
-        match verify_agy_cli_project_permissions(
-            &path,
-            config,
-            &working_dir,
-            timeout.map(|limit| limit.saturating_sub(started.elapsed())),
-            Some(cancel_token),
-        ) {
-            Ok(project_argument) => effective_input.args.push(project_argument),
+        match agy_cli_project_argument(config) {
+            Ok(Some(project_argument)) => effective_input.args.push(project_argument),
+            Ok(None) => {}
             Err(guidance) => {
-                // Native policy stdout/stderr may contain local paths or MCP
-                // settings. Only the fixed, key-safe admission guidance leaves
-                // the verifier; an operational block cannot become a vote.
                 let status = if cancel_token.is_cancelled() {
                     "STOPPED_BY_USER"
                 } else {
-                    "CLI_PERMISSION_POLICY_BLOCKED"
+                    "EXEC_ERROR: invalid AGY project ID"
                 };
                 let guidance = if cancel_token.is_cancelled() {
-                    "Sessao interrompida pelo operador durante a verificacao nativa de permissoes."
-                        .to_string()
+                    "Sessao interrompida pelo operador antes da execucao da CLI."
                 } else {
                     guidance
                 };
@@ -566,7 +557,7 @@ fn run_editorial_agent(
 ///
 /// The Gemini peer uses AGY. Empty output without stderr remains operational;
 /// other diagnostics retain the generic failure until their native cause is
-/// established. Native AGY project policy is checked before launching a turn.
+/// established. The CLI uses its own native project permissions.
 fn classify_upstream_cli_failure(name: &str, stderr: &str) -> Option<&'static str> {
     match name {
         "Codex" => {

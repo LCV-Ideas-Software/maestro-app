@@ -1,14 +1,14 @@
 # CLI Agent Audit
 
-Status: historical implementation plan with a current permission correction.
+Status: historical implementation plan with a current native CLI execution contract.
 Historical snapshot date: 2026-05-23.
-Permission contract reviewed: 2026-10-05; AGY transport cleanup: 2026-10-06.
+Native CLI contract updated: 2026-10-06.
 
 This audit records what Maestro must rely on, verify, and defend against when orchestrating Codex CLI, Claude CLI, and Gemini via Google Antigravity CLI (`agy`) in background.
 
 It is not enough for a CLI to "answer a prompt". Maestro needs predictable non-interactive execution, auth probing, structured output, exit-code handling, stderr capture, tool/permission controls, model provenance, and safe update behavior.
 
-Apart from the current native permission correction below, the suitability findings and proposed structured records remain the dated implementation plan. They do not attest that every proposed field or gate is implemented, or that a CLI has acknowledged reading the complete protocol.
+Apart from the current native CLI contract below, the suitability findings and proposed structured records remain the dated implementation plan. They do not attest that every proposed field or gate is implemented, or that a CLI has acknowledged reading the complete protocol.
 
 ## Historical Local Snapshot
 
@@ -22,21 +22,19 @@ Observed on this Windows 11+ development machine on 2026-05-23. These versions a
 
 Auth was present for the local smoke tests, but Maestro must never assume the operator's machine is already authenticated.
 
-## Current Native Permission Boundary
+## Current Native CLI Execution
 
 Claude Code `dontAsk` denies tool calls that would require approval; it still allows pre-approved tools from inherited permission settings. Maestro therefore limits editorial built-in tools with `--tools Read,Glob,Grep,WebSearch,WebFetch`, denies inherited MCP tools with `--disallowedTools mcp__*`, and uses `--strict-mcp-config` without an MCP configuration to omit ambient MCP servers. Local `Read` remains available for complete oversized prompt sidecars. The smoke probe uses `--tools ""` and the same MCP restrictions. The fixed `--permission-mode dontAsk` option follows these variadic tool options, keeping the smoke's final positional prompt outside their value lists. These are native model-tool restrictions, not an operating-system sandbox or a claim that ambient startup hooks cannot run. See the [official Claude CLI reference](https://code.claude.com/docs/en/cli-reference) and [permission modes](https://code.claude.com/docs/en/permission-modes#allow-only-pre-approved-tools-with-dontask-mode).
 
 Installed Claude Code 2.1.289 accepted both final option sets, including `--strict-mcp-config`, in help-only invocations on 2026-10-05. Those checks did not invoke a provider or prove live tool denial. `--bare` changes authentication by skipping OAuth/keychain discovery and is not used. Exclusive managed MCP configuration can refuse `--strict-mcp-config` at startup; that incompatibility fails closed instead of silently weakening the restriction or changing the operator's selected transport.
 
-Antigravity CLI `--dangerously-skip-permissions` approves tool requests, including file writes and shell commands. A stdout-only instruction in an editorial prompt does not enforce a tool boundary. Installed `agy` 1.2.17 exposes `--mode plan`, but the official contract describes it as a `/plan` instruction prefix; shell permissions still apply across execution modes. `--sandbox` also keeps the workspace writable. Neither option proves read-only editorial execution. The available native permission rules remain configured by Antigravity settings; the installed help does not expose a per-invocation tool whitelist or settings override. See [headless permissions](https://www.antigravity.google/docs/cli/headless/), [execution modes](https://www.antigravity.google/docs/cli/modes/), and [native permissions](https://www.antigravity.google/docs/permissions?tab=cli).
+Antigravity CLI runs headlessly with the operator's existing native authentication and permission settings. Maestro captures actual stdout, stderr and exit status and reports authentication or execution failures as operational results. The editorial and smoke arguments do not enable `--dangerously-skip-permissions`. See [native headless execution](https://www.antigravity.google/docs/cli/headless/) and [native permissions](https://www.antigravity.google/docs/permissions?tab=cli).
 
-Maestro removes the unconditional Antigravity permission bypass from both editorial and smoke arguments. Workspace writes can still be allowed by default, and inherited settings may authorize further actions. This correction alone cannot justify a read-only claim. Gemini's native API transport does not expose these CLI tools. Retain this distinction when selecting a transport or assessing editorial artifact custody; do not silently alter global CLI settings or introduce an unsupported flag.
+On 2026-10-06 the operator rejected the audit-added blanket AGY deny policy and mandatory pre-prompt permission admission. That requirement is retired. AGY follows its configured native permissions; Maestro's protocol acknowledgement, editorial artifact custody and output validation remain independent application contracts.
 
-Antigravity supports isolated native projects: `agy --new-project` creates one and `agy --project=<project_id>` selects the existing provider-generated identity. The native `/permissions` manager exposes a Project scope where deny rules can be validated and saved before submitting a model prompt. A read-only editorial policy needs deny rules for `write_file(*)`, `command(*)`, `mcp(*)`, and `execute_url(*)`; native Deny rules precede Ask and Allow rules. CLI 1.1.12 also introduced headless `/permissions` readback without starting a model turn. See [native project selection](https://www.antigravity.google/docs/projects/), the [Project permission manager](https://www.antigravity.google/docs/cli/commands/permissions/), and the [official CLI changelog](https://www.antigravity.google/docs/changelog?tab=cli). This documents an available provisioning path; Maestro does not itself provision native policy. Do not infer its enforcement from an unverified project name, a global preset, a TUI list of saved rules, or a successful model response. The selected project's headless permission readback must confirm the policy before editorial use.
+Maestro stores the optional AGY CLI project selection locally as `agy_cli_project_id`. When supplied, the selection is passed through native `--project=<project_id>`; an empty selection uses the normal AGY invocation. The native configuration reader preserves the same selection saved by source 0.5.71 under its previous field name; new writes use the canonical AGY name. Maestro does not require a project selection or a permission metadata check before a model turn. Provider mode remains an explicit operator choice. See [native project selection](https://www.antigravity.google/docs/projects/).
 
-Maestro stores the optional AGY CLI project ID locally as `agy_cli_project_id` and passes it through native `--project=<project_id>`. The native configuration reader preserves the same AGY selection saved by source 0.5.71 under its previous field name; new writes use the canonical AGY name. Before each editorial or smoke model turn, it reads the selected project's native `/permissions` JSON in the same working directory. The readback must report success, zero model turns/usage and exactly one Project scope containing all four exact deny rules. Missing selection, malformed output or unconfirmed policy blocks the turn with native project/API guidance; inherited Shared/Global rules do not replace this Project check. API remains an explicit operator choice. The 2026-10-05 native TUI/headless probe did not confirm the policy, so no protected installed AGY CLI profile is claimed.
-
-When the AGY executable is missing, installation opens the [official Windows CLI instructions](https://www.antigravity.google/docs/cli/install/#windows). That documentation page is distinct from the Unix installer returned by the bare `/cli/` endpoint. Setup uses executable/version readiness and does not invent an authentication dependency or offer an AGY login action. Maestro does not open an interactive terminal or launch a browser authentication flow for AGY. The headless editorial invocation reuses the vendor's existing native session and reports actual authentication failures; version metadata and installation instructions do not prove authentication. The separate native Project permission admission check remains unchanged.
+When the AGY executable is missing, installation opens the [official Windows CLI instructions](https://www.antigravity.google/docs/cli/install/#windows). That documentation page is distinct from the Unix installer returned by the bare `/cli/` endpoint. Setup uses executable/version readiness and does not invent an authentication dependency or offer an AGY login action. Maestro does not open an interactive terminal or launch a browser authentication flow for AGY. The headless editorial invocation reuses the vendor's existing native session and reports actual authentication failures; version metadata and installation instructions do not prove authentication.
 
 ## Official Documentation Consulted
 
@@ -94,9 +92,9 @@ Required adapter choices:
 - Use `agy --print <prompt>` with an explicit `--print-timeout`.
 - Keep the internal peer key as `gemini`; only the command transport changes to `agy`.
 - Capture `agy` through the PTY runner, because local plain-pipe tests exited successfully without returning the generated answer on stdout.
-- Do not rely on `--dangerously-skip-permissions` or prompt-level file prohibitions for editorial custody. Follow the current native permission boundary above; `agy` execution remains subject to its actual permission settings.
+- Use AGY's configured native permissions for CLI execution and Maestro's own custody checks for editorial artifacts.
 - Treat Antigravity tool/web evidence as model-mediated evidence, not raw mechanical verification. Maestro's own Web Evidence Engine remains authoritative for link validation.
-- Probe `agy --version` through the bounded managed-pipe metadata transport during dependency preflight and log the actual `agy` resolution. Version metadata confirms the executable; authentication and Project policy require their own native checks.
+- Probe `agy --version` through the bounded managed-pipe metadata transport during dependency preflight and log the actual `agy` resolution. Version metadata confirms the executable; the actual headless invocation determines authentication status.
 
 ## Cross-Agent Adapter Contract
 
