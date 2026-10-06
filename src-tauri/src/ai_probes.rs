@@ -1,29 +1,7 @@
 // Modulo: src-tauri/src/ai_probes.rs
-// Descricao: AI provider credential probes (OpenAI / Anthropic / Gemini /
-// DeepSeek) extracted from lib.rs in v0.3.30 per `docs/code-split-plan.md`
-// migration step 5.
-//
-// What's here (8 functions):
-//   - `run_ai_provider_probe` — top-level entry that builds the HTTP client
-//     once and dispatches to the four per-provider probes.
-//   - `probe_openai_api`, `probe_anthropic_api`, `probe_gemini_api`,
-//     `probe_deepseek_api` — per-provider GET to `/models` (or equivalent)
-//     authenticated with the resolved key.
-//   - `missing_provider_key_row` — uniform row for "no key informed" / "key
-//     lives in Cloudflare Secrets Store" cases.
-//   - `summarize_ai_probe_response` — translates HTTP status into an
-//     operator-readable tone (ok / warn / error) with `api_error_message`
-//     enrichment.
-//   - `ai_probe_row` — small `AiProviderProbeRow` builder with sanitization.
-//
-// What stays in lib.rs (consumed via `pub(crate)` imports):
-//   - `AiProviderConfig`, `AiProviderProbeRow`, `AiProviderProbeResult`
-//     (the structs; v0.3.30 upgrades fields to pub(crate)).
-//   - `effective_provider_key`, `api_error_message`, `sanitize_text`,
-//     `sanitize_short` (already pub(crate)).
-//
-// v0.3.30 is a pure move: every signature, format string, and HTTP shape is
-// identical to the v0.3.29 lib.rs source (commit fd77a4c).
+// Descricao: Six-provider credential checks using authenticated native
+// metadata endpoints. These checks never request editorial generation and
+// distinguish authentication failure from access, credit and rate limits.
 
 use std::time::Duration;
 
@@ -34,6 +12,12 @@ use crate::{
     api_error_message, effective_provider_key, sanitize_short, sanitize_text, AiProviderConfig,
     AiProviderProbeResult, AiProviderProbeRow,
 };
+
+#[derive(Clone, Copy)]
+enum AiProbeEndpoint {
+    ModelCatalog,
+    PerplexitySkills,
+}
 
 pub(crate) fn run_ai_provider_probe(config: &AiProviderConfig) -> AiProviderProbeResult {
     let client = match Client::builder()
@@ -82,7 +66,7 @@ fn probe_openai_api(client: &Client, config: &AiProviderConfig) -> AiProviderPro
         .get("https://api.openai.com/v1/models")
         .bearer_auth(&key)
         .send();
-    summarize_ai_probe_response("OpenAI / Codex", response, true)
+    summarize_ai_probe_response("OpenAI / Codex", response, AiProbeEndpoint::ModelCatalog)
 }
 
 fn probe_anthropic_api(client: &Client, config: &AiProviderConfig) -> AiProviderProbeRow {
@@ -98,7 +82,11 @@ fn probe_anthropic_api(client: &Client, config: &AiProviderConfig) -> AiProvider
         .header("x-api-key", &key)
         .header("anthropic-version", "2023-06-01")
         .send();
-    summarize_ai_probe_response("Anthropic / Claude", response, true)
+    summarize_ai_probe_response(
+        "Anthropic / Claude",
+        response,
+        AiProbeEndpoint::ModelCatalog,
+    )
 }
 
 fn probe_gemini_api(client: &Client, config: &AiProviderConfig) -> AiProviderProbeRow {
@@ -113,7 +101,7 @@ fn probe_gemini_api(client: &Client, config: &AiProviderConfig) -> AiProviderPro
         .get("https://generativelanguage.googleapis.com/v1beta/models")
         .header("x-goog-api-key", &key)
         .send();
-    summarize_ai_probe_response("Google / Gemini", response, true)
+    summarize_ai_probe_response("Google / Gemini", response, AiProbeEndpoint::ModelCatalog)
 }
 
 fn probe_deepseek_api(client: &Client, config: &AiProviderConfig) -> AiProviderProbeRow {
@@ -128,7 +116,7 @@ fn probe_deepseek_api(client: &Client, config: &AiProviderConfig) -> AiProviderP
         .get("https://api.deepseek.com/models")
         .bearer_auth(&key)
         .send();
-    summarize_ai_probe_response("DeepSeek", response, true)
+    summarize_ai_probe_response("DeepSeek", response, AiProbeEndpoint::ModelCatalog)
 }
 
 fn probe_grok_api(client: &Client, config: &AiProviderConfig) -> AiProviderProbeRow {
@@ -143,7 +131,7 @@ fn probe_grok_api(client: &Client, config: &AiProviderConfig) -> AiProviderProbe
         .get("https://api.x.ai/v1/models")
         .bearer_auth(&key)
         .send();
-    summarize_ai_probe_response("Grok / xAI", response, true)
+    summarize_ai_probe_response("Grok / xAI", response, AiProbeEndpoint::ModelCatalog)
 }
 
 fn probe_perplexity_api(client: &Client, config: &AiProviderConfig) -> AiProviderProbeRow {
@@ -158,11 +146,18 @@ fn probe_perplexity_api(client: &Client, config: &AiProviderConfig) -> AiProvide
     };
 
     let response = client
-        .get("https://api.perplexity.ai/v1/models")
+        .get("https://api.perplexity.ai/v1/skills")
+        .query(&[("limit", 1)])
         .bearer_auth(&key)
         .send();
-    // Perplexity's model catalog is public; HTTP 200 cannot prove this key.
-    summarize_ai_probe_response("Perplexity / Agent API", response, false)
+    // The model catalog is public. Skills listing requires the project API
+    // key and reads metadata without creating a skill or requesting inference.
+    // https://docs.perplexity.ai/api-reference/skills-list-get
+    summarize_ai_probe_response(
+        "Perplexity / Agent API",
+        response,
+        AiProbeEndpoint::PerplexitySkills,
+    )
 }
 
 fn missing_provider_key_row(label: &str, remote_present: bool) -> AiProviderProbeRow {
@@ -180,59 +175,78 @@ fn missing_provider_key_row(label: &str, remote_present: bool) -> AiProviderProb
 fn summarize_ai_probe_response(
     label: &str,
     response: Result<reqwest::blocking::Response, reqwest::Error>,
-    catalog_requires_auth: bool,
+    endpoint: AiProbeEndpoint,
 ) -> AiProviderProbeRow {
     match response {
         Ok(response) => {
             let status = response.status();
             let body = response.text().unwrap_or_default();
-            if status.is_success() {
-                if catalog_requires_auth {
-                    ai_probe_row(label, "API respondeu; credencial aceita", "ok")
-                } else {
-                    ai_probe_row(
-                        label,
-                        "catalogo publico disponivel; validacao da credencial exige chamada Agent API",
-                        "warn",
-                    )
-                }
-            } else if status.as_u16() == 401 || status.as_u16() == 403 {
-                ai_probe_row(
-                    label,
-                    format!(
-                        "credencial recusada (HTTP {}): {}",
-                        status.as_u16(),
-                        api_error_message(&body)
-                    ),
-                    "error",
-                )
-            } else if status.as_u16() == 429 {
-                ai_probe_row(
-                    label,
-                    format!(
-                        "limite ativo; validacao da credencial inconclusiva (HTTP {}): {}",
-                        status.as_u16(),
-                        api_error_message(&body)
-                    ),
-                    "warn",
-                )
-            } else {
-                ai_probe_row(
-                    label,
-                    format!(
-                        "resposta inesperada (HTTP {}): {}",
-                        status.as_u16(),
-                        api_error_message(&body)
-                    ),
-                    "warn",
-                )
-            }
+            summarize_ai_probe_http_response(label, status, &body, endpoint)
         }
         Err(error) => {
             let safe_error = error.without_url();
             ai_probe_row(label, format!("falha de rede: {safe_error}"), "error")
         }
     }
+}
+
+fn summarize_ai_probe_http_response(
+    label: &str,
+    status: reqwest::StatusCode,
+    body: &str,
+    endpoint: AiProbeEndpoint,
+) -> AiProviderProbeRow {
+    if status.is_success() {
+        return match endpoint {
+            AiProbeEndpoint::ModelCatalog => {
+                ai_probe_row(label, "API respondeu; credencial aceita", "ok")
+            }
+            AiProbeEndpoint::PerplexitySkills => {
+                let valid_skills = serde_json::from_str::<serde_json::Value>(body)
+                    .ok()
+                    .is_some_and(|parsed| {
+                        parsed.get("error").is_none()
+                            && parsed.get("skills").is_some_and(|skills| skills.is_array())
+                    });
+                if valid_skills {
+                    ai_probe_row(
+                        label,
+                        "credencial aceita pela Agent API; geracao nao testada",
+                        "ok",
+                    )
+                } else {
+                    ai_probe_row(
+                        label,
+                        "resposta de metadados inesperada; validacao da credencial inconclusiva",
+                        "warn",
+                    )
+                }
+            }
+        };
+    }
+
+    let (reason, tone) = match status.as_u16() {
+        401 => ("credencial recusada", "error"),
+        402 => (
+            "creditos indisponiveis; validacao da credencial inconclusiva",
+            "warn",
+        ),
+        403 => (
+            "acesso negado; validacao da credencial inconclusiva",
+            "warn",
+        ),
+        429 => ("limite ativo; validacao da credencial inconclusiva", "warn"),
+        _ => ("resposta inesperada", "warn"),
+    };
+    ai_probe_row(
+        label,
+        format!(
+            "{reason} (HTTP {}): {}",
+            status.as_u16(),
+            api_error_message(body)
+        ),
+        tone,
+    )
 }
 
 fn ai_probe_row(
@@ -244,5 +258,96 @@ fn ai_probe_row(
         label: sanitize_text(&label.into(), 80),
         value: sanitize_text(&value.into(), 240),
         tone: sanitize_short(&tone.into(), 16),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::StatusCode;
+
+    #[test]
+    fn perplexity_empty_project_proves_authenticated_metadata_without_generation() {
+        let row = summarize_ai_probe_http_response(
+            "Perplexity / Agent API",
+            StatusCode::OK,
+            r#"{"skills": []}"#,
+            AiProbeEndpoint::PerplexitySkills,
+        );
+        assert_eq!(row.tone, "ok");
+        assert_eq!(
+            row.value,
+            "credencial aceita pela Agent API; geracao nao testada"
+        );
+    }
+
+    #[test]
+    fn perplexity_does_not_accept_public_catalog_html_or_malformed_skill_responses() {
+        for body in [
+            r#"{"data": [{"id": "perplexity/kimi-k3"}]}"#,
+            "<html>available</html>",
+            "",
+            r#"{"skills": null}"#,
+            r#"{"skills": {}}"#,
+            r#"{"skills": [], "error": {"message": "denied"}}"#,
+        ] {
+            let row = summarize_ai_probe_http_response(
+                "Perplexity / Agent API",
+                StatusCode::OK,
+                body,
+                AiProbeEndpoint::PerplexitySkills,
+            );
+            assert_eq!(row.tone, "warn", "Unexpected body: {body}");
+            assert!(row.value.contains("inconclusiva"));
+        }
+    }
+
+    #[test]
+    fn credential_probe_distinguishes_authentication_from_access_and_quota() {
+        for endpoint in [
+            AiProbeEndpoint::ModelCatalog,
+            AiProbeEndpoint::PerplexitySkills,
+        ] {
+            let unauthorized = summarize_ai_probe_http_response(
+                "API",
+                StatusCode::UNAUTHORIZED,
+                r#"{"error": {"message": "invalid API key"}}"#,
+                endpoint,
+            );
+            assert_eq!(unauthorized.tone, "error");
+            assert!(unauthorized
+                .value
+                .contains("credencial recusada (HTTP 401)"));
+
+            for (status, reason) in [
+                (StatusCode::PAYMENT_REQUIRED, "creditos indisponiveis"),
+                (StatusCode::FORBIDDEN, "acesso negado"),
+                (StatusCode::TOO_MANY_REQUESTS, "limite ativo"),
+            ] {
+                let row = summarize_ai_probe_http_response(
+                    "API",
+                    status,
+                    r#"{"error": {"message": "request denied"}}"#,
+                    endpoint,
+                );
+                assert_eq!(row.tone, "warn");
+                assert!(row.value.contains(reason));
+                assert!(row.value.contains("inconclusiva"));
+                assert!(!row.value.contains("credencial recusada"));
+            }
+        }
+    }
+
+    #[test]
+    fn unavailable_native_metadata_does_not_reject_the_key() {
+        let row = summarize_ai_probe_http_response(
+            "Perplexity / Agent API",
+            StatusCode::BAD_GATEWAY,
+            r#"{"error": {"message": "Skill service unavailable"}}"#,
+            AiProbeEndpoint::PerplexitySkills,
+        );
+        assert_eq!(row.tone, "warn");
+        assert!(row.value.contains("HTTP 502"));
+        assert!(!row.value.contains("credencial recusada"));
     }
 }

@@ -1,12 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildFinalContentExport,
   buildPrintDocument,
   htmlToCitationAuditMarkdown,
   htmlToLinkAuditMarkdown,
+  openFinalContentPrintDialog,
   sanitizeExportFilename,
 } from "./exportFinalContent";
+
+afterEach(() => {
+  window.dispatchEvent(new Event("afterprint"));
+  document.getElementById("test-workbench")?.remove();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe("htmlToCitationAuditMarkdown", () => {
   it("turns editor HTML into visible citation text and a References heading", () => {
@@ -246,5 +254,240 @@ describe("buildPrintDocument", () => {
     );
     expect(document).not.toContain("<img src=x");
     expect(document).not.toContain('<a href="javascript:');
+  });
+});
+
+describe("native final-content printing", () => {
+  it("waits for uncached projected images and embedded frames before requesting print", async () => {
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(false);
+    const print = vi.spyOn(window, "print").mockImplementation(() => {});
+    const pending = openFinalContentPrintDialog(
+      {
+        ...input,
+        html: '<p>Media article</p><img src="https://example.org/uncached.png"><iframe src="https://www.youtube.com/embed/abc123" loading="lazy"></iframe>',
+      },
+      window,
+    );
+    const projection = document.getElementById("maestro-final-content-print");
+    const image = projection?.querySelector("img");
+    const frame = projection?.querySelector("iframe");
+    expect(image).not.toBeNull();
+    expect(frame).not.toBeNull();
+    expect(image?.loading).toBe("eager");
+    expect(frame?.loading).toBe("eager");
+    expect(print).not.toHaveBeenCalled();
+    image?.dispatchEvent(new Event("load"));
+    await Promise.resolve();
+    expect(print).not.toHaveBeenCalled();
+    frame?.dispatchEvent(new Event("load"));
+    await pending;
+    expect(print).toHaveBeenCalledOnce();
+  });
+
+  it("waits for cached image decoding instead of treating complete as decoded", async () => {
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+    let resolveDecode!: () => void;
+    const decode = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDecode = resolve;
+        }),
+    );
+    const print = vi.spyOn(window, "print").mockImplementation(() => {});
+    const append = document.body.append.bind(document.body);
+    vi.spyOn(document.body, "append").mockImplementation((...nodes) => {
+      const projection = nodes[0] as HTMLElement;
+      Object.defineProperty(projection.querySelector("img"), "decode", { value: decode });
+      append(...nodes);
+    });
+    const pending = openFinalContentPrintDialog(
+      { ...input, html: '<img src="https://example.org/cached.png" loading="lazy">' },
+      window,
+    );
+    expect(decode).toHaveBeenCalledOnce();
+    expect(print).not.toHaveBeenCalled();
+    document.querySelector("#maestro-final-content-print img")?.dispatchEvent(new Event("load"));
+    expect(decode).toHaveBeenCalledOnce();
+    resolveDecode();
+    await pending;
+    expect(print).toHaveBeenCalledOnce();
+  });
+
+  it("settles failed resources and rejected image decoding without an unbounded wait", async () => {
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(false);
+    const print = vi.spyOn(window, "print").mockImplementation(() => {});
+    const pending = openFinalContentPrintDialog(
+      {
+        ...input,
+        html: '<img src="https://example.org/broken.png"><img src="https://example.org/undecodable.png"><iframe src="https://www.youtube.com/embed/abc123"></iframe>',
+      },
+      window,
+    );
+    const images = document.querySelectorAll("#maestro-final-content-print img");
+    Object.defineProperty(images[1], "decode", {
+      value: vi.fn().mockRejectedValue(new Error("Invalid image")),
+    });
+    images[0]?.dispatchEvent(new Event("error"));
+    images[1]?.dispatchEvent(new Event("load"));
+    await Promise.resolve();
+    expect(print).not.toHaveBeenCalled();
+    document
+      .querySelector("#maestro-final-content-print iframe")
+      ?.dispatchEvent(new Event("error"));
+    await pending;
+    expect(print).toHaveBeenCalledOnce();
+  });
+
+  it("fails a stalled media preparation after a bounded deadline and removes late listeners", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(false);
+    const initialTitle = document.title;
+    const print = vi.spyOn(window, "print").mockImplementation(() => {});
+    const pending = openFinalContentPrintDialog(
+      { ...input, html: '<img src="https://example.org/stalled.png">' },
+      window,
+    );
+    const rejected = expect(pending).rejects.toThrow("As mídias não terminaram de carregar");
+    const image = document.querySelector("#maestro-final-content-print img");
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(print).not.toHaveBeenCalled();
+    expect(image?.isConnected).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    await rejected;
+    expect(document.getElementById("maestro-final-content-print")).toBeNull();
+    expect(document.title).toBe(initialTitle);
+    image?.dispatchEvent(new Event("load"));
+    await Promise.resolve();
+    expect(print).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    await openFinalContentPrintDialog(input, window);
+    expect(print).toHaveBeenCalledOnce();
+  });
+
+  it("keeps request ownership while media is pending and cancels preparation on pagehide", async () => {
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(false);
+    const initialTitle = document.title;
+    const print = vi.spyOn(window, "print").mockImplementation(() => {});
+    const pending = openFinalContentPrintDialog(
+      { ...input, html: '<img src="https://example.org/pending.png">' },
+      window,
+    );
+    const rejected = expect(pending).rejects.toThrow("A preparação da impressão foi cancelada");
+    const projection = document.getElementById("maestro-final-content-print");
+    const image = projection?.querySelector("img");
+    await expect(
+      openFinalContentPrintDialog({ ...input, title: "Other article" }, window),
+    ).rejects.toThrow("já está em andamento");
+    expect(document.getElementById("maestro-final-content-print")).toBe(projection);
+    expect(document.title).toBe(input.title);
+    window.dispatchEvent(new Event("pagehide"));
+    await rejected;
+    expect(document.title).toBe(initialTitle);
+    expect(projection?.isConnected).toBe(false);
+    image?.dispatchEvent(new Event("load"));
+    expect(print).not.toHaveBeenCalled();
+  });
+
+  it("does not print after cleanup wins the resolved-media await continuation", async () => {
+    const print = vi.spyOn(window, "print").mockImplementation(() => {});
+    const pending = openFinalContentPrintDialog(input, window);
+    const rejected = expect(pending).rejects.toThrow("A preparação da impressão foi cancelada");
+    window.dispatchEvent(new Event("pagehide"));
+    await rejected;
+    expect(document.getElementById("maestro-final-content-print")).toBeNull();
+    expect(print).not.toHaveBeenCalled();
+  });
+
+  it("prints only the sanitized article through the existing window even when popups are denied", async () => {
+    const workbench = document.createElement("div");
+    workbench.id = "test-workbench";
+    workbench.innerHTML = "<button>PRIVATE_EDITOR_CONTROLS</button><aside>PRIVATE_SIDEBAR</aside>";
+    document.body.append(workbench);
+    const initialTitle = document.title;
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const print = vi.spyOn(window, "print").mockImplementation(() => {
+      const projection = document.querySelector('section[data-maestro-export="pdf-print"]');
+      expect(projection).not.toBeNull();
+      expect(projection?.textContent).toContain(input.title);
+      expect(projection?.textContent).toContain("Resultados");
+      expect(projection?.innerHTML).not.toContain("<script");
+      expect(projection?.innerHTML).not.toContain("onclick");
+      expect(projection?.textContent).not.toContain("PRIVATE_");
+      expect(projection?.innerHTML).not.toContain(sharedChatEvidence.source_url);
+      expect(document.title).toBe(input.title);
+    });
+
+    await openFinalContentPrintDialog(input, window);
+
+    expect(open).not.toHaveBeenCalled();
+    expect(print).toHaveBeenCalledOnce();
+    expect(document.querySelector('[data-maestro-export="pdf-print"]')).not.toBeNull();
+    expect(workbench.isConnected).toBe(true);
+    window.dispatchEvent(new Event("afterprint"));
+    expect(document.querySelector('[data-maestro-export="pdf-print"]')).toBeNull();
+    expect(document.querySelector('style[data-maestro-export="pdf-print"]')).toBeNull();
+    expect(document.title).toBe(initialTitle);
+    expect(workbench.isConnected).toBe(true);
+  });
+
+  it("cleans up a failed native print request and preserves the workbench title", async () => {
+    const initialTitle = document.title;
+    vi.spyOn(window, "open").mockReturnValue(null);
+    vi.spyOn(window, "print").mockImplementation(() => {
+      throw new Error("Native print unavailable");
+    });
+
+    await expect(openFinalContentPrintDialog(input, window)).rejects.toThrow(
+      "Native print unavailable",
+    );
+    expect(document.querySelector('[data-maestro-export="pdf-print"]')).toBeNull();
+    expect(document.title).toBe(initialTitle);
+  });
+
+  it("retires an ignored print request before the next article without accumulating hidden documents", async () => {
+    const initialTitle = document.title;
+    vi.spyOn(window, "open").mockReturnValue(null);
+    const snapshots: string[] = [];
+    vi.spyOn(window, "print").mockImplementation(() => {
+      snapshots.push(
+        document.querySelector('section[data-maestro-export="pdf-print"]')?.textContent ?? "",
+      );
+    });
+
+    await openFinalContentPrintDialog({ ...input, html: "<p>FIRST_PRINT_SNAPSHOT</p>" }, window);
+    await openFinalContentPrintDialog(
+      { ...input, title: "Second article", html: "<p>SECOND_PRINT_SNAPSHOT</p>" },
+      window,
+    );
+
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[0]).toContain("FIRST_PRINT_SNAPSHOT");
+    expect(snapshots[0]).not.toContain("SECOND_PRINT_SNAPSHOT");
+    expect(snapshots[1]).toContain("SECOND_PRINT_SNAPSHOT");
+    expect(snapshots[1]).not.toContain("FIRST_PRINT_SNAPSHOT");
+    expect(document.querySelectorAll('section[data-maestro-export="pdf-print"]')).toHaveLength(1);
+    expect(document.querySelectorAll('style[data-maestro-export="pdf-print"]')).toHaveLength(1);
+    window.dispatchEvent(new Event("afterprint"));
+    expect(document.querySelector('[data-maestro-export="pdf-print"]')).toBeNull();
+    expect(document.title).toBe(initialTitle);
+  });
+
+  it("rejects a reentrant print call without replacing the document currently being captured", async () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    let rejected: Promise<unknown> | undefined;
+    vi.spyOn(window, "print").mockImplementation(() => {
+      rejected = expect(
+        openFinalContentPrintDialog({ ...input, title: "Reentrant article" }, window),
+      ).rejects.toThrow("Uma solicitação de impressão já está em andamento.");
+      expect(document.title).toBe(input.title);
+      expect(
+        document.querySelector('section[data-maestro-export="pdf-print"]')?.textContent,
+      ).toContain(input.title);
+    });
+
+    await openFinalContentPrintDialog(input, window);
+    await rejected;
+    window.dispatchEvent(new Event("afterprint"));
+    expect(document.querySelector('[data-maestro-export="pdf-print"]')).toBeNull();
   });
 });

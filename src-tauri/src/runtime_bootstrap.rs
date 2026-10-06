@@ -25,9 +25,15 @@ use tokio_util::sync::CancellationToken;
 use crate::app_init::hidden_command;
 use crate::app_paths::{checked_data_child_path, data_dir};
 use crate::command_path::resolve_command;
-use crate::command_spawn::{run_resolved_command_observed, run_resolved_command_with_timeout};
+use crate::command_spawn::{
+    run_resolved_command_observed, run_resolved_command_observed_piped,
+    run_resolved_command_with_timeout,
+};
 use crate::editorial_io::write_text_file;
+use crate::provider_config::should_run_agent_via_api;
 use crate::sanitize::{redact_secrets, sanitize_short, sanitize_text};
+use crate::tauri_commands::read_ai_provider_config;
+use crate::{effective_provider_key, AiProviderConfig};
 
 const BOOTSTRAP_SCHEMA_VERSION: u8 = 1;
 const PLAN_TTL_MINUTES: i64 = 30;
@@ -86,7 +92,6 @@ enum BootstrapOperation {
     RetryNetworkProbe,
     AuthenticateClaudeManual,
     AuthenticateCodexManual,
-    AuthenticateAgyManual,
     InstallAgyManual,
     ConfigureDeepseekManual,
     ConfigureCloudflareManual,
@@ -295,7 +300,8 @@ fn build_and_persist_plan(now: DateTime<Utc>) -> Result<RuntimeBootstrapPlan, St
     let _plan_guard = bootstrap_plan_lock()
         .lock()
         .map_err(|_| "bootstrap plan lock poisoned".to_string())?;
-    let mut dependencies = inventory_runtime_dependencies();
+    let config = read_ai_provider_config()?;
+    let mut dependencies = inventory_runtime_dependencies(&config);
     let mut actions = actions_for_inventory(&mut dependencies);
     for action in &mut actions {
         action.execution_fingerprint = operation_execution_fingerprint(&action.operation)?;
@@ -325,7 +331,7 @@ fn build_and_persist_plan(now: DateTime<Utc>) -> Result<RuntimeBootstrapPlan, St
     Ok(plan)
 }
 
-fn inventory_runtime_dependencies() -> Vec<RuntimeDependency> {
+fn inventory_runtime_dependencies(config: &AiProviderConfig) -> Vec<RuntimeDependency> {
     let mut dependencies = Vec::new();
     dependencies.push(simple_dependency(
         "webview2",
@@ -356,23 +362,7 @@ fn inventory_runtime_dependencies() -> Vec<RuntimeDependency> {
     dependencies.push(codex);
 
     let agy = probe_cli("agy", "Antigravity CLI (agy)", "agy", &["--version"], true);
-    let agy_present = agy.state == DependencyState::Ready;
     dependencies.push(agy);
-    dependencies.push(simple_dependency(
-        "agy_auth",
-        "Antigravity interactive authentication",
-        true,
-        if agy_present {
-            DependencyState::ManualActionRequired
-        } else {
-            DependencyState::Missing
-        },
-        if agy_present {
-            "agy authentication is interactive and must be confirmed in its official flow"
-        } else {
-            "install agy before starting its interactive authentication"
-        },
-    ));
 
     let mut node = probe_cli("node", "Node.js", "node", &["--version"], true);
     if node.state == DependencyState::Ready
@@ -392,8 +382,7 @@ fn inventory_runtime_dependencies() -> Vec<RuntimeDependency> {
         .unwrap_or(false);
     dependencies.push(probe_wrangler_latest(npx_ready));
 
-    dependencies.push(probe_legacy_gemini());
-    dependencies.push(probe_deepseek_credential());
+    dependencies.push(probe_deepseek_credential(config));
     dependencies.push(probe_cloudflare_credential());
     dependencies.push(probe_cli("git", "Git", "git", &["--version"], false));
     dependencies.push(probe_cli(
@@ -417,7 +406,24 @@ fn inventory_runtime_dependencies() -> Vec<RuntimeDependency> {
         &["--version"],
         false,
     ));
+    apply_transport_requiredness(&mut dependencies, config);
     dependencies
+}
+
+fn apply_transport_requiredness(dependencies: &mut [RuntimeDependency], config: &AiProviderConfig) {
+    let claude_cli_required = !should_run_agent_via_api("claude", config);
+    let codex_cli_required = !should_run_agent_via_api("codex", config);
+    let agy_cli_required = !should_run_agent_via_api("gemini", config);
+    let node_required = claude_cli_required || codex_cli_required || agy_cli_required;
+    for dependency in dependencies {
+        match dependency.key.as_str() {
+            "claude" => dependency.required = claude_cli_required,
+            "codex" => dependency.required = codex_cli_required,
+            "agy" => dependency.required = agy_cli_required,
+            "node" | "npm" | "npx" => dependency.required = node_required,
+            _ => {}
+        }
+    }
 }
 
 fn actions_for_inventory(dependencies: &mut [RuntimeDependency]) -> Vec<RuntimeBootstrapAction> {
@@ -499,21 +505,11 @@ fn actions_for_inventory(dependencies: &mut [RuntimeDependency]) -> Vec<RuntimeB
                 "install.agy.vendor.manual",
                 "agy",
                 BootstrapActionKind::Manual,
-                "Install Antigravity CLI",
-                "Open the official instructions and run the vendor installer manually after reviewing it.",
-                "https://antigravity.google/cli/",
-                Some("irm https://antigravity.google/cli/install.ps1 | iex"),
-                BootstrapOperation::InstallAgyManual,
-            )],
-            ("agy_auth", DependencyState::ManualActionRequired) => vec![manual_action(
-                "auth.agy.interactive",
-                "agy_auth",
-                BootstrapActionKind::Authenticate,
-                "Authenticate Antigravity",
-                "Launch agy interactively and finish browser login/MFA outside captured output.",
-                "https://antigravity.google/cli/",
-                Some("agy"),
-                BootstrapOperation::AuthenticateAgyManual,
+                "Instalar o Antigravity CLI",
+            "Abra as instruções oficiais e execute manualmente o instalador do fornecedor após revisá-lo.",
+            "https://www.antigravity.google/docs/cli/install/#windows",
+            None,
+            BootstrapOperation::InstallAgyManual,
             )],
             ("node", DependencyState::Missing | DependencyState::Outdated) => {
                 let kind = if dependency.state == DependencyState::Missing {
@@ -618,9 +614,9 @@ fn actions_for_inventory(dependencies: &mut [RuntimeDependency]) -> Vec<RuntimeB
                 "configure.deepseek.credential",
                 "deepseek_credential",
                 BootstrapActionKind::Authenticate,
-                "Configure DeepSeek credential",
-                "Enter the credential through Maestro's secure configuration surface; never paste it into command output.",
-                "Maestro credential settings",
+                "Configurar a credencial do DeepSeek",
+                "Informe a credencial nas configurações seguras do Maestro; nunca a cole na saída de comandos.",
+                "Configurações de credenciais do Maestro",
                 None,
                 BootstrapOperation::ConfigureDeepseekManual,
             )],
@@ -845,8 +841,8 @@ fn manual_handoff_url(operation: &BootstrapOperation) -> Option<&'static str> {
         BootstrapOperation::AuthenticateCodexManual => {
             Some("https://developers.openai.com/codex/auth/")
         }
-        BootstrapOperation::AuthenticateAgyManual | BootstrapOperation::InstallAgyManual => {
-            Some("https://antigravity.google/cli/")
+        BootstrapOperation::InstallAgyManual => {
+            Some("https://www.antigravity.google/docs/cli/install/#windows")
         }
         BootstrapOperation::InstallNodeManual => Some("https://nodejs.org/en/download"),
         BootstrapOperation::InstallWebviewManual => {
@@ -941,7 +937,6 @@ fn fixed_command_spec(
         BootstrapOperation::RetryNetworkProbe => None,
         BootstrapOperation::AuthenticateClaudeManual
         | BootstrapOperation::AuthenticateCodexManual
-        | BootstrapOperation::AuthenticateAgyManual
         | BootstrapOperation::InstallAgyManual
         | BootstrapOperation::InstallNodeManual
         | BootstrapOperation::ConfigureDeepseekManual
@@ -1039,10 +1034,6 @@ fn operation_matches_action_id(action_id: &str, operation: &BootstrapOperation) 
                 BootstrapOperation::AuthenticateCodexManual
             )
             | (
-                "auth.agy.interactive",
-                BootstrapOperation::AuthenticateAgyManual
-            )
-            | (
                 "install.agy.vendor.manual",
                 BootstrapOperation::InstallAgyManual
             )
@@ -1073,8 +1064,9 @@ fn load_and_validate_plan(
     let checked = checked_data_child_path(&path)?;
     let text = fs::read_to_string(&checked)
         .map_err(|error| format!("failed to read persisted bootstrap plan: {error}"))?;
-    let plan: RuntimeBootstrapPlan = serde_json::from_str(&text)
-        .map_err(|error| format!("failed to parse persisted bootstrap plan: {error}"))?;
+    let plan: RuntimeBootstrapPlan = serde_json::from_str(&text).map_err(|error| {
+        format!("failed to parse persisted bootstrap plan; request a fresh plan: {error}")
+    })?;
     verify_plan_integrity(&plan)?;
     if plan.plan_hash != expected_hash {
         return Err("bootstrap plan_hash is stale or does not match current-plan.json".to_string());
@@ -1133,7 +1125,7 @@ fn probe_cli(
             installed_version: None,
             latest_version: None,
             resolved_path: None,
-            detail: "executable not found on the effective PATH".to_string(),
+            detail: "Executável não encontrado no PATH efetivo".to_string(),
             recommended_action_ids: Vec::new(),
         };
     };
@@ -1141,10 +1133,14 @@ fn probe_cli(
         .iter()
         .map(|arg| (*arg).to_string())
         .collect::<Vec<_>>();
-    match run_resolved_command_with_timeout(
+    // Version metadata must use pipes even when editorial prompts use a PTY.
+    match run_resolved_command_observed_piped(
         &path,
         &owned_args,
-        Duration::from_secs(PROBE_TIMEOUT_SECS),
+        Some(Duration::from_secs(PROBE_TIMEOUT_SECS)),
+        None,
+        None,
+        None,
         None,
     ) {
         Ok(result) if result.timed_out => RuntimeDependency {
@@ -1155,7 +1151,7 @@ fn probe_cli(
             installed_version: None,
             latest_version: None,
             resolved_path: Some(path.to_string_lossy().to_string()),
-            detail: "version probe timed out".to_string(),
+            detail: "O diagnóstico de versão excedeu o tempo limite".to_string(),
             recommended_action_ids: Vec::new(),
         },
         Ok(result) => {
@@ -1177,9 +1173,14 @@ fn probe_cli(
                 latest_version: None,
                 resolved_path: Some(path.to_string_lossy().to_string()),
                 detail: if result.output.status.success() {
-                    "version probe succeeded".to_string()
+                    if key == "agy" {
+                        "Somente a versão do AGY foi verificada. A autenticação da sessão existente é tratada pela execução oficial do CLI."
+                            .to_string()
+                    } else {
+                        "Diagnóstico de versão concluído".to_string()
+                    }
                 } else {
-                    format!("version probe failed: {output}")
+                    format!("O diagnóstico de versão falhou: {output}")
                 },
                 recommended_action_ids: Vec::new(),
             }
@@ -1192,7 +1193,10 @@ fn probe_cli(
             installed_version: None,
             latest_version: None,
             resolved_path: Some(path.to_string_lossy().to_string()),
-            detail: sanitize_text(&format!("version probe failed to start: {error}"), 300),
+            detail: sanitize_text(
+                &format!("Não foi possível iniciar o diagnóstico de versão: {error}"),
+                300,
+            ),
             recommended_action_ids: Vec::new(),
         },
     }
@@ -1370,38 +1374,15 @@ fn probe_wrangler_latest(npx_ready: bool) -> RuntimeDependency {
     )
 }
 
-fn probe_legacy_gemini() -> RuntimeDependency {
-    if let Some(path) = resolve_command("gemini") {
-        RuntimeDependency {
-            key: "gemini_legacy".to_string(),
-            label: "Legacy Gemini CLI diagnostic".to_string(),
-            required: false,
-            state: DependencyState::Misconfigured,
-            installed_version: None,
-            latest_version: None,
-            resolved_path: Some(path.to_string_lossy().to_string()),
-            detail: "legacy gemini executable detected; Maestro uses agy and will not invoke this binary"
-                .to_string(),
-            recommended_action_ids: Vec::new(),
-        }
-    } else {
-        simple_dependency(
-            "gemini_legacy",
-            "Legacy Gemini CLI diagnostic",
-            false,
-            DependencyState::Ready,
-            "deprecated executable not present",
-        )
-    }
-}
-
-fn probe_deepseek_credential() -> RuntimeDependency {
-    let configured = ["MAESTRO_DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY"]
-        .iter()
-        .any(|name| std::env::var_os(name).is_some());
+fn probe_deepseek_credential(config: &AiProviderConfig) -> RuntimeDependency {
+    let configured = effective_provider_key(
+        config.deepseek_api_key.as_deref(),
+        &["MAESTRO_DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY"],
+    )
+    .is_some();
     simple_dependency(
         "deepseek_credential",
-        "DeepSeek API credential",
+        "Credencial da API DeepSeek",
         false,
         if configured {
             DependencyState::Ready
@@ -1409,9 +1390,9 @@ fn probe_deepseek_credential() -> RuntimeDependency {
             DependencyState::ManualActionRequired
         },
         if configured {
-            "credential source detected; value not inspected or persisted"
+            "Fonte de credencial configurada; valor não exibido nem gravado no inventário"
         } else {
-            "not configured; required only when the DeepSeek peer is enabled"
+            "Não configurada; necessária apenas quando o agente DeepSeek estiver ativo"
         },
     )
 }
@@ -1846,6 +1827,295 @@ fn running_actions() -> &'static Mutex<BTreeMap<String, CancellationToken>> {
 mod tests {
     use super::*;
 
+    #[test]
+    #[ignore = "Requires installed official agy; runs unauthenticated --version only"]
+    fn native_agy_version_probe_uses_bounded_metadata_transport() {
+        fs::create_dir_all(crate::app_paths::app_root()).unwrap();
+        let dependency = probe_cli("agy", "Antigravity CLI (agy)", "agy", &["--version"], true);
+        eprintln!("{}", serde_json::to_string(&dependency).unwrap());
+        assert_eq!(dependency.state, DependencyState::Ready);
+        assert!(dependency.resolved_path.is_some());
+        assert!(dependency.installed_version.is_some());
+        assert!(dependency.detail.contains("Somente a versão do AGY"));
+        let mut inventory = vec![dependency];
+        assert!(actions_for_inventory(&mut inventory).is_empty());
+        let legacy = crate::command_spawn::command_check("AntigravityCLI", "agy", &["--version"]);
+        eprintln!("{}", serde_json::to_string(&legacy).unwrap());
+        assert_eq!(legacy["tone"], "ok");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn agy_version_metadata_does_not_allocate_a_terminal() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "maestro-agy-metadata-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir(&dir).unwrap();
+        let path = dir.join("agy.exe");
+        struct FixtureCleanup(PathBuf, PathBuf);
+        impl Drop for FixtureCleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_file(&self.0);
+                let _ = fs::remove_dir(&self.1);
+            }
+        }
+        let _cleanup = FixtureCleanup(path.clone(), dir);
+        fs::copy(std::env::current_exe().unwrap(), &path).unwrap();
+        fs::create_dir_all(crate::app_paths::app_root()).unwrap();
+        let dependency = probe_cli(
+            "agy",
+            "Antigravity CLI (agy)",
+            path.to_str().unwrap(),
+            &[
+                "--exact",
+                "runtime_bootstrap::tests::metadata_pipe_child_fixture",
+                "--ignored",
+                "--nocapture",
+            ],
+            true,
+        );
+        assert_eq!(dependency.state, DependencyState::Ready, "{dependency:?}");
+        assert_eq!(dependency.resolved_path.as_deref(), path.to_str());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "Child fixture invoked by the metadata transport regression test"]
+    fn metadata_pipe_child_fixture() {
+        use std::io::IsTerminal;
+        assert!(!std::io::stdin().is_terminal());
+        assert!(!std::io::stdout().is_terminal());
+        assert!(!std::io::stderr().is_terminal());
+        println!("fixture metadata version 1.0.0");
+    }
+
+    fn transport_inventory_fixture() -> Vec<RuntimeDependency> {
+        [
+            "claude",
+            "codex",
+            "agy",
+            "node",
+            "npm",
+            "npx",
+            "webview2",
+            "portable_data",
+            "network",
+            "deepseek_credential",
+            "wrangler_latest",
+        ]
+        .iter()
+        .map(|key| {
+            let required = !matches!(*key, "deepseek_credential" | "wrangler_latest");
+            let state = if matches!(*key, "webview2" | "portable_data" | "network") {
+                DependencyState::Ready
+            } else {
+                DependencyState::Missing
+            };
+            simple_dependency(key, key, required, state, "fixture")
+        })
+        .collect()
+    }
+
+    #[test]
+    fn api_mode_missing_cli_tools_do_not_block_required_readiness() {
+        let config = AiProviderConfig {
+            provider_mode: "api".to_string(),
+            ..AiProviderConfig::default()
+        };
+        let mut dependencies = transport_inventory_fixture();
+        apply_transport_requiredness(&mut dependencies, &config);
+        assert!(dependencies
+            .iter()
+            .filter(|dependency| dependency.required)
+            .all(|dependency| dependency.state == DependencyState::Ready));
+        for dependency in &dependencies {
+            assert_eq!(
+                dependency.required,
+                matches!(
+                    dependency.key.as_str(),
+                    "webview2" | "portable_data" | "network"
+                ),
+                "{}",
+                dependency.key
+            );
+        }
+        dependencies
+            .iter_mut()
+            .find(|row| row.key == "portable_data")
+            .unwrap()
+            .state = DependencyState::Misconfigured;
+        assert!(dependencies
+            .iter()
+            .any(|row| row.required && row.state != DependencyState::Ready));
+    }
+
+    #[test]
+    fn cli_and_hybrid_modes_preserve_native_cli_requirements_with_saved_api_keys() {
+        for mode in ["cli", "hybrid"] {
+            let config = AiProviderConfig {
+                provider_mode: mode.to_string(),
+                openai_api_key: Some("synthetic-configured-key".to_string()),
+                anthropic_api_key: Some("synthetic-configured-key".to_string()),
+                gemini_api_key: Some("synthetic-configured-key".to_string()),
+                ..AiProviderConfig::default()
+            };
+            let mut dependencies = transport_inventory_fixture();
+            apply_transport_requiredness(&mut dependencies, &config);
+            for row in &dependencies {
+                assert_eq!(
+                    row.required,
+                    !matches!(row.key.as_str(), "deepseek_credential" | "wrangler_latest"),
+                    "{mode}: {}",
+                    row.key
+                );
+            }
+            assert!(dependencies
+                .iter()
+                .any(|row| row.required && row.state != DependencyState::Ready));
+        }
+    }
+
+    #[test]
+    fn agy_version_inventory_has_no_simulated_authentication_action() {
+        for mode in ["api", "cli", "hybrid"] {
+            let config = AiProviderConfig {
+                provider_mode: mode.to_string(),
+                ..AiProviderConfig::default()
+            };
+            let mut inventory = vec![simple_dependency(
+                "agy",
+                "agy",
+                true,
+                DependencyState::Ready,
+                "version metadata only",
+            )];
+            apply_transport_requiredness(&mut inventory, &config);
+            assert_eq!(inventory[0].required, mode != "api");
+            assert!(actions_for_inventory(&mut inventory).is_empty());
+            inventory[0].state = DependencyState::Missing;
+            let actions = actions_for_inventory(&mut inventory);
+            assert_eq!(actions.len(), 1);
+            assert_eq!(actions[0].operation, BootstrapOperation::InstallAgyManual);
+            assert_eq!(actions[0].kind, BootstrapActionKind::Manual);
+            assert!(actions
+                .iter()
+                .all(|action| action.kind != BootstrapActionKind::Authenticate));
+            assert_eq!(inventory[0].required, mode != "api");
+        }
+        assert_eq!(
+            manual_handoff_url(&BootstrapOperation::InstallAgyManual),
+            Some("https://www.antigravity.google/docs/cli/install/#windows")
+        );
+    }
+
+    #[test]
+    fn missing_agy_manual_handoff_has_truthful_confirmation_metadata() {
+        let now = DateTime::parse_from_rfc3339("2026-08-21T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut dependency = simple_dependency(
+            "agy",
+            "Antigravity CLI",
+            true,
+            DependencyState::Missing,
+            "missing",
+        );
+        let actions = actions_for_inventory(std::slice::from_mut(&mut dependency));
+        assert_eq!(actions.len(), 1);
+        assert_eq!(
+            dependency.recommended_action_ids,
+            ["install.agy.vendor.manual"]
+        );
+        let mut plan = test_plan(now);
+        plan.dependencies = vec![dependency];
+        plan.actions = actions;
+        plan.plan_hash = compute_plan_hash(&plan).unwrap();
+
+        assert!(validate_action_request(
+            &plan,
+            "install.agy.vendor.manual",
+            &plan.plan_hash,
+            false,
+            now,
+        )
+        .unwrap_err()
+        .contains("approval"));
+        let approved = validate_action_request(
+            &plan,
+            "install.agy.vendor.manual",
+            &plan.plan_hash,
+            true,
+            now,
+        )
+        .unwrap();
+        assert_eq!(approved.kind, BootstrapActionKind::Manual);
+        assert_eq!(approved.operation, BootstrapOperation::InstallAgyManual);
+        assert_eq!(approved.command_preview, None);
+        assert_eq!(
+            manual_handoff_url(&approved.operation),
+            Some(approved.source.as_str())
+        );
+        assert_eq!(approved.install_scope, "manual_operator_handoff");
+        assert!(approved.requires_interaction);
+        assert!(!approved.requires_elevation);
+        assert!(fixed_command_spec(&approved.operation, Path::new("fixture-prefix")).is_none());
+
+        let confirmation = serde_json::to_value(approved).unwrap();
+        assert_eq!(confirmation["command_preview"], serde_json::Value::Null);
+        assert_eq!(
+            confirmation["source"],
+            "https://www.antigravity.google/docs/cli/install/#windows"
+        );
+        assert_eq!(confirmation["operation"], "install_agy_manual");
+    }
+
+    #[test]
+    fn retired_agy_authentication_plan_cannot_be_deserialized_or_disguised_as_install() {
+        let now = DateTime::parse_from_rfc3339("2026-08-21T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let plan = test_plan(now);
+        let mut retired = serde_json::to_value(&plan).unwrap();
+        retired["actions"][0]["operation"] = json!("authenticate_agy_manual");
+        retired["actions"][0]["action_id"] = json!("auth.agy.interactive");
+        retired["actions"][0]["source"] = json!("https://antigravity.google/cli/");
+        assert!(serde_json::from_value::<RuntimeBootstrapPlan>(retired).is_err());
+
+        let mut disguised = plan;
+        disguised.actions[0].action_id = "auth.agy.interactive".to_string();
+        disguised.actions[0].operation = BootstrapOperation::InstallAgyManual;
+        disguised.plan_hash = compute_plan_hash(&disguised).unwrap();
+        assert!(validate_action_request(
+            &disguised,
+            "auth.agy.interactive",
+            &disguised.plan_hash,
+            true,
+            now,
+        )
+        .unwrap_err()
+        .contains("unknown"));
+    }
+
+    #[test]
+    fn saved_deepseek_key_is_detected_without_entering_inventory_output() {
+        let config = AiProviderConfig {
+            deepseek_api_key: Some(" synthetic-saved-deepseek-key ".to_string()),
+            ..AiProviderConfig::default()
+        };
+        let mut dependency = probe_deepseek_credential(&config);
+        assert_eq!(dependency.state, DependencyState::Ready);
+        assert!(!dependency.required);
+        assert!(!serde_json::to_string(&dependency)
+            .unwrap()
+            .contains("synthetic-saved-deepseek-key"));
+        assert!(actions_for_inventory(std::slice::from_mut(&mut dependency)).is_empty());
+    }
+
     fn test_plan(now: DateTime<Utc>) -> RuntimeBootstrapPlan {
         let mut dependency = simple_dependency(
             "claude",
@@ -1991,7 +2261,6 @@ mod tests {
             BootstrapOperation::InstallAgyManual,
             BootstrapOperation::AuthenticateClaudeManual,
             BootstrapOperation::AuthenticateCodexManual,
-            BootstrapOperation::AuthenticateAgyManual,
             BootstrapOperation::ConfigureDeepseekManual,
             BootstrapOperation::ConfigureCloudflareManual,
         ] {

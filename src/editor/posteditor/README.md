@@ -27,7 +27,7 @@ When `admin-app/MainSite/PostEditor` changes, Maestro must receive the equivalen
 
 ## Change History
 
-**Status.** Reviewed compatibility snapshot. Current review: **2026-10-05**. See [CHANGELOG.md](../../../CHANGELOG.md) for the full release history.
+**Status.** Reviewed compatibility snapshot. Current review: **2026-10-06**. See [CHANGELOG.md](../../../CHANGELOG.md) for the full release history.
 
 The version history at a glance:
 
@@ -36,6 +36,7 @@ The version history at a glance:
 | 2026-04-26 snapshot | Maestro-local compatibility copy imported from `admin-app/src/modules/mainsite/`.      |
 | 2026-08-21 review   | Final allowlist, all non-YouTube link parity, durable draft custody, fixtures and CI drift gate. |
 | 2026-10-05 review   | Literal search replacement, async editing custody, durable shared-chat evidence, keyboard actions and truthful desktop capabilities. |
+| 2026-10-06 review   | Native deferred editor creation for the lazy desktop screen; extension set and persisted HTML unchanged. |
 
 ## Source Snapshot
 
@@ -44,6 +45,10 @@ The version history at a glance:
 Maestro intentionally differs from the admin UI only at explicit boundaries: imported HTML receives additional ingress sanitization, Link Integrity blocks unresolved links, and saves enter the portable `mainsite_draft.v1` envelope instead of calling the admin API. Direct D1 publication belongs to MAESTRO-7 and must sanitize independently on the remote side.
 
 The 2026-10-05 audit preserves the reviewed extension set and public HTML contract while correcting local custody: search replacements are literal text (including empty replacement), delayed AI responses target the original unchanged document, and native editing pauses during save/AI requests. Formatting and media buttons support native keyboard activation while preserving the editor selection on pointer presses. Shared-chat provenance persists in the local draft envelope and stays outside the article HTML. Admin HTTP endpoints are unavailable in a portable desktop bundle; AI transformation and image-upload controls require explicit native capability callbacks and remain disabled with an explanation until those callbacks exist. Public image URLs, Word/Markdown imports, and the native shared-chat connector remain available.
+
+The 2026-10-06 desktop correction sets TipTap's native `immediatelyRender: false` option so React creates the editor after committing the lazy screen. This prevents an eagerly created instance from being destroyed before its content effect runs. The reviewed admin source remains unchanged; this lifecycle difference does not alter extensions, imports, provenance or persisted HTML.
+
+PDF export requests the existing WebView's native `window.print()` rather than a browser popup. A temporary print-only projection contains the same escaped title, author and sanitized article; print media hides the workbench and portals and permits multiple pages. `afterprint` removes that projection when printing or preview ends, including cancellation. A returned print request does not prove a PDF was saved, and provenance remains a separate sidecar.
 
 ## Repository conventions
 

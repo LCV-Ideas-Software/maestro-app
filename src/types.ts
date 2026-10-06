@@ -223,7 +223,7 @@ export type AiProviderConfig = {
   schema_version: number;
   provider_mode: ProviderMode;
   credential_storage_mode: CredentialStorageMode;
-  gemini_cli_project_id?: string | null;
+  agy_cli_project_id?: string | null;
   openai_api_key: string | null;
   anthropic_api_key: string | null;
   gemini_api_key: string | null;

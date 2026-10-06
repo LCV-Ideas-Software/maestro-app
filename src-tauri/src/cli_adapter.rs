@@ -97,10 +97,10 @@ pub(crate) fn cli_adapter_specs(request: &CliAdapterSmokeRequest) -> Vec<CliAdap
         CliAdapterSpec {
             name: "Gemini",
             command: "agy",
-            marker: "MAESTRO_CLI_SMOKE_GEMINI_READY",
+            marker: "MAESTRO_CLI_SMOKE_AGY_READY",
             args: vec![
                 "--print".to_string(),
-                format!("{prompt_base} Marker: MAESTRO_CLI_SMOKE_GEMINI_READY"),
+                format!("{prompt_base} Marker: MAESTRO_CLI_SMOKE_AGY_READY"),
                 "--print-timeout".to_string(),
                 "90s".to_string(),
             ],
@@ -127,7 +127,7 @@ pub(crate) fn run_cli_adapter_probe(
     };
 
     if spec.command == "agy" {
-        match verify_gemini_cli_project_permissions(
+        match verify_agy_cli_project_permissions(
             &path,
             config,
             &app_root(),
@@ -199,14 +199,13 @@ pub(crate) fn run_cli_adapter_probe(
     }
 }
 
-const GEMINI_PROJECT_PERMISSION_GUIDANCE: &str = "Gemini CLI bloqueada: selecione um projeto nativo Antigravity com negativas de escrita, comandos, MCP e execute_url verificaveis por /permissions, ou selecione explicitamente a API.";
-const GEMINI_PROJECT_DENIES: [&str; 4] =
-    ["write_file(*)", "command(*)", "mcp(*)", "execute_url(*)"];
+const AGY_PROJECT_PERMISSION_GUIDANCE: &str = "AGY CLI bloqueada: selecione um projeto nativo Antigravity com negativas de escrita, comandos, MCP e execute_url verificaveis por /permissions, ou selecione explicitamente a API.";
+const AGY_PROJECT_DENIES: [&str; 4] = ["write_file(*)", "command(*)", "mcp(*)", "execute_url(*)"];
 
 /// Read the installed CLI's effective project policy before every prompt.
 /// /permissions is a native metadata command; zero model turns and zero usage
 /// are mandatory. Vendor files are neither inferred nor rewritten here.
-pub(crate) fn verify_gemini_cli_project_permissions(
+pub(crate) fn verify_agy_cli_project_permissions(
     path: &Path,
     config: &AiProviderConfig,
     working_dir: &Path,
@@ -216,9 +215,9 @@ pub(crate) fn verify_gemini_cli_project_permissions(
     let timeout = timeout
         .unwrap_or(Duration::from_secs(30))
         .min(Duration::from_secs(30));
-    admit_gemini_cli_project(config, |args| {
+    admit_agy_cli_project(config, |args| {
         if timeout.is_zero() || cancel_token.is_some_and(CancellationToken::is_cancelled) {
-            return Err(GEMINI_PROJECT_PERMISSION_GUIDANCE.to_string());
+            return Err(AGY_PROJECT_PERMISSION_GUIDANCE.to_string());
         }
         let result = run_resolved_command_observed_piped(
             path,
@@ -229,24 +228,24 @@ pub(crate) fn verify_gemini_cli_project_permissions(
             cancel_token,
             Some(working_dir),
         )
-        .map_err(|_| GEMINI_PROJECT_PERMISSION_GUIDANCE.to_string())?;
+        .map_err(|_| AGY_PROJECT_PERMISSION_GUIDANCE.to_string())?;
         if result.timed_out
             || !result.output.status.success()
             || result.stdout_pipe_error.is_some()
             || result.stderr_pipe_error.is_some()
         {
-            return Err(GEMINI_PROJECT_PERMISSION_GUIDANCE.to_string());
+            return Err(AGY_PROJECT_PERMISSION_GUIDANCE.to_string());
         }
         Ok(result.output.stdout)
     })
 }
 
-fn admit_gemini_cli_project(
+fn admit_agy_cli_project(
     config: &AiProviderConfig,
     read_native_policy: impl FnOnce(&[String]) -> Result<Vec<u8>, String>,
 ) -> Result<String, String> {
     let project = config
-        .gemini_cli_project_id
+        .agy_cli_project_id
         .as_deref()
         .map(str::trim)
         .filter(|project| {
@@ -256,7 +255,7 @@ fn admit_gemini_cli_project(
                     .bytes()
                     .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, b'-' | b'_'))
         })
-        .ok_or_else(|| GEMINI_PROJECT_PERMISSION_GUIDANCE.to_string())?;
+        .ok_or_else(|| AGY_PROJECT_PERMISSION_GUIDANCE.to_string())?;
     let project_argument = format!("--project={project}");
     let args = vec![
         project_argument.clone(),
@@ -266,8 +265,8 @@ fn admit_gemini_cli_project(
         "json".to_string(),
     ];
     let bytes = read_native_policy(&args)?;
-    validate_gemini_project_permissions(&bytes)
-        .map_err(|_| GEMINI_PROJECT_PERMISSION_GUIDANCE.to_string())?;
+    validate_agy_project_permissions(&bytes)
+        .map_err(|_| AGY_PROJECT_PERMISSION_GUIDANCE.to_string())?;
     Ok(project_argument)
 }
 
@@ -306,7 +305,7 @@ struct NativePermissionScope {
     deny: Vec<String>,
 }
 
-fn validate_gemini_project_permissions(bytes: &[u8]) -> Result<(), ()> {
+fn validate_agy_project_permissions(bytes: &[u8]) -> Result<(), ()> {
     let readback: NativePermissionsReadback = serde_json::from_slice(bytes).map_err(|_| ())?;
     if readback.status != "SUCCESS"
         || readback.num_turns != 0
@@ -327,7 +326,7 @@ fn validate_gemini_project_permissions(bytes: &[u8]) -> Result<(), ()> {
         .filter(|scope| scope.scope == "project")
         .collect::<Vec<_>>();
     if projects.len() != 1
-        || !GEMINI_PROJECT_DENIES
+        || !AGY_PROJECT_DENIES
             .iter()
             .all(|required| projects[0].deny.iter().any(|deny| deny == required))
     {
@@ -349,39 +348,33 @@ mod native_permission_tests {
         "usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,
             "cache_read_tokens":0,"total_tokens":0},
         "command":{"name":"permissions","data":{"permissions":[
-            {"scope":"project","deny":GEMINI_PROJECT_DENIES},
+            {"scope":"project","deny":AGY_PROJECT_DENIES},
             {"scope":"shared","allow":["write_file(*)","command(*)","mcp(*)"]}
         ]}}})
     }
 
     #[test]
-    fn gemini_native_permissions_current_unprotected_project_is_rejected() {
+    fn agy_native_permissions_current_unprotected_project_is_rejected() {
         // Shape read back from the installed native /permissions command:
         // Project is present, while dangerous allow grants are in shared scope.
         let mut current = policy();
         current["command"]["data"]["permissions"][0] = json!({"scope":"project"});
-        assert!(
-            validate_gemini_project_permissions(&serde_json::to_vec(&current).unwrap()).is_err()
-        );
-        current["command"]["data"]["permissions"][1]["deny"] = json!(GEMINI_PROJECT_DENIES);
-        assert!(
-            validate_gemini_project_permissions(&serde_json::to_vec(&current).unwrap()).is_err()
-        );
+        assert!(validate_agy_project_permissions(&serde_json::to_vec(&current).unwrap()).is_err());
+        current["command"]["data"]["permissions"][1]["deny"] = json!(AGY_PROJECT_DENIES);
+        assert!(validate_agy_project_permissions(&serde_json::to_vec(&current).unwrap()).is_err());
     }
 
     #[test]
-    fn gemini_native_permissions_require_exact_project_denies_and_zero_turns() {
-        assert!(
-            validate_gemini_project_permissions(&serde_json::to_vec(&policy()).unwrap()).is_ok()
-        );
-        for index in 0..GEMINI_PROJECT_DENIES.len() {
+    fn agy_native_permissions_require_exact_project_denies_and_zero_turns() {
+        assert!(validate_agy_project_permissions(&serde_json::to_vec(&policy()).unwrap()).is_ok());
+        for index in 0..AGY_PROJECT_DENIES.len() {
             let mut value = policy();
             value["command"]["data"]["permissions"][0]["deny"]
                 .as_array_mut()
                 .unwrap()
                 .remove(index);
             assert!(
-                validate_gemini_project_permissions(&serde_json::to_vec(&value).unwrap()).is_err()
+                validate_agy_project_permissions(&serde_json::to_vec(&value).unwrap()).is_err()
             );
         }
         for pointer in [
@@ -395,7 +388,7 @@ mod native_permission_tests {
             let mut value = policy();
             *value.pointer_mut(pointer).unwrap() = json!(1);
             assert!(
-                validate_gemini_project_permissions(&serde_json::to_vec(&value).unwrap()).is_err(),
+                validate_agy_project_permissions(&serde_json::to_vec(&value).unwrap()).is_err(),
                 "{pointer}"
             );
         }
@@ -403,7 +396,7 @@ mod native_permission_tests {
             let mut value = policy();
             *value.pointer_mut(pointer).unwrap() = json!("unexpected");
             assert!(
-                validate_gemini_project_permissions(&serde_json::to_vec(&value).unwrap()).is_err()
+                validate_agy_project_permissions(&serde_json::to_vec(&value).unwrap()).is_err()
             );
         }
         let mut value = policy();
@@ -412,29 +405,29 @@ mod native_permission_tests {
             .as_array_mut()
             .unwrap()
             .push(duplicate);
-        assert!(validate_gemini_project_permissions(&serde_json::to_vec(&value).unwrap()).is_err());
+        assert!(validate_agy_project_permissions(&serde_json::to_vec(&value).unwrap()).is_err());
         for bytes in [b"{}".as_slice(), b"null", b"not JSON"] {
-            assert!(validate_gemini_project_permissions(bytes).is_err());
+            assert!(validate_agy_project_permissions(bytes).is_err());
         }
     }
 
     #[test]
-    fn gemini_native_permissions_bind_selected_project_and_never_query_missing_selection() {
+    fn agy_native_permissions_bind_selected_project_and_never_query_missing_selection() {
         for project in [None, Some(""), Some("../other"), Some("id --force")] {
             let config = AiProviderConfig {
-                gemini_cli_project_id: project.map(str::to_string),
+                agy_cli_project_id: project.map(str::to_string),
                 ..AiProviderConfig::default()
             };
-            assert!(admit_gemini_cli_project(&config, |_| panic!(
-                "invalid selection launched CLI"
-            ))
-            .is_err());
+            assert!(
+                admit_agy_cli_project(&config, |_| panic!("invalid selection launched CLI"))
+                    .is_err()
+            );
         }
         let config = AiProviderConfig {
-            gemini_cli_project_id: Some("  native-test-project  ".to_string()),
+            agy_cli_project_id: Some("  native-test-project  ".to_string()),
             ..AiProviderConfig::default()
         };
-        let admitted = admit_gemini_cli_project(&config, |args| {
+        let admitted = admit_agy_cli_project(&config, |args| {
             assert_eq!(
                 args,
                 &[
@@ -449,8 +442,8 @@ mod native_permission_tests {
         })
         .unwrap();
         assert_eq!(admitted, "--project=native-test-project");
-        let error = admit_gemini_cli_project(&config, |_| Ok(b"private policy content".to_vec()))
-            .unwrap_err();
+        let error =
+            admit_agy_cli_project(&config, |_| Ok(b"private policy content".to_vec())).unwrap_err();
         assert!(!error.contains("private policy content"));
     }
 }
