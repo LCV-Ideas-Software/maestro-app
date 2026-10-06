@@ -1,3 +1,4 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { sanitizeFinalMainSiteHtml } from "./sanitizeFinalHtml";
 import { normalizeSharedChatEvidence, type StoredSharedChatEvidence } from "./sharedChatImport";
 
@@ -340,10 +341,30 @@ export function buildPrintDocument(rawInput: FinalContentExportInput): string {
 </html>`;
 }
 
-export function downloadExportArtifact(
+export async function downloadExportArtifact(
   artifact: ExportArtifact,
   ownerDocument: Document = document,
-): void {
+): Promise<void> {
+  if (isTauri()) {
+    const format: unknown = artifact.filename.endsWith(".md")
+      ? "markdown"
+      : artifact.filename.endsWith(".mainsite.html")
+        ? "html"
+        : JSON.parse(artifact.content).format;
+    if (format !== "markdown" && format !== "html" && format !== "pdf") {
+      throw new Error("O formato de exportação não é suportado.");
+    }
+    try {
+      await invoke("persist_editor_export", {
+        request: { format, filename: artifact.filename, content: artifact.content },
+      });
+    } catch (error) {
+      throw error instanceof Error
+        ? error
+        : new Error(typeof error === "string" ? error : "Não foi possível salvar a exportação.");
+    }
+    return;
+  }
   const blob = new Blob([artifact.content], { type: artifact.mimeType });
   const url = URL.createObjectURL(blob);
   const anchor = ownerDocument.createElement("a");

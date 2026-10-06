@@ -9,7 +9,7 @@
 
 import { AlertTriangle, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
 
-import { attachmentLimits } from "./constants";
+import { attachmentLimits, initialAgentOptions } from "./constants";
 import type {
   AgentCard,
   AgentState,
@@ -40,6 +40,11 @@ export async function sha256(text: string) {
   const bytes = new TextEncoder().encode(text);
   const buffer = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export function protocolLineCount(text: string) {
+  if (text.length === 0) return 0;
+  return text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
 }
 
 export function formatElapsedTime(totalSeconds: number) {
@@ -288,6 +293,10 @@ export function humanizeAgentStatus(status: string) {
   if (normalized === "NOT_READY") return "Precisa de ajustes";
   if (normalized === "NEEDS_EVIDENCE") return "Precisa de verificacao";
   if (normalized === "DRAFT_CREATED") return "Rascunho gerado";
+  if (normalized === "PROTOCOL_ACKNOWLEDGED") return "Cobertura integral declarada";
+  if (normalized === "PROTOCOL_ACK_INVALID") return "Reconhecimento incompleto ou invalido";
+  if (normalized === "PAUSED_PROTOCOL_ACK_REQUIRED")
+    return "Aguardando reconhecimento do protocolo";
   if (normalized === "CLI_NOT_FOUND") return "CLI nao encontrada";
   if (normalized === "API_KEY_NOT_AVAILABLE") return "Chave de API ausente";
   if (normalized === "REMOTE_SECRET_NOT_READABLE") return "Segredo remoto nao legivel localmente";
@@ -315,6 +324,7 @@ export function humanizeAgentStatus(status: string) {
 }
 
 export function humanizeRole(role: string) {
+  if (role === "protocol_ack") return "Reconhecimento declarado";
   if (role === "draft") return "Rascunho";
   if (role === "revision") return "Ajuste";
   if (role === "review") return "Revisao";
@@ -359,12 +369,35 @@ export function latestAgentCards(agents: EditorialAgentResult[]): AgentCard[] {
   }));
 }
 
-export function latestProtocolGateItems(agents: EditorialAgentResult[]): ProtocolReadingGate[] {
-  return latestAgentResults(agents).map((agent) => ({
-    agent: agent.name,
-    progress: null,
-    status: `${humanizeRole(agent.role)}: ${humanizeAgentStatus(agent.status)}`,
-  }));
+export function latestProtocolGateItems(
+  agents: EditorialAgentResult[],
+  activeAgents?: string[],
+): ProtocolReadingGate[] {
+  const acknowledgements = agents.filter((agent) => agent.role === "protocol_ack");
+  if (activeAgents) {
+    const declared = new Map(
+      latestAgentResults(acknowledgements).map((agent) => [agent.name, agent]),
+    );
+    return initialAgentOptions
+      .filter((option) => activeAgents.includes(option.key))
+      .map((option) => {
+        const agent = declared.get(option.label);
+        return {
+          agent: option.label,
+          progress: null,
+          status: agent
+            ? humanizeAgentStatus(agent.status)
+            : "Reconhecimento nao declarado nesta chamada",
+        };
+      });
+  }
+  return latestAgentResults(acknowledgements.length > 0 ? acknowledgements : agents).map(
+    (agent) => ({
+      agent: agent.name,
+      progress: null,
+      status: `${humanizeRole(agent.role)}: ${humanizeAgentStatus(agent.status)}`,
+    }),
+  );
 }
 
 export function countAgentRounds(agents: EditorialAgentResult[]) {

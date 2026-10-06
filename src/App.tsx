@@ -45,6 +45,7 @@ import {
   latestAgentCards,
   latestProtocolGateItems,
   operationMeterLabel,
+  protocolLineCount,
   sha256,
   summarizeAgentResults,
 } from "./helpers";
@@ -409,6 +410,7 @@ export function App() {
     let disposed = false;
 
     const roleLabel = (role: string | undefined) => {
+      if (role === "protocol_ack") return "reconhecimento declarado do protocolo";
       if (role === "draft") return "redacao";
       if (role === "review") return "revisao";
       if (role === "revision") return "reescrita";
@@ -431,6 +433,15 @@ export function App() {
         const role = roleLabel(context.role);
         const detail = `${role} em andamento${context.cli ? ` via ${context.cli}` : ""}`;
         setActiveAgentNow({ name, role, detail, state: "running" });
+        if (context.role === "protocol_ack") {
+          setProtocolGateItems((current) =>
+            current.map((gate) =>
+              gate.agent === name
+                ? { ...gate, progress: null, status: "Declaracao de cobertura em andamento" }
+                : gate,
+            ),
+          );
+        }
         setAgentCards((current) =>
           current.map((agent) =>
             agent.name === name
@@ -457,11 +468,29 @@ export function App() {
         return;
       }
 
-      if (category === "session.agent.finished") {
+      if (category === "session.agent.finished" && context.role === "protocol_ack") {
+        const name = context.agent ?? "Agente";
+        setActiveAgentNow({
+          name,
+          role: roleLabel(context.role),
+          detail: "Validando reconhecimento declarado",
+          state: "running",
+        });
+        return;
+      }
+
+      if (category === "session.agent.finished" || category === "session.protocol_ack.finished") {
         const name = context.agent ?? "Agente";
         const role = roleLabel(context.role);
         const status = context.status ? humanizeAgentStatus(context.status) : "turno finalizado";
         setActiveAgentNow({ name, role, detail: status, state: "finished" });
+        if (category === "session.protocol_ack.finished") {
+          setProtocolGateItems((current) =>
+            current.map((gate) =>
+              gate.agent === name ? { ...gate, progress: null, status } : gate,
+            ),
+          );
+        }
         setAgentCards((current) =>
           current.map((agent) =>
             agent.name === name
@@ -1553,7 +1582,7 @@ export function App() {
       const nextProtocol = {
         name: file.name,
         size: file.size,
-        lines: text.split(/\r?\n/).length,
+        lines: protocolLineCount(text),
         hash: await sha256(text),
       };
       if (generation !== protocolImportGenerationRef.current) return;
@@ -1737,6 +1766,11 @@ export function App() {
     }
     setShowResumePicker(false);
     sessionRunIdRef.current = session.run_id;
+    setProtocolGateItems(
+      initialProtocolReadingGates.filter((gate) =>
+        resumeRunOptions.activeAgents.some((key) => key === gate.agent.toLowerCase()),
+      ),
+    );
     setSessionRunId(session.run_id);
     setActiveAgentNow(null);
     setSessionName(session.session_name);
@@ -2098,7 +2132,11 @@ export function App() {
     setEvidenceRows(
       initialEvidenceRows.map((item) => ({ ...item, value: "aguardando verificacoes" })),
     );
-    setProtocolGateItems(initialProtocolReadingGates);
+    setProtocolGateItems(
+      initialProtocolReadingGates.filter((gate) =>
+        runOptions.activeAgents.some((key) => key === gate.agent.toLowerCase()),
+      ),
+    );
     setDiscussionItems([
       {
         round: "000",
@@ -2362,7 +2400,7 @@ export function App() {
             : "aguardando continuidade da sessao",
         },
       ]);
-      setProtocolGateItems(latestProtocolGateItems(result.agents));
+      setProtocolGateItems(latestProtocolGateItems(result.agents, result.active_agents));
       setEvidenceRows([
         {
           label: "DOI",

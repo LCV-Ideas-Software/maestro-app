@@ -236,4 +236,23 @@ describe("PostEditor desktop custody", () => {
     );
     expect(screen.getByRole("status")).toHaveTextContent("Impressão solicitada");
   });
+
+  it("waits for portable storage and reports a write failure without claiming the article and sidecar were exported", async () => {
+    renderEditor({ initialSharedChatEvidence: [evidence] });
+    await waitFor(() => expect(editorBox.current).not.toBeNull());
+    let rejectWrite!: (error: Error) => void;
+    vi.mocked(downloadExportArtifact).mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectWrite = reject;
+        }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "HTML MainSite" }));
+    expect(downloadExportArtifact).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("status")).toBeNull();
+    await act(async () => rejectWrite(new Error("portable folder is read-only")));
+    expect(screen.getByRole("status")).toHaveTextContent("portable folder is read-only");
+    expect(downloadExportArtifact).toHaveBeenCalledOnce();
+    expect(editorBox.current?.getText()).toBe("alpha beta alpha");
+  });
 });

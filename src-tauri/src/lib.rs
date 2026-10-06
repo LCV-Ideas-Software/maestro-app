@@ -32,6 +32,7 @@ mod cloudflare_commands;
 mod command_path;
 mod command_spawn;
 mod config_persistence;
+mod editor_exports;
 mod editorial_agent_runners;
 mod editorial_content_lock;
 mod editorial_helpers;
@@ -45,6 +46,7 @@ mod logging;
 mod mainsite_citation;
 mod mainsite_d1;
 mod mainsite_draft;
+mod protocol_ack;
 mod provider_config;
 mod provider_deepseek;
 mod provider_grok;
@@ -984,6 +986,7 @@ pub fn run() {
             propose_link_corrections,
             load_mainsite_draft,
             save_mainsite_draft,
+            editor_exports::persist_editor_export,
             probe_mainsite_d1,
             preview_mainsite_d1_publish,
             publish_mainsite_d1,

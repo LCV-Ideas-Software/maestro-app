@@ -64,6 +64,9 @@ pub(crate) fn build_session_minutes(
     );
 
     let mut agents_by_round = BTreeMap::<usize, Vec<&EditorialAgentResult>>::new();
+    text.push_str(&crate::protocol_ack::build_protocol_ack_minutes(
+        request, run_id,
+    ));
     for agent in agents {
         agents_by_round
             .entry(agent_round_from_output_path(agent))

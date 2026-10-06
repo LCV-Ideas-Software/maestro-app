@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { aiProviderRows } from "./constants";
+import type { NativeLogPayload } from "./services/nativeEvents";
 import type {
   AiProviderConfig,
   BootstrapConfig,
@@ -10,8 +11,16 @@ import type {
 } from "./types";
 
 const invoke = vi.hoisted(() => vi.fn());
+const nativeEvents = vi.hoisted(() => ({
+  handler: null as null | ((event: { payload: NativeLogPayload }) => void),
+}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async (name: string, handler: (event: { payload: NativeLogPayload }) => void) => {
+    if (name === "maestro-log-event") nativeEvents.handler = handler;
+    return () => {};
+  }),
+}));
 
 const config: AiProviderConfig = {
   schema_version: 1,
@@ -110,6 +119,7 @@ function navigate(name: "Setup" | "Ajustes" | "Sessao" | "Protocolos") {
 }
 
 beforeEach(() => {
+  nativeEvents.handler = null;
   invoke.mockReset();
   invoke.mockImplementation(async (command: string, args?: { config?: AiProviderConfig }) => {
     if (command === "read_ai_provider_config") return { ...config };
@@ -368,6 +378,46 @@ describe("protocol and attachment input custody", () => {
     navigate("Sessao");
     return view;
   }
+
+  it("keeps protocol declarations pending until native validation and shows invalid coverage without a percentage", async () => {
+    await cliComposer();
+    fireEvent.click(screen.getByRole("button", { name: "Submeter" }));
+    await waitFor(() =>
+      expect(invoke.mock.calls.some(([command]) => command === "run_editorial_session")).toBe(true),
+    );
+    const run = invoke.mock.calls.find(([command]) => command === "run_editorial_session");
+    const runId = run?.[1].request.run_id as string;
+    expect(nativeEvents.handler).not.toBeNull();
+    const emit = (category: string, status?: string, tone?: "ok" | "blocked") =>
+      act(() =>
+        nativeEvents.handler?.({
+          payload: {
+            category,
+            context: {
+              run_id: runId,
+              agent: "Claude",
+              role: "protocol_ack",
+              ...(status ? { status } : {}),
+              ...(tone ? { tone } : {}),
+            },
+          },
+        }),
+      );
+    emit("session.agent.started");
+    expect(screen.getByText("Declaracao de cobertura em andamento")).toBeInTheDocument();
+    emit("session.agent.finished", "DRAFT_CREATED", "ok");
+    expect(screen.getByText("Validando reconhecimento declarado")).toBeInTheDocument();
+    expect(screen.queryByText("Cobertura integral declarada")).toBeNull();
+    emit("session.protocol_ack.finished", "PROTOCOL_ACK_INVALID", "blocked");
+    expect(screen.getAllByText("Reconhecimento incompleto ou invalido").length).toBeGreaterThan(0);
+    emit("session.protocol_ack.finished", "PROTOCOL_ACKNOWLEDGED", "ok");
+    expect(screen.getAllByText("Cobertura integral declarada").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText(/A declaracao nao comprova cognicao de cada linha/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Progresso de leitura não medido.").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("100%")).toBeNull();
+  });
 
   it("keeps the latest selected protocol when an older file finishes afterward", async () => {
     vi.stubGlobal("crypto", fixtureCrypto);
