@@ -1,7 +1,7 @@
 # Runtime Bootstrapper
 
-Status: implemented on the active release branch; remote Rust validation pending.
-Updated: 2026-08-21.
+Status: implemented; release publication requires the repository validation gates.
+Updated: 2026-10-05.
 
 Maestro must be able to prepare a Windows 11+ machine for full operation on first run.
 
@@ -43,7 +43,6 @@ Required for runtime:
 - Antigravity CLI (`agy`) for the Gemini peer.
 - DeepSeek API credential when DeepSeek is enabled as an editorial peer.
 - Cloudflare API credential validation when D1 import/export is enabled.
-- Cloudflare Wrangler / Cloudflare CLI as D1 fallback tooling.
 
 Required for development or advanced local builds:
 
@@ -55,6 +54,7 @@ Required for development or advanced local builds:
 
 Optional capability dependencies:
 
+- Cloudflare Wrangler for separately authorized CLI diagnostics. D1 publication uses the Cloudflare API and has no Wrangler write fallback.
 - PDF extraction/rendering helpers when native libraries are selected.
 - Browser drivers or WebView helpers for rendered evidence collection.
 - Package managers: `winget`, `scoop`, `choco`, npm global installs, rustup, vendor installers.
@@ -83,15 +83,16 @@ Maestro must be able to manage these CLIs:
 - `agy` / Antigravity CLI for the Gemini peer. Legacy `gemini` may be detected only as deprecated diagnostic context.
 - `MAESTRO_DEEPSEEK_API_KEY` or `DEEPSEEK_API_KEY` for DeepSeek API peer execution.
 - Cloudflare API credentials for primary D1 operations.
-- `wrangler` / Cloudflare CLI for D1 fallback and diagnostics.
+- `wrangler` / Cloudflare CLI for optional, separately authorized diagnostics.
 
 Wrangler rule:
 
-- Every Wrangler fallback invocation must use `wrangler@latest`.
-- Maestro may automatically authorize the Wrangler update/install action when the operator has approved the D1 fallback path, because Cloudflare changes Wrangler frequently.
+- The current fixed bootstrap action resolves and verifies `npx --yes wrangler@latest --version` only after explicit per-action operator approval.
+- This diagnostic action may download the official npm package; it does not authorize D1 publication or implement an alternative write transport.
 - The UI must still show the action, source, effective command, and post-update version check.
 - If an installed global Wrangler is stale, Maestro should prefer `npx wrangler@latest` or an equivalent official latest invocation over the stale binary.
 - Wrangler readiness never replaces Cloudflare API readiness for primary D1 operations.
+- If the D1 API operation fails, publication stops without a Wrangler retry. Historical fallback plans are not an implemented capability.
 
 Lifecycle operations:
 

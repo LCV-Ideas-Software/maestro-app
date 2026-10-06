@@ -48,6 +48,14 @@ pub(crate) fn claude_args() -> Vec<String> {
         "text".to_string(),
         "--output-format".to_string(),
         "text".to_string(),
+        // dontAsk still permits pre-approved tools. Limit the built-in tool
+        // set while preserving local protocol reads and evidence research.
+        "--tools".to_string(),
+        "Read,Glob,Grep,WebSearch,WebFetch".to_string(),
+        // --tools does not restrict inherited MCP tools.
+        "--disallowedTools".to_string(),
+        "mcp__*".to_string(),
+        "--strict-mcp-config".to_string(),
         "--permission-mode".to_string(),
         "dontAsk".to_string(),
     ]
@@ -75,7 +83,6 @@ pub(crate) fn gemini_args() -> Vec<String> {
             .to_string(),
         "--print-timeout".to_string(),
         "240m".to_string(),
-        "--dangerously-skip-permissions".to_string(),
     ]
 }
 
@@ -636,8 +643,12 @@ mod tests {
     use super::{
         build_draft_prompt, build_review_objections_block, build_review_prompt,
         build_revision_history_block, build_revision_prompt, build_serial_revision_prompt,
+        claude_args, gemini_args,
     };
-    use crate::{app_paths::sessions_dir, EditorialAgentResult, EditorialSessionRequest};
+    use crate::{
+        app_paths::sessions_dir, cli_adapter::cli_adapter_specs, CliAdapterSmokeRequest,
+        EditorialAgentResult, EditorialSessionRequest,
+    };
     use std::path::Path;
 
     fn test_request() -> EditorialSessionRequest {
@@ -654,6 +665,107 @@ mod tests {
             max_session_minutes: None,
             attachments: None,
             links: None,
+        }
+    }
+
+    #[test]
+    fn claude_editorial_tools_preserve_protocol_reads_without_model_write_capabilities() {
+        let args = claude_args();
+        let tools_index = args.iter().position(|arg| arg == "--tools").unwrap();
+        let tools: std::collections::BTreeSet<_> = args[tools_index + 1].split(',').collect();
+        assert!(
+            tools.contains("Read"),
+            "large prompts require sidecar reads"
+        );
+        assert!(tools.contains("WebSearch") && tools.contains("WebFetch"));
+        for tool in ["Bash", "Edit", "Write", "NotebookEdit", "Agent", "Skill"] {
+            assert!(
+                !tools.contains(tool),
+                "editorial transport must not grant {tool}"
+            );
+        }
+        assert!(tools
+            .iter()
+            .all(|tool| matches!(*tool, "Read" | "Glob" | "Grep" | "WebSearch" | "WebFetch")));
+        let deny_index = args
+            .iter()
+            .position(|arg| arg == "--disallowedTools")
+            .unwrap();
+        assert_eq!(args[deny_index + 1], "mcp__*");
+        assert_eq!(args[deny_index + 2], "--strict-mcp-config");
+        assert_eq!(args[deny_index + 3], "--permission-mode");
+        assert_eq!(args[deny_index + 4], "dontAsk");
+        assert!(!args
+            .iter()
+            .any(|arg| arg == "--mcp-config" || arg == "--restricted"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--input-format", "text"]));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--output-format", "text"]));
+    }
+
+    #[test]
+    fn claude_smoke_disables_tools_without_consuming_the_positional_marker_prompt() {
+        let specs = cli_adapter_specs(&CliAdapterSmokeRequest {
+            run_id: "permission-contract".to_string(),
+            prompt_chars: 48_001,
+            protocol_name: "protocolo.md".to_string(),
+            protocol_lines: 2_001,
+            protocol_hash: "a".repeat(64),
+        });
+        let spec = specs
+            .into_iter()
+            .find(|spec| spec.command == "claude")
+            .unwrap();
+        let tools_index = spec.args.iter().position(|arg| arg == "--tools").unwrap();
+        assert_eq!(spec.args[tools_index + 1], "");
+        let deny_index = spec
+            .args
+            .iter()
+            .position(|arg| arg == "--disallowedTools")
+            .unwrap();
+        assert_eq!(spec.args[deny_index + 1], "mcp__*");
+        // Both tool options accept multiple values. A fixed option must end
+        // their value lists before the final positional smoke prompt.
+        assert_eq!(spec.args[deny_index + 2], "--strict-mcp-config");
+        assert_eq!(spec.args[deny_index + 3], "--permission-mode");
+        assert_eq!(spec.args[deny_index + 4], "dontAsk");
+        assert!(!spec
+            .args
+            .iter()
+            .any(|arg| arg == "--mcp-config" || arg == "--restricted"));
+        let prompt = spec.args.last().unwrap();
+        assert!(prompt.contains(spec.marker));
+        assert!(prompt.contains("Do not use tools"));
+        assert_eq!(spec.args.len(), deny_index + 6);
+    }
+
+    #[test]
+    fn agy_editorial_and_smoke_do_not_override_native_permission_policy() {
+        let smoke_specs = cli_adapter_specs(&CliAdapterSmokeRequest {
+            run_id: "agy-permission-contract".to_string(),
+            prompt_chars: 120,
+            protocol_name: "protocolo.md".to_string(),
+            protocol_lines: 10,
+            protocol_hash: "a".repeat(64),
+        });
+        let smoke = smoke_specs
+            .into_iter()
+            .find(|spec| spec.command == "agy")
+            .unwrap();
+        for args in [gemini_args(), smoke.args] {
+            assert!(args.iter().any(|arg| arg == "--print"));
+            assert!(args.iter().any(|arg| arg == "--print-timeout"));
+            assert!(!args
+                .iter()
+                .any(|arg| arg == "--dangerously-skip-permissions"));
+            // Plan is an instruction prefix, not a permission restriction,
+            // and would change this text-producing editorial contract.
+            assert!(!args
+                .iter()
+                .any(|arg| arg == "--mode" || arg == "--mode=plan"));
         }
     }
 

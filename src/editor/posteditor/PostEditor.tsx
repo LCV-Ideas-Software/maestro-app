@@ -57,6 +57,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { EditorBubbleMenu } from "./editor/BubbleMenu";
 import {
+  applyEditorOperationResult,
+  captureEditorOperationTarget,
+  withEditorReadOnly,
+} from "./editor/editorOperation";
+import {
   buildFinalContentExport,
   buildPdfProvenanceExport,
   downloadExportArtifact,
@@ -98,6 +103,7 @@ const SHARED_CHAT_IMPORT_IDLE: SharedChatImportProgress = {
   message: "",
   percent: 0,
 };
+const EMPTY_SHARED_CHAT_EVIDENCE: StoredSharedChatEvidence[] = [];
 
 // Single sanitization posture for every path that injects remote or imported
 // HTML into the editor (Word, Markdown, shared chat, AI transform/freeform).
@@ -111,6 +117,7 @@ export type PostEditorProps = {
   initialTitle: string;
   initialAuthor: string;
   initialContent: string;
+  initialSharedChatEvidence?: StoredSharedChatEvidence[] | undefined;
   initialIsPublished?: boolean;
   initialIsAboutSite?: boolean;
   aboutMode?: boolean;
@@ -126,8 +133,15 @@ export type PostEditorProps = {
     isAboutSite: boolean,
     confirmedAboutAction?: boolean,
     requestedPostId?: number,
+    sharedChatEvidence?: StoredSharedChatEvidence[],
   ) => Promise<boolean>;
   onImportSharedChat?: SharedChatImporter;
+  onTransformText?: (request: {
+    action: string;
+    text: string;
+    instruction?: string;
+  }) => Promise<string>;
+  onUploadImage?: (file: File) => Promise<{ url: string }>;
   onClose: () => void;
 };
 
@@ -136,15 +150,18 @@ export default function PostEditor({
   initialTitle,
   initialAuthor,
   initialContent,
+  initialSharedChatEvidence = EMPTY_SHARED_CHAT_EVIDENCE,
   initialIsPublished = true,
   initialIsAboutSite = false,
   aboutMode = false,
   requiresAboutConversionConfirmation = false,
   requiresAboutRestoreConfirmation = false,
   savingPost,
-  showNotification,
+  showNotification: reportNotification,
   onSave,
   onImportSharedChat,
+  onTransformText,
+  onUploadImage,
   onClose,
 }: PostEditorProps) {
   const [postTitle, setPostTitle] = useState(initialTitle);
@@ -158,11 +175,12 @@ export default function PostEditor({
   const [promptModal, setPromptModal] = useState<PromptModalState>(PROMPT_MODAL_INITIAL);
   const [isUploading, setIsUploading] = useState(false);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [isSubmittingPost, setIsSubmittingPost] = useState(false);
   const [isImportingSharedChat, setIsImportingSharedChat] = useState(false);
   const [sharedChatImportProgress, setSharedChatImportProgress] =
     useState<SharedChatImportProgress>(SHARED_CHAT_IMPORT_IDLE);
   const [lastSharedChatImportUrl, setLastSharedChatImportUrl] = useState("");
-  const [sharedChatEvidence, setSharedChatEvidence] = useState<StoredSharedChatEvidence[]>([]);
+  const [sharedChatEvidence, setSharedChatEvidence] = useState(initialSharedChatEvidence);
   const [saveFeedback, setSaveFeedback] = useState<SaveFeedback>(null);
   const saveFeedbackTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -173,6 +191,26 @@ export default function PostEditor({
   const [aiChatOpen, setAiChatOpen] = useState(false);
   const [aiChatInput, setAiChatInput] = useState("");
   const aiChatBtnRef = useRef<HTMLButtonElement>(null);
+  const flashFeedback = useCallback((message: string, type: NonNullable<SaveFeedback>["type"]) => {
+    if (saveFeedbackTimer.current) clearTimeout(saveFeedbackTimer.current);
+    setSaveFeedback({ message, type });
+    saveFeedbackTimer.current = setTimeout(() => setSaveFeedback(null), 5000);
+  }, []);
+  const showNotification = useCallback(
+    (message: string, type: NonNullable<SaveFeedback>["type"]) => {
+      flashFeedback(message, type);
+      reportNotification(message, type);
+    },
+    [flashFeedback, reportNotification],
+  );
+  const editorBusy =
+    savingPost ||
+    isSubmittingPost ||
+    isGeneratingAI ||
+    isUploading ||
+    isImportingSharedChat ||
+    isProcessingWord ||
+    isProcessingMarkdown;
   const migratedInitialContent = useMemo(
     () => migrateLegacyCaptions(initialContent || ""),
     [initialContent],
@@ -227,6 +265,10 @@ export default function PostEditor({
   }, [initialAuthor]);
 
   useEffect(() => {
+    setSharedChatEvidence(initialSharedChatEvidence);
+  }, [initialSharedChatEvidence]);
+
+  useEffect(() => {
     setPostIdEditorOpen(false);
     setPostIdDraft(editingPostId ? String(editingPostId) : "");
   }, [editingPostId, aboutMode]);
@@ -236,31 +278,30 @@ export default function PostEditor({
   }, [initialIsPublished]);
 
   const handleAIFreeform = async () => {
-    if (!editor) return;
+    if (!editor?.isEditable || editorBusy) return;
+    if (!onTransformText) {
+      showNotification("A transformação por IA não está disponível nesta sessão desktop.", "error");
+      return;
+    }
     const instruction = aiChatInput.trim();
     if (!instruction) return;
     const { from, to, empty } = editor.state.selection;
+    const target = captureEditorOperationTarget(editor);
     const text = empty ? editor.getHTML() : editor.state.doc.textBetween(from, to, " ");
     if (!text) {
       showNotification("O editor está vazio.", "error");
       return;
     }
     setIsGeneratingAI(true);
+    setPromptModal(PROMPT_MODAL_INITIAL);
     setAiChatOpen(false);
-    showNotification("Gemini está processando sua instrução...", "info");
+    showNotification("A IA está processando sua instrução...", "info");
     try {
-      const res = await fetch("/api/mainsite/ai/transform", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "freeform", text, instruction }),
+      await withEditorReadOnly(editor, async () => {
+        const transformed = await onTransformText({ action: "freeform", text, instruction });
+        if (!transformed.trim()) throw new Error("A IA não retornou texto para aplicar.");
+        applyEditorOperationResult(editor, target, sanitizeImportedHtml(transformed));
       });
-      const data = (await res.json()) as { text?: string; error?: string };
-      if (!res.ok) throw new Error(data.error || "Erro na geração por IA.");
-      if (data.text) {
-        const safe = sanitizeImportedHtml(data.text);
-        if (empty) editor.commands.setContent(safe);
-        else editor.chain().focus().deleteSelection().insertContent(safe).run();
-      }
       showNotification("Instrução aplicada com sucesso.", "success");
       setAiChatInput("");
     } catch (err) {
@@ -271,7 +312,11 @@ export default function PostEditor({
   };
 
   const handleAITransform = async (action: string) => {
-    if (!editor) return;
+    if (!editor?.isEditable || editorBusy) return;
+    if (!onTransformText) {
+      showNotification("A transformação por IA não está disponível nesta sessão desktop.", "error");
+      return;
+    }
 
     const { from, to, empty } = editor.state.selection;
     if (empty) {
@@ -283,26 +328,17 @@ export default function PostEditor({
     }
 
     const selectedText = editor.state.doc.textBetween(from, to, " ");
+    const target = captureEditorOperationTarget(editor);
     setIsGeneratingAI(true);
-    showNotification("Processando transformação textual no Gemini...", "info");
+    setPromptModal(PROMPT_MODAL_INITIAL);
+    showNotification("Processando transformação textual por IA...", "info");
 
     try {
-      const res = await fetch(`/api/mainsite/ai/transform`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, text: selectedText }),
+      await withEditorReadOnly(editor, async () => {
+        const transformed = await onTransformText({ action, text: selectedText });
+        if (!transformed.trim()) throw new Error("A IA não retornou texto para aplicar.");
+        applyEditorOperationResult(editor, target, sanitizeImportedHtml(transformed));
       });
-      const data = (await res.json()) as { text?: string; error?: string };
-      if (!res.ok) throw new Error(data.error || "Erro na geração por IA.");
-
-      if (data.text) {
-        editor
-          .chain()
-          .focus()
-          .deleteSelection()
-          .insertContent(sanitizeImportedHtml(data.text))
-          .run();
-      }
       showNotification("Transformação aplicada com sucesso.", "success");
     } catch (err) {
       showNotification(err instanceof Error ? err.message : "Erro desconhecido na IA.", "error");
@@ -346,14 +382,17 @@ export default function PostEditor({
       if (!editor) return;
       const file = event.target.files?.[0];
       if (!file) return;
+      if (!onUploadImage) {
+        showNotification(
+          "O upload de imagens não está disponível nesta sessão desktop. Use uma URL pública.",
+          "error",
+        );
+        return;
+      }
       setIsUploading(true);
       showNotification("Enviando arquivo...", "info");
-      const formData = new FormData();
-      formData.append("file", file);
       try {
-        const res = await fetch("/api/mainsite/upload", { method: "POST", body: formData });
-        if (!res.ok) throw new Error("Falha na consolidação do arquivo.");
-        const data = (await res.json()) as { url: string };
+        const data = await onUploadImage(file);
         showNotification("Upload concluído com sucesso.", "success");
         openPromptModal({
           title: "Finalizar inserção da imagem:",
@@ -387,7 +426,7 @@ export default function PostEditor({
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [editor, showNotification, insertCaptionBlock, openPromptModal],
+    [editor, onUploadImage, showNotification, insertCaptionBlock, openPromptModal],
   );
 
   const handleWordUpload = useCallback(
@@ -615,9 +654,25 @@ export default function PostEditor({
     }
 
     const onFigure = () => addFigureImage();
-    const onUpload = () => fileInputRef.current?.click();
+    const onUpload = () => {
+      if (editorBusy) return;
+      if (onUploadImage) fileInputRef.current?.click();
+      else
+        showNotification(
+          "O upload de imagens não está disponível nesta sessão desktop. Use uma URL pública.",
+          "error",
+        );
+    };
     const onYoutube = () => addYoutube();
-    const onAi = () => setAiChatOpen(true);
+    const onAi = () => {
+      if (editorBusy) return;
+      if (onTransformText) setAiChatOpen(true);
+      else
+        showNotification(
+          "A transformação por IA não está disponível nesta sessão desktop.",
+          "error",
+        );
+    };
 
     ownerDoc.addEventListener(TIPTAP_SLASH_EVENTS.figure, onFigure);
     ownerDoc.addEventListener(TIPTAP_SLASH_EVENTS.upload, onUpload);
@@ -630,7 +685,15 @@ export default function PostEditor({
       ownerDoc.removeEventListener(TIPTAP_SLASH_EVENTS.youtube, onYoutube);
       ownerDoc.removeEventListener(TIPTAP_SLASH_EVENTS.ai, onAi);
     };
-  }, [editor, addFigureImage, addYoutube]);
+  }, [
+    editor,
+    addFigureImage,
+    addYoutube,
+    editorBusy,
+    onTransformText,
+    onUploadImage,
+    showNotification,
+  ]);
 
   const adjustSelectedMediaSize = useCallback(
     (direction: 1 | -1) => {
@@ -719,13 +782,6 @@ export default function PostEditor({
     });
   }, [editor, showNotification, insertCaptionBlock, openPromptModal]);
 
-  // ── Local feedback helper (visible in popup window) ─────────
-  const flashFeedback = useCallback((message: string, type: NonNullable<SaveFeedback>["type"]) => {
-    if (saveFeedbackTimer.current) clearTimeout(saveFeedbackTimer.current);
-    setSaveFeedback({ message, type });
-    saveFeedbackTimer.current = setTimeout(() => setSaveFeedback(null), 5000);
-  }, []);
-
   // Clear the pending feedback timer on unmount so it cannot fire after the
   // editor is closed (F2).
   useEffect(() => {
@@ -770,6 +826,7 @@ export default function PostEditor({
   };
 
   const submitPost = async (confirmedAboutAction = false) => {
+    if (!editor?.isEditable || editorBusy) return;
     const title = postTitle.trim();
     const author = postAuthor.trim();
     const rawContent = editor?.getHTML()?.trim() ?? "";
@@ -799,15 +856,28 @@ export default function PostEditor({
       return;
     }
 
-    const success = await onSave(
-      title,
-      author,
-      content,
-      postIsPublished,
-      postIsAboutSite,
-      confirmedAboutAction,
-      requestedPostId,
-    );
+    let success = false;
+    setPromptModal(PROMPT_MODAL_INITIAL);
+    setAiChatOpen(false);
+    setIsSubmittingPost(true);
+    try {
+      success = await withEditorReadOnly(editor, () =>
+        onSave(
+          title,
+          author,
+          content,
+          postIsPublished,
+          postIsAboutSite,
+          confirmedAboutAction,
+          requestedPostId,
+          sharedChatEvidence,
+        ),
+      );
+    } catch (error) {
+      showNotification(error instanceof Error ? error.message : "Falha ao salvar o post.", "error");
+    } finally {
+      setIsSubmittingPost(false);
+    }
     if (success) {
       setShowAboutConversionConfirm(false);
       setShowAboutRestoreConfirm(false);
@@ -994,7 +1064,7 @@ export default function PostEditor({
             className="ghost-button"
             title="Exportar o conteúdo final em Markdown e baixar a proveniência separadamente"
             onClick={() => handleFinalContentExport("markdown")}
-            disabled={savingPost || !editor}
+            disabled={editorBusy || !editor}
           >
             <FileText size={16} />
             Markdown
@@ -1004,7 +1074,7 @@ export default function PostEditor({
             className="ghost-button"
             title="Exportar o fragmento HTML final compatível com MainSite e sua proveniência"
             onClick={() => handleFinalContentExport("html")}
-            disabled={savingPost || !editor}
+            disabled={editorBusy || !editor}
           >
             <Code size={16} />
             HTML MainSite
@@ -1014,7 +1084,7 @@ export default function PostEditor({
             className="ghost-button"
             title="Abrir o diálogo do sistema para salvar como PDF; a proveniência será baixada separadamente"
             onClick={() => handleFinalContentExport("pdf")}
-            disabled={savingPost || !editor}
+            disabled={editorBusy || !editor}
           >
             <Printer size={16} />
             PDF
@@ -1029,13 +1099,13 @@ export default function PostEditor({
                 }
                 setPostIdEditorOpen((open) => !open);
               }}
-              disabled={savingPost}
+              disabled={editorBusy}
             >
               <Hash size={16} />
               Editar ID
             </button>
           )}
-          <button type="submit" className="primary-button" disabled={savingPost}>
+          <button type="submit" className="primary-button" disabled={editorBusy}>
             {savingPost ? (
               <Loader2 size={16} className="spin" />
             ) : editingPostId ? (
@@ -1055,12 +1125,12 @@ export default function PostEditor({
             type="button"
             className="ghost-button"
             onClick={handleClear}
-            disabled={savingPost}
+            disabled={editorBusy}
           >
             <X size={16} />
             Limpar
           </button>
-          <button type="button" className="ghost-button" onClick={onClose} disabled={savingPost}>
+          <button type="button" className="ghost-button" onClick={onClose} disabled={editorBusy}>
             <X size={16} />
             Fechar
           </button>
@@ -1110,7 +1180,7 @@ export default function PostEditor({
               value={postIdDraft}
               onChange={(event) => setPostIdDraft(event.target.value)}
               placeholder={editingPostId ? String(editingPostId) : "Automático"}
-              disabled={savingPost}
+              disabled={editorBusy}
             />
           </div>
           <p>
@@ -1127,7 +1197,7 @@ export default function PostEditor({
           name="mainsitePostTitle"
           value={postTitle}
           onChange={(event) => setPostTitle(event.target.value)}
-          disabled={savingPost}
+          disabled={editorBusy}
         />
       </div>
 
@@ -1139,7 +1209,7 @@ export default function PostEditor({
           value={postAuthor}
           onChange={(event) => setPostAuthor(event.target.value)}
           placeholder="Leonardo Cardozo Vargas"
-          disabled={savingPost}
+          disabled={editorBusy}
         />
       </div>
 
@@ -1150,7 +1220,7 @@ export default function PostEditor({
               type="checkbox"
               checked={postIsPublished}
               onChange={(event) => setPostIsPublished(event.target.checked)}
-              disabled={savingPost || (aboutMode && postIsAboutSite)}
+              disabled={editorBusy || (aboutMode && postIsAboutSite)}
             />
             <span>Visível no site (quando desmarcado, o post fica oculto para visitantes)</span>
           </label>
@@ -1163,7 +1233,7 @@ export default function PostEditor({
                 setShowAboutConversionConfirm(false);
                 setShowAboutRestoreConfirm(false);
               }}
-              disabled={savingPost}
+              disabled={editorBusy}
             />
             <span>Sobre Este Site</span>
           </label>
@@ -1184,7 +1254,7 @@ export default function PostEditor({
               type="button"
               className="ghost-button"
               onClick={() => setShowAboutConversionConfirm(false)}
-              disabled={savingPost}
+              disabled={editorBusy}
             >
               Cancelar
             </button>
@@ -1192,7 +1262,7 @@ export default function PostEditor({
               type="button"
               className="primary-button"
               onClick={() => void submitPost(true)}
-              disabled={savingPost}
+              disabled={editorBusy}
             >
               Confirmar conversão
             </button>
@@ -1217,7 +1287,7 @@ export default function PostEditor({
                 setPostIsAboutSite(true);
                 setShowAboutRestoreConfirm(false);
               }}
-              disabled={savingPost}
+              disabled={editorBusy}
             >
               Cancelar
             </button>
@@ -1225,7 +1295,7 @@ export default function PostEditor({
               type="button"
               className="primary-button"
               onClick={() => void submitPost(true)}
-              disabled={savingPost}
+              disabled={editorBusy}
             >
               Confirmar restauração
             </button>
@@ -1236,7 +1306,7 @@ export default function PostEditor({
       {/* ── TipTap Editor ────────────────────────────────────────────── */}
       <div className="tiptap-container">
         {editor && (
-          <div className="tiptap-toolbar">
+          <div className="tiptap-toolbar" inert={editorBusy}>
             <EditorPromptModal
               modal={promptModal}
               setModal={setPromptModal}
@@ -1249,7 +1319,11 @@ export default function PostEditor({
               <select
                 id="ai-action"
                 name="aiAction"
-                title="Inteligência Artificial (Gemini Pro)"
+                title={
+                  onTransformText
+                    ? "Inteligência Artificial"
+                    : "Transformação por IA indisponível nesta sessão desktop"
+                }
                 autoComplete="off"
                 onChange={(e) => {
                   if (e.target.value) {
@@ -1257,10 +1331,14 @@ export default function PostEditor({
                     e.target.value = "";
                   }
                 }}
-                disabled={isGeneratingAI}
+                disabled={isGeneratingAI || !onTransformText}
               >
                 <option value="">
-                  {isGeneratingAI ? "Processando..." : "IA: Aprimorar Texto"}
+                  {isGeneratingAI
+                    ? "Processando..."
+                    : onTransformText
+                      ? "IA: Aprimorar Texto"
+                      : "IA indisponível"}
                 </option>
                 <option value="grammar">Corrigir Gramática</option>
                 <option value="summarize">Resumir Seleção</option>
@@ -1615,12 +1693,17 @@ export default function PostEditor({
               title="Upload de imagem"
               className="tiptap-hidden-input"
               onChange={handleImageUpload}
+              disabled={!onUploadImage}
             />
             <button
               type="button"
-              title="Upload de imagem (R2)"
+              title={
+                onUploadImage
+                  ? "Upload de imagem"
+                  : "Upload indisponível nesta sessão desktop; use Imagem por URL"
+              }
               onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
+              disabled={isUploading || !onUploadImage}
             >
               {isUploading ? <Loader2 size={15} className="spin" /> : <Upload size={15} />}
             </button>
@@ -1818,10 +1901,14 @@ export default function PostEditor({
               <button
                 ref={aiChatBtnRef}
                 type="button"
-                title="IA: Instrução Livre (Gemini)"
+                title={
+                  onTransformText
+                    ? "IA: Instrução Livre"
+                    : "Transformação por IA indisponível nesta sessão desktop"
+                }
                 onClick={() => setAiChatOpen(!aiChatOpen)}
                 className={aiChatOpen ? "active" : ""}
-                disabled={isGeneratingAI}
+                disabled={isGeneratingAI || !onTransformText}
               >
                 {isGeneratingAI ? <Loader2 size={15} className="spin" /> : <Wand2 size={15} />}
               </button>
@@ -1934,15 +2021,15 @@ export default function PostEditor({
             </div>
           )}
         </div>
-        {editor && (
+        {editor && !editorBusy && (
           <DragHandle editor={editor} className="tiptap-drag-handle" onNodeChange={() => undefined}>
             <GripVertical size={14} strokeWidth={2.2} />
           </DragHandle>
         )}
-        <EditorContent editor={editor} className="tiptap-editor" />
-        {editor && <SearchReplacePanel editor={editor} />}
-        {editor && <EditorBubbleMenu editor={editor} onLinkClick={addLink} />}
-        {editor && (
+        <EditorContent editor={editor} className="tiptap-editor" inert={editorBusy} />
+        {editor && !editorBusy && <SearchReplacePanel editor={editor} />}
+        {editor && !editorBusy && <EditorBubbleMenu editor={editor} onLinkClick={addLink} />}
+        {editor && !editorBusy && (
           <EditorFloatingMenu
             editor={editor}
             onInsertTable={() =>

@@ -10,6 +10,7 @@ import type {
 type AiProviderSettingsPanelProps = {
   aiConfigStatus: string;
   aiCredentials: Record<AiCredentialKey, string>;
+  geminiCliProjectId: string;
   isSaving: boolean;
   isVerifying: boolean;
   probeRows: AiProviderProbeRow[];
@@ -18,6 +19,7 @@ type AiProviderSettingsPanelProps = {
   providerOutputRates: Record<ProviderRateKey, string>;
   onChooseProviderMode: (mode: ProviderMode) => void;
   onCredentialChange: (provider: AiCredentialKey, value: string) => void;
+  onGeminiCliProjectIdChange: (value: string) => void;
   onInputRateChange: (provider: ProviderRateKey, value: string) => void;
   onOutputRateChange: (provider: ProviderRateKey, value: string) => void;
   onSave: () => void;
@@ -27,6 +29,7 @@ type AiProviderSettingsPanelProps = {
 export function AiProviderSettingsPanel({
   aiConfigStatus,
   aiCredentials,
+  geminiCliProjectId,
   isSaving,
   isVerifying,
   probeRows,
@@ -35,6 +38,7 @@ export function AiProviderSettingsPanel({
   providerOutputRates,
   onChooseProviderMode,
   onCredentialChange,
+  onGeminiCliProjectIdChange,
   onInputRateChange,
   onOutputRateChange,
   onSave,
@@ -45,7 +49,7 @@ export function AiProviderSettingsPanel({
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Ajustes</p>
-          <h2>Agentes via API</h2>
+          <h2>Agentes</h2>
         </div>
         <KeyRound size={20} />
       </div>
@@ -57,6 +61,7 @@ export function AiProviderSettingsPanel({
             className={providerMode === mode ? "active" : ""}
             type="button"
             aria-pressed={providerMode === mode}
+            disabled={isSaving || isVerifying}
             onClick={() => onChooseProviderMode(mode)}
           >
             {mode === "hybrid" ? "Hibrido" : mode.toUpperCase()}
@@ -85,6 +90,7 @@ export function AiProviderSettingsPanel({
               {provider.secretLabel}
               <input
                 type="password"
+                disabled={isSaving || isVerifying}
                 autoComplete="off"
                 spellCheck={false}
                 value={aiCredentials[provider.key]}
@@ -96,6 +102,33 @@ export function AiProviderSettingsPanel({
           </div>
         ))}
       </div>
+
+      {providerMode !== "api" && (
+        <div className="credential-row">
+          <div>
+            <strong>Gemini via Antigravity CLI</strong>
+            <span>Projeto nativo configurado neste computador</span>
+          </div>
+          <label>
+            ID do projeto nativo do Gemini CLI
+            <input
+              type="text"
+              disabled={isSaving || isVerifying}
+              autoComplete="off"
+              spellCheck={false}
+              value={geminiCliProjectId}
+              onChange={(event) => onGeminiCliProjectIdChange(event.target.value)}
+              placeholder="ID criado pelo Antigravity"
+              aria-describedby="gemini-cli-project-help"
+            />
+          </label>
+          <em id="gemini-cli-project-help">
+            Configure no projeto nativo as regras Deny: write_file(*), command(*), mcp(*) e
+            execute_url(*). O Maestro verifica essa politica antes de cada chamada CLI e bloqueia a
+            execucao se ela nao for confirmada. Para usar a API, selecione o modo API.
+          </em>
+        </div>
+      )}
 
       <div className="rate-card-panel" aria-label="Tabela de tarifas dos provedores">
         <div>
@@ -121,6 +154,7 @@ export function AiProviderSettingsPanel({
                 <span>Entrada USD / 1M</span>
                 <input
                   inputMode="decimal"
+                  disabled={isSaving || isVerifying}
                   value={providerInputRates[provider.key]}
                   onChange={(event) => onInputRateChange(provider.key, event.target.value)}
                   placeholder="ex.: 0.55"
@@ -130,6 +164,7 @@ export function AiProviderSettingsPanel({
                 <span>Saida USD / 1M</span>
                 <input
                   inputMode="decimal"
+                  disabled={isSaving || isVerifying}
                   value={providerOutputRates[provider.key]}
                   onChange={(event) => onOutputRateChange(provider.key, event.target.value)}
                   placeholder="ex.: 2.19"
@@ -153,7 +188,7 @@ export function AiProviderSettingsPanel({
           aria-busy={isSaving}
         >
           <KeyRound size={18} />
-          {isSaving ? "Salvando" : "Salvar APIs"}
+          {isSaving ? "Salvando" : "Salvar provedores"}
         </button>
         <button
           className={isVerifying ? "secondary-button busy" : "secondary-button"}

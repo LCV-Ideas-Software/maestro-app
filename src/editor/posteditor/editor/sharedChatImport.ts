@@ -161,7 +161,8 @@ function optionalIsoDate(value: unknown): string | null | undefined {
   if (value === null) return null;
   if (typeof value !== "string" || !value.trim()) return undefined;
   const normalized = value.trim();
-  return Number.isNaN(Date.parse(normalized)) ? undefined : normalized;
+  const timestamp = Date.parse(normalized);
+  return Number.isNaN(timestamp) ? undefined : new Date(timestamp).toISOString();
 }
 
 function optionalSha256(value: unknown): string | null | undefined {

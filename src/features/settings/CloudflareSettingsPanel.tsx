@@ -25,6 +25,7 @@ type CloudflareSettingsPanelProps = {
   cloudflareTokenEnvVar: string;
   credentialStorageMode: CredentialStorageMode;
   isVerifying: boolean;
+  isBusy?: boolean;
   onAccountIdChange: (value: string) => void;
   onApiTokenChange: (value: string) => void;
   onChooseCredentialStorage: (mode: CredentialStorageMode) => void;
@@ -45,6 +46,7 @@ export function CloudflareSettingsPanel({
   cloudflareTokenEnvVar,
   credentialStorageMode,
   isVerifying,
+  isBusy = false,
   onAccountIdChange,
   onApiTokenChange,
   onChooseCredentialStorage,
@@ -69,6 +71,7 @@ export function CloudflareSettingsPanel({
             className={credentialStorageMode === item.mode ? "active" : ""}
             type="button"
             aria-pressed={credentialStorageMode === item.mode}
+            disabled={isBusy || isVerifying}
             onClick={() => onChooseCredentialStorage(item.mode)}
           >
             <strong>{item.label}</strong>
@@ -102,6 +105,7 @@ export function CloudflareSettingsPanel({
           <label htmlFor="cloudflare-account-id">Account ID</label>
           <input
             id="cloudflare-account-id"
+            disabled={isBusy || isVerifying}
             autoComplete="off"
             spellCheck={false}
             value={cloudflareAccountId}
@@ -113,6 +117,7 @@ export function CloudflareSettingsPanel({
           <label htmlFor="cloudflare-api-token">API token</label>
           <input
             id="cloudflare-api-token"
+            disabled={isBusy || isVerifying}
             type="password"
             autoComplete="off"
             spellCheck={false}
@@ -125,6 +130,7 @@ export function CloudflareSettingsPanel({
           <label htmlFor="cloudflare-publication-database">Banco D1 de publicacao</label>
           <input
             id="cloudflare-publication-database"
+            disabled={isBusy || isVerifying}
             autoComplete="off"
             spellCheck={false}
             value={cloudflarePublicationDatabase}
@@ -136,6 +142,7 @@ export function CloudflareSettingsPanel({
           <label htmlFor="cloudflare-publication-table">Tabela de posts</label>
           <input
             id="cloudflare-publication-table"
+            disabled={isBusy || isVerifying}
             autoComplete="off"
             spellCheck={false}
             value={cloudflarePublicationTable}
@@ -165,7 +172,7 @@ export function CloudflareSettingsPanel({
           className={isVerifying ? "primary-button busy" : "primary-button"}
           type="button"
           onClick={onVerify}
-          disabled={isVerifying}
+          disabled={isBusy || isVerifying}
         >
           {isVerifying ? <RefreshCw size={18} /> : <ShieldCheck size={18} />}
           {isVerifying ? "Verificando e preparando" : "Verificar e preparar"}

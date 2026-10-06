@@ -99,6 +99,7 @@ pub(crate) fn stop_editorial_session(
     log_session: tauri::State<'_, LogSession>,
     run_id: String,
 ) -> Result<bool, String> {
+    let run_id = sanitize_path_segment(&run_id, 120);
     let signaled = session_cancel::signal_session_cancel(&run_id);
     let _ = write_log_record(
         log_session.inner(),
@@ -117,8 +118,14 @@ pub(crate) fn stop_editorial_session(
 
 fn run_editorial_session_blocking(
     log_session: LogSession,
-    request: EditorialSessionRequest,
+    mut request: EditorialSessionRequest,
 ) -> Result<EditorialSessionResult, String> {
+    request.run_id = sanitize_path_segment(&request.run_id, 120);
+    if request.run_id.is_empty() {
+        return Err("run_id vazio".to_string());
+    }
+    let (cancel_token, _session_guard) =
+        session_cancel::acquire_session_execution(&request.run_id)?;
     let _ = write_log_record(
         &log_session,
         LogEventInput {
@@ -143,12 +150,6 @@ fn run_editorial_session_blocking(
             })),
         },
     );
-
-    // Register cancellation token before entering the orchestration loop. The
-    // RAII guard drops it when this function returns (success, error, panic),
-    // so the static map does not grow unbounded across many sessions.
-    let cancel_token = session_cancel::register_session_cancel(&request.run_id);
-    let _cancel_guard = session_cancel::CancelTokenGuard::new(request.run_id.clone());
 
     let result = match run_editorial_session_inner(&request, &log_session, &cancel_token) {
         Ok(result) => result,
@@ -220,6 +221,8 @@ fn resume_editorial_session_blocking(
     if !session_dir.is_dir() {
         return Err("sessao nao encontrada em data/sessions".to_string());
     }
+    // Acquire custody before reading mutable state or backing up an override.
+    let (cancel_token, _session_guard) = session_cancel::acquire_session_execution(&run_id)?;
 
     let prompt_path = session_dir.join("prompt.md");
     let protocol_path = session_dir.join("protocolo.md");
@@ -346,9 +349,6 @@ fn resume_editorial_session_blocking(
         }),
     };
 
-    let cancel_token = session_cancel::register_session_cancel(&request.run_id);
-    let _cancel_guard = session_cancel::CancelTokenGuard::new(request.run_id.clone());
-
     let result =
         match run_editorial_session_core(&request, &log_session, Some(resume_state), &cancel_token)
         {
@@ -420,6 +420,9 @@ fn list_resumable_sessions_blocking(
             continue;
         };
         let path = root.join(run_id);
+        if session_cancel::session_execution_is_active(&path)? {
+            continue;
+        }
         if let Some(info) = inspect_resumable_session_dir(&path)? {
             sessions.push(info);
         }

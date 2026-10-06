@@ -88,6 +88,7 @@ pub(crate) fn persist_ai_provider_cloudflare_marker(
         schema_version: config.schema_version,
         provider_mode: config.provider_mode.clone(),
         credential_storage_mode: "cloudflare".to_string(),
+        gemini_cli_project_id: config.gemini_cli_project_id.clone(),
         openai_api_key: None,
         anthropic_api_key: None,
         gemini_api_key: None,

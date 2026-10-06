@@ -78,6 +78,33 @@ function mergeRecords(current: LinkIntegrityRecord[], incoming: LinkIntegrityRec
   );
 }
 
+function matchesFilters(record: LinkIntegrityRecord, filters: LinkIntegrityListRequest) {
+  if (filters.source_artifact && record.source_artifact !== filters.source_artifact) return false;
+  if (filters.classifications?.length && !filters.classifications.includes(record.classification))
+    return false;
+  if (
+    filters.cross_review_statuses?.length &&
+    !filters.cross_review_statuses.includes(record.cross_review_status)
+  )
+    return false;
+  if (filters.needs_review_only && record.cross_review_status !== "pending") return false;
+  // Match the native inventory's fields and ASCII folding in link_integrity.rs.
+  const asciiLower = (value: string) => value.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+  const query = asciiLower(filters.query?.trim() ?? "");
+  return (
+    !query ||
+    asciiLower(
+      [
+        record.original_url,
+        record.normalized_url,
+        record.anchor_text ?? "",
+        record.surrounding_text,
+        record.review_note ?? "",
+      ].join(" "),
+    ).includes(query)
+  );
+}
+
 function claimSupportLabel(record: LinkIntegrityRecord) {
   if (record.claim_supported === null) return "Ainda não julgado editorialmente";
   if (record.claim_supported && record.review_decision === "accept") {
@@ -106,13 +133,8 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
   const [candidateQuery, setCandidateQuery] = useState("");
 
   const visibleRecords = useMemo(
-    () =>
-      records.filter(
-        (record) =>
-          !appliedFilters.source_artifact ||
-          record.source_artifact === appliedFilters.source_artifact,
-      ),
-    [records, appliedFilters.source_artifact],
+    () => records.filter((record) => matchesFilters(record, appliedFilters)),
+    [records, appliedFilters],
   );
   const selected = useMemo(
     () => visibleRecords.find((record) => record.link_id === selectedId) ?? null,
@@ -149,10 +171,13 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
 
   useEffect(() => {
     if (recentRecords.length === 0) return;
+    const matchingRecords = recentRecords.filter((record) =>
+      matchesFilters(record, appliedFilters),
+    );
     setRecords((current) => mergeRecords(current, recentRecords));
-    setSelectedId((current) => current ?? recentRecords[0]?.link_id ?? null);
-    setTotal((current) => Math.max(current, recentRecords.length));
-  }, [recentRecords]);
+    setSelectedId((current) => current ?? matchingRecords[0]?.link_id ?? null);
+    setTotal((current) => Math.max(current, matchingRecords.length));
+  }, [recentRecords, appliedFilters]);
 
   useEffect(() => {
     setReviewDecision(null);
@@ -301,7 +326,7 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
               onKeyDown={(event) => {
                 if (event.key === "Enter" && busy === null) applyFilters();
               }}
-              placeholder="Âncora, contexto, URL ou artefato"
+              placeholder="Âncora, contexto, URL ou nota de revisão"
             />
             <select
               aria-label="Filtrar por origem do link"
@@ -397,7 +422,7 @@ export function LinkIntegrityPanel({ recentRecords }: LinkIntegrityPanelProps) {
               disabled={busy !== null}
               onClick={() => void loadInventory(nextCursor)}
             >
-              Carregar mais ({records.length.toLocaleString("pt-BR")} de{" "}
+              Carregar mais ({visibleRecords.length.toLocaleString("pt-BR")} de{" "}
               {total.toLocaleString("pt-BR")})
             </button>
           )}

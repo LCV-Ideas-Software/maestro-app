@@ -6,8 +6,11 @@ use crate::{
     EditorialAgentSpec, ProviderCacheTelemetry,
 };
 
-const REVIEW_MAX_TOKENS: u64 = 20_000;
-const DRAFT_MAX_TOKENS: u64 = 20_000;
+// Reasoning and final text share these limits on current frontier models.
+// 64K leaves editorial headroom; model-specific lower maxima are clamped by
+// the adapter before sending the request.
+const REVIEW_MAX_TOKENS: u64 = 65_536;
+const DRAFT_MAX_TOKENS: u64 = 65_536;
 
 #[derive(Clone, Copy)]
 pub(crate) struct ProviderCostRates {
@@ -212,6 +215,64 @@ pub(crate) fn provider_cost(
         + (output_tokens as f64 / 1_000_000.0 * rates.output_usd_per_million)
 }
 
+/// Tariffs remain operator-owned. Apply the provider's documented token
+/// breakdown instead of losing cache writes or charging them as ordinary input.
+pub(crate) fn anthropic_provider_cost(parsed: &Value, rates: ProviderCostRates) -> Option<f64> {
+    let regular = parsed.pointer("/usage/input_tokens")?.as_u64()?;
+    let output = parsed.pointer("/usage/output_tokens")?.as_u64()?;
+    let created = parsed
+        .pointer("/usage/cache_creation_input_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let read = parsed
+        .pointer("/usage/cache_read_input_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    // Cache reads use the ordinary input tariff as a conservative estimate:
+    // the settings surface currently has no operator-owned cache-read tariff.
+    // The request sets the provider's 5-minute TTL, whose writes cost 1.25x.
+    Some(
+        provider_cost(regular.saturating_add(read), output, rates)
+            + created as f64 / 1_000_000.0 * rates.input_usd_per_million * 1.25,
+    )
+}
+
+pub(crate) fn openai_provider_cost(
+    parsed: &Value,
+    model: &str,
+    rates: ProviderCostRates,
+) -> Option<f64> {
+    let (input, output) = usage_tokens(parsed);
+    let (input, output) = input.zip(output)?;
+    if !(model.starts_with("gpt-6") || model.starts_with("gpt-5.6")) {
+        return Some(provider_cost(input, output, rates));
+    }
+    let cached = parsed
+        .pointer("/usage/input_tokens_details/cached_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .min(input);
+    let written = parsed
+        .pointer("/usage/input_tokens_details/cache_write_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .min(input.saturating_sub(cached));
+    let ordinary = input.saturating_sub(cached).saturating_sub(written);
+    let read_multiplier = if model.starts_with("gpt-6.1-sol") {
+        0.05
+    } else {
+        0.1
+    };
+    let input_multiplier = if input > 272_000 { 2.0 } else { 1.0 };
+    let output_multiplier = if input > 272_000 { 1.5 } else { 1.0 };
+    Some(
+        (ordinary as f64 + cached as f64 * read_multiplier + written as f64 * 1.25) / 1_000_000.0
+            * rates.input_usd_per_million
+            * input_multiplier
+            + output as f64 / 1_000_000.0 * rates.output_usd_per_million * output_multiplier,
+    )
+}
+
 pub(crate) fn provider_cost_guard_for(
     max_session_cost_usd: Option<f64>,
     rates: Option<ProviderCostRates>,
@@ -257,6 +318,11 @@ pub(crate) fn provider_cache_plan(
         cache_key_hash.chars().take(32).collect::<String>()
     );
     let (provider_mode, cache_control_status, cache_retention) = match provider {
+        "openai" if model.starts_with("gpt-6") || model.starts_with("gpt-5.6") => (
+            "prompt_cache_options".to_string(),
+            "prompt_cache_options_30m".to_string(),
+            Some("30m".to_string()),
+        ),
         "openai" if openai_supports_extended_prompt_cache(model) => (
             "prompt_cache_key".to_string(),
             "prompt_cache_key_24h".to_string(),
@@ -334,7 +400,22 @@ pub(crate) fn usage_tokens(parsed: &Value) -> (Option<u64>, Option<u64>) {
     let input = parsed
         .pointer("/usage/prompt_tokens")
         .or_else(|| parsed.pointer("/usage/input_tokens"))
-        .and_then(Value::as_u64);
+        .and_then(Value::as_u64)
+        .map(|input| {
+            input
+                .saturating_add(
+                    parsed
+                        .pointer("/usage/cache_creation_input_tokens")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0),
+                )
+                .saturating_add(
+                    parsed
+                        .pointer("/usage/cache_read_input_tokens")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0),
+                )
+        });
     let output = parsed
         .pointer("/usage/completion_tokens")
         .or_else(|| parsed.pointer("/usage/output_tokens"))
@@ -386,7 +467,9 @@ pub(crate) fn provider_cache_telemetry(
                     .zip(cached)
                     .map(|(input, cached)| input.saturating_sub(cached)),
                 cache_read_input_tokens: None,
-                cache_creation_input_tokens: None,
+                cache_creation_input_tokens: parsed
+                    .pointer("/usage/input_tokens_details/cache_write_tokens")
+                    .and_then(Value::as_u64),
             })
         }
         "anthropic" => {
@@ -490,9 +573,10 @@ pub(crate) fn provider_cache_telemetry(
 #[cfg(test)]
 mod tests {
     use super::{
-        can_agent_review_current_draft, independent_review_agent_specs, provider_cache_plan,
-        provider_cache_telemetry, provider_cache_telemetry_with_plan, selected_review_agent_specs,
-        ReviewPanelSelectionError,
+        anthropic_provider_cost, can_agent_review_current_draft, independent_review_agent_specs,
+        openai_provider_cost, provider_cache_plan, provider_cache_telemetry,
+        provider_cache_telemetry_with_plan, selected_review_agent_specs, usage_tokens,
+        ProviderCostRates, ReviewPanelSelectionError,
     };
     use serde_json::json;
 
@@ -654,6 +738,30 @@ mod tests {
     }
 
     #[test]
+    fn deepseek_chat_usage_charges_cached_and_reasoning_completion_tokens_once() {
+        let parsed = json!({ "usage": { "prompt_tokens": 2000, "completion_tokens": 100,
+            "prompt_cache_hit_tokens": 1500, "prompt_cache_miss_tokens": 500,
+            "completion_tokens_details": { "reasoning_tokens": 60 } } });
+        let (input, output) = usage_tokens(&parsed);
+        assert_eq!((input, output), (Some(2000), Some(100)));
+        let cache = provider_cache_telemetry("deepseek", &parsed, input).unwrap();
+        assert_eq!(cache.cache_read_input_tokens, Some(1500));
+        assert_eq!(
+            cache.cache_hit_tokens.unwrap() + cache.cache_miss_tokens.unwrap(),
+            input.unwrap()
+        );
+        let cost = super::provider_cost(
+            input.unwrap(),
+            output.unwrap(),
+            ProviderCostRates {
+                input_usd_per_million: 1.0,
+                output_usd_per_million: 2.0,
+            },
+        );
+        assert!((cost - 0.0022).abs() < 1e-12);
+    }
+
+    #[test]
     fn provider_cache_plan_uses_extended_openai_retention_when_supported() {
         for model in ["gpt-5.2", "gpt-5.5", "gpt-5.5-pro", "gpt-5.4"] {
             let plan = provider_cache_plan("openai", model, "draft", "Codex", "system");
@@ -678,15 +786,45 @@ mod tests {
     }
 
     #[test]
-    fn provider_cache_plan_omits_extended_openai_retention_for_gpt_56_family() {
-        let plan = provider_cache_plan("openai", "gpt-5.6-sol", "draft", "Codex", "system");
+    fn provider_cache_plan_uses_native_ttl_for_current_openai_models() {
+        for model in ["gpt-5.6-sol", "gpt-6-astra", "gpt-6.1-sol"] {
+            let plan = provider_cache_plan("openai", model, "draft", "Codex", "system");
+            assert_eq!(plan.provider_mode, "prompt_cache_options");
+            assert_eq!(plan.cache_control_status, "prompt_cache_options_30m");
+            assert_eq!(plan.cache_retention.as_deref(), Some("30m"));
+        }
+    }
 
-        assert_eq!(plan.provider_mode, "prompt_cache_key");
-        assert_eq!(
-            plan.cache_control_status,
-            "prompt_cache_key_default_retention"
-        );
-        assert_eq!(plan.cache_retention, None);
+    #[test]
+    fn anthropic_cached_input_is_counted_and_cache_creation_is_billed() {
+        let parsed = json!({ "usage": { "input_tokens": 50, "output_tokens": 100,
+            "cache_creation_input_tokens": 4000, "cache_read_input_tokens": 2000 } });
+        assert_eq!(usage_tokens(&parsed), (Some(6050), Some(100)));
+        let rates = ProviderCostRates {
+            input_usd_per_million: 10.0,
+            output_usd_per_million: 50.0,
+        };
+        // Operator tariffs: uncached/read upper estimate + 1.25x cache writes.
+        let cost = anthropic_provider_cost(&parsed, rates).unwrap();
+        assert!((cost - 0.0755).abs() < 0.0000001);
+    }
+
+    #[test]
+    fn openai_cost_separates_cache_reads_writes_and_long_context_surcharge() {
+        let rates = ProviderCostRates {
+            input_usd_per_million: 10.0,
+            output_usd_per_million: 50.0,
+        };
+        let parsed = json!({ "usage": { "input_tokens": 10000, "output_tokens": 100,
+            "input_tokens_details": { "cached_tokens": 3000, "cache_write_tokens": 4000 } } });
+        let cost = openai_provider_cost(&parsed, "gpt-6-astra", rates).unwrap();
+        assert!((cost - 0.088).abs() < 0.0000001);
+        let cache = provider_cache_telemetry("openai", &parsed, Some(10000)).unwrap();
+        assert_eq!(cache.cache_creation_input_tokens, Some(4000));
+
+        let long = json!({ "usage": { "input_tokens": 300000, "output_tokens": 100 } });
+        let cost = openai_provider_cost(&long, "gpt-6-astra", rates).unwrap();
+        assert!((cost - 6.0075).abs() < 0.0000001);
     }
 
     #[test]

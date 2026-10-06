@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 
 use crate::sanitize::{sanitize_short, sanitize_text};
 use crate::session_evidence::{read_attachment_bytes, AttachmentManifestEntry};
+use crate::web_evidence::url_has_sensitive_parameters;
 
 const RESULT_SCHEMA: &str = "maestro_peer.v1";
 const CITATION_SCHEMA: &str = "citation.v1";
@@ -1480,7 +1481,11 @@ fn format_reference(source: &CitationSource) -> String {
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        parts.push(format!("In: {}.", sanitize_text(container, 400)));
+        if source.source_type == CitationSourceType::Article {
+            parts.push(format!("{},", sanitize_text(container, 400)));
+        } else {
+            parts.push(format!("In: {}.", sanitize_text(container, 400)));
+        }
     }
     let place = source.place.as_deref().unwrap_or_default().trim();
     let publisher = source.publisher.as_deref().unwrap_or_default().trim();
@@ -1576,7 +1581,7 @@ fn format_reference(source: &CitationSource) -> String {
         .map(str::trim)
         .filter(|v| !v.is_empty())
     {
-        parts.push(format!("Disponivel em: {}.", sanitize_text(url, 1000)));
+        parts.push(format!("Disponível em: {}.", sanitize_text(url, 1000)));
     }
     if let Some(accessed) = source
         .accessed_at
@@ -1824,6 +1829,19 @@ fn validate_manifest(
             continue;
         };
         used_sources.insert(citation.source_id.clone());
+        if citation.citation_type != CitationType::Apud
+            && citation.year.trim() != source.year.trim()
+        {
+            blockers.push(blocker(
+                "citation_source_year_mismatch",
+                "O ano da citacao deve corresponder ao ano da fonte verificada.",
+                "error",
+                Some(&claim_id),
+                Some(&source_id),
+                citation.original_text.as_deref(),
+                true,
+            ));
+        }
         if citation.verification_status != CitationVerificationStatus::Verified
             || source.verification_status != CitationVerificationStatus::Verified
             || citation.source_access == CitationSourceAccess::UnverifiedHypothesis
@@ -2531,6 +2549,39 @@ pub(crate) fn audit_abnt_citations_inner(
 ) -> Result<CitationAuditResult, String> {
     if request.text.chars().count() > MAX_TEXT_CHARS {
         return Err("citation audit input exceeds the safe text limit".to_string());
+    }
+    // Source links are later copied into normalized/exported references. Reject
+    // credentials before formatting either the current or historical manifest;
+    // the error deliberately does not echo the URL or a sensitive value.
+    for manifest in [
+        request.manifest.as_ref(),
+        request.previous_manifest.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for source in &manifest.sources {
+            for link in [source.url.as_deref(), source.doi.as_deref()]
+                .into_iter()
+                .flatten()
+            {
+                // A DOI may be supplied as a bare identifier. Use the URL
+                // parser's relative resolution only for validation, never to
+                // invent a source URL or request its contents.
+                let parsed = reqwest::Url::parse(link.trim()).or_else(|_| {
+                    reqwest::Url::parse("https://citation.invalid/")
+                        .and_then(|base| base.join(link.trim()))
+                });
+                if let Ok(url) = parsed {
+                    if !url.username().is_empty()
+                        || url.password().is_some()
+                        || url_has_sensitive_parameters(&url)
+                    {
+                        return Err("citation manifest source URLs must not contain credentials or sensitive parameters".to_string());
+                    }
+                }
+            }
+        }
     }
     let protocol_hash = request
         .protocol_hash
@@ -3433,6 +3484,114 @@ mod tests {
         assert!(result.blockers.iter().any(|item| {
             item.code == "reference_required_fields_missing" && item.needs_evidence
         }));
+    }
+
+    #[test]
+    fn verified_source_cannot_support_a_different_publication_year() {
+        for citation_type in [
+            CitationType::DirectQuote,
+            CitationType::IndirectQuote,
+            CitationType::Paraphrase,
+        ] {
+            let mut manifest = verified_manifest();
+            manifest.citations[0].citation_type = citation_type;
+            manifest.sources[0].year = "2025".to_string();
+            let body = if citation_type == CitationType::DirectQuote {
+                "“Trecho direto com mais de quatro palavras” (Silva, 2026, p. 12)."
+            } else {
+                "Uma afirmacao apoiada em fonte (Silva, 2026, p. 12)."
+            };
+            let result = audit_abnt_citations_inner(AbntAuditRequest {
+                text: format!(
+                    "{body}\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2025."
+                ),
+                protocol_hash: Some("protocol-sha256".to_string()),
+                manifest: Some(manifest),
+                previous_manifest: None,
+            })
+            .unwrap();
+            assert_eq!(result.maestro_peer_status, MaestroPeerStatus::NeedsEvidence);
+            assert!(result
+                .blockers
+                .iter()
+                .any(|blocker| blocker.code == "citation_source_year_mismatch"));
+            assert_eq!(
+                result.blockers.len(),
+                1,
+                "all other custody checks accept this otherwise complete manifest"
+            );
+        }
+    }
+
+    #[test]
+    fn article_reference_uses_journal_sequence_while_chapter_keeps_in_marker() {
+        let mut source = verified_manifest().sources.remove(0);
+        source.source_type = CitationSourceType::Article;
+        source.container_title = Some("Revista Exemplo".to_string());
+        source.volume = Some("4".to_string());
+        source.issue = Some("2".to_string());
+        source.pages = Some("12-20".to_string());
+        let reference = format_reference(&source);
+        assert_eq!(
+            reference,
+            "SILVA, Maria. Obra. Revista Exemplo, Sao Paulo, v. 4, n. 2, p. 12-20, 2026."
+        );
+        source.source_type = CitationSourceType::Chapter;
+        assert!(format_reference(&source).contains("In: Revista Exemplo."));
+    }
+
+    #[test]
+    fn online_reference_exports_canonical_accent_and_matches_legacy_ascii() {
+        let mut source = verified_manifest().sources.remove(0);
+        source.url = Some("https://example.org/source".to_string());
+        let canonical = format_reference(&source);
+        assert!(canonical.contains("Disponível em: https://example.org/source."));
+        assert!(!canonical.contains("Disponivel em:"));
+        assert_eq!(
+            reference_comparison_key(&canonical),
+            reference_comparison_key(&canonical.replace("Disponível", "Disponivel"))
+        );
+    }
+
+    #[test]
+    fn structured_source_links_cannot_export_credentials_in_any_reference_format() {
+        for link in [
+            "https://user:private-test-value@example.org/book",
+            "https://example.org/book?access_token=private-test-value",
+            "https://example.org/book#api_key=private-test-value",
+            "10.1234/book?access_token=private-test-value",
+            "//user:private-test-value@example.org/book",
+        ] {
+            for is_doi in [false, true] {
+                for previous in [false, true] {
+                    let mut manifest = verified_manifest();
+                    if is_doi {
+                        manifest.sources[0].doi = Some(link.to_string());
+                    } else {
+                        manifest.sources[0].url = Some(link.to_string());
+                    }
+                    let mut input = request("Texto sem citacao formal.");
+                    if previous {
+                        input.previous_manifest = Some(manifest);
+                    } else {
+                        input.manifest = Some(manifest);
+                    }
+                    let error = audit_abnt_citations_inner(input).unwrap_err();
+                    assert!(!error.contains("private-test-value"));
+                    assert!(!error.contains("example.org"));
+                }
+            }
+        }
+        let mut manifest = verified_manifest();
+        manifest.sources[0].url =
+            Some("https://example.org/book?edition=2026#chapter-1".to_string());
+        assert!(audit_abnt_citations_inner(AbntAuditRequest {
+            text: "Texto sem citacao formal.".to_string(),
+            protocol_hash: None,
+            manifest: Some(manifest),
+            previous_manifest: None,
+        })
+        .is_ok());
     }
 
     #[test]

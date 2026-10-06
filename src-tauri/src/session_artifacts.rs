@@ -37,6 +37,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::app_paths::{checked_data_child_path, sanitize_path_segment};
+use crate::editorial_content_lock::canonical_editorial_text;
 use crate::session_persistence::load_session_contract;
 use crate::session_resume::{
     count_known_session_markdown_artifacts, extract_bullet_code_value, extract_saved_session_name,
@@ -306,7 +307,7 @@ fn artifact_modified_at(artifact: &SessionArtifact) -> SystemTime {
 }
 
 fn normalize_resume_text(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    canonical_editorial_text(text)
 }
 
 fn is_accepted_custody_status(status: &str) -> bool {
@@ -393,6 +394,15 @@ fn load_persisted_circular_custody(
         .collect::<std::collections::BTreeSet<_>>();
     if unique_roster.len() != state.round_roster.len() {
         return Err("circular review state contains a duplicate roster member".to_string());
+    }
+    if !state.round_roster.is_empty()
+        && state
+            .round
+            .max(1)
+            .checked_add(state.turn_index / state.round_roster.len())
+            .is_none()
+    {
+        return Err("circular review state position overflows the round counter".to_string());
     }
     if state
         .valid_round_agents
@@ -845,6 +855,30 @@ mod tests {
     }
 
     #[test]
+    fn legacy_resume_recognizes_structural_revision_as_new_custody() {
+        let session_dir = sessions_dir().join(format!(
+            "maestro-legacy-markdown-custody-test-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        let agent_dir = session_dir.join("agent-runs");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        write_test_artifact(
+            &agent_dir.join("round-001-claude-draft.md"),
+            "DRAFT_CREATED",
+            "- alpha\n- beta",
+            false,
+        );
+        thread::sleep(Duration::from_millis(20));
+        let revised_path = agent_dir.join("round-001-codex-revision.md");
+        write_test_artifact(&revised_path, "READY", "- alpha - beta", true);
+        let state = load_resume_session_state(&agent_dir).unwrap();
+        assert_eq!(state.current_draft, "- alpha - beta");
+        assert_eq!(state.current_draft_path.as_ref(), Some(&revised_path));
+        std::fs::remove_dir_all(&session_dir).unwrap();
+    }
+
+    #[test]
     fn persisted_circular_state_preserves_custody_and_version_bound_approvals() {
         let run_id = format!("maestro-persisted-custody-test-{}", std::process::id());
         let session_dir = sessions_dir().join(&run_id);
@@ -981,6 +1015,65 @@ mod tests {
             vec!["gemini".to_string()]
         );
         let _ = std::fs::remove_dir_all(&session_dir);
+    }
+
+    #[test]
+    fn persisted_circular_state_rejects_position_overflow_without_rewrite() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let run_id = format!("maestro-position-overflow-{}-{nonce}", std::process::id());
+        let session_dir = sessions_dir().join(&run_id);
+        let agent_dir = session_dir.join("agent-runs");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        let artifact_path = agent_dir.join("round-003-codex-revision.md");
+        let state_path = session_dir.join(CIRCULAR_REVIEW_STATE_FILE);
+        write_test_artifact(&artifact_path, "READY", "Accepted fixture text.", true);
+        write_circular_review_state(
+            &session_dir,
+            &CircularReviewState {
+                schema_version: CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+                run_id,
+                current_draft_artifact: "round-003-codex-revision.md".to_string(),
+                current_draft_author_key: "codex".to_string(),
+                current_draft_sha256: circular_draft_sha256("Accepted fixture text."),
+                review_context_sha256: Some("same-context".to_string()),
+                round: usize::MAX,
+                turn_index: usize::MAX,
+                round_roster: vec!["gemini".to_string(), "codex".to_string()],
+                valid_round_agents: vec!["gemini".to_string()],
+                stable_serial_approval_agents: vec!["gemini".to_string()],
+                paid_corrective_retries_by_round: std::collections::BTreeMap::from([(
+                    usize::MAX,
+                    u32::MAX,
+                )]),
+                corrective_contract_retry_counts: std::collections::BTreeMap::from([(
+                    "retained-retry".to_string(),
+                    u32::MAX,
+                )]),
+                retry_accounting_authoritative: true,
+                updated_at: "2026-10-05T00:00:00Z".to_string(),
+            },
+        )
+        .unwrap();
+        let before = std::fs::read(&state_path).unwrap();
+        let error = load_resume_session_state(&agent_dir).err().unwrap();
+        let after = std::fs::read(&state_path).unwrap();
+        let final_exists = session_dir.join("texto-final.md").exists();
+        std::fs::remove_file(&state_path).unwrap();
+        std::fs::remove_file(&artifact_path).unwrap();
+        std::fs::remove_dir(&agent_dir).unwrap();
+        std::fs::remove_dir(&session_dir).unwrap();
+        assert!(error.contains("position overflows"), "{error}");
+        assert_eq!(
+            before, after,
+            "rejected input must not rewrite votes or retry debt"
+        );
+        assert!(
+            !final_exists,
+            "overflowing state must not create a final artifact"
+        );
     }
 
     #[test]

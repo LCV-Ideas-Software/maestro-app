@@ -25,9 +25,7 @@ use tokio_util::sync::CancellationToken;
 use crate::app_init::hidden_command;
 use crate::app_paths::{checked_data_child_path, data_dir};
 use crate::command_path::resolve_command;
-use crate::command_spawn::{
-    run_resolved_command_observed, run_resolved_command_with_timeout,
-};
+use crate::command_spawn::{run_resolved_command_observed, run_resolved_command_with_timeout};
 use crate::editorial_io::write_text_file;
 use crate::sanitize::{redact_secrets, sanitize_short, sanitize_text};
 
@@ -246,13 +244,7 @@ pub(crate) fn runtime_bootstrap_action_control(
                 recorded_at: Utc::now().to_rfc3339(),
             };
             append_ndjson(&bootstrap_dir()?.join("controls.ndjson"), &result)?;
-            emit_progress(
-                &app,
-                &action_id,
-                &plan_hash,
-                "control",
-                &result.status,
-            );
+            emit_progress(&app, &action_id, &plan_hash, "control", &result.status);
             return Ok(result);
         }
     }
@@ -295,13 +287,7 @@ pub(crate) fn runtime_bootstrap_action_control(
     };
     persist_control_disposition(&action_id, disposition, Utc::now())?;
     append_ndjson(&bootstrap_dir()?.join("controls.ndjson"), &result)?;
-    emit_progress(
-        &app,
-        &action_id,
-        &plan_hash,
-        "control",
-        &result.status,
-    );
+    emit_progress(&app, &action_id, &plan_hash, "control", &result.status);
     Ok(result)
 }
 
@@ -369,13 +355,7 @@ fn inventory_runtime_dependencies() -> Vec<RuntimeDependency> {
     }
     dependencies.push(codex);
 
-    let agy = probe_cli(
-        "agy",
-        "Antigravity CLI (agy)",
-        "agy",
-        &["--version"],
-        true,
-    );
+    let agy = probe_cli("agy", "Antigravity CLI (agy)", "agy", &["--version"], true);
     let agy_present = agy.state == DependencyState::Ready;
     dependencies.push(agy);
     dependencies.push(simple_dependency(
@@ -396,8 +376,7 @@ fn inventory_runtime_dependencies() -> Vec<RuntimeDependency> {
 
     let mut node = probe_cli("node", "Node.js", "node", &["--version"], true);
     if node.state == DependencyState::Ready
-        && version_major(node.installed_version.as_deref()).unwrap_or_default()
-            < NODE_MINIMUM_MAJOR
+        && version_major(node.installed_version.as_deref()).unwrap_or_default() < NODE_MINIMUM_MAJOR
     {
         node.state = DependencyState::Outdated;
         node.detail = format!("Node.js {} or newer is required", NODE_MINIMUM_MAJOR);
@@ -441,9 +420,7 @@ fn inventory_runtime_dependencies() -> Vec<RuntimeDependency> {
     dependencies
 }
 
-fn actions_for_inventory(
-    dependencies: &mut [RuntimeDependency],
-) -> Vec<RuntimeBootstrapAction> {
+fn actions_for_inventory(dependencies: &mut [RuntimeDependency]) -> Vec<RuntimeBootstrapAction> {
     let mut actions = Vec::new();
     let winget_ready = dependencies
         .iter()
@@ -573,7 +550,7 @@ fn actions_for_inventory(
                 "wrangler_latest",
                 BootstrapActionKind::Update,
                 "Resolve and verify Wrangler @latest",
-                "Uses the official latest npm tag for the fallback CLI; it does not replace Cloudflare API readiness.",
+                "Optional CLI diagnostic using the official latest npm tag; D1 publication uses the native Cloudflare API.",
                 "https://www.npmjs.com/package/wrangler",
                 Some("npx --yes wrangler@latest --version"),
                 BootstrapOperation::VerifyWranglerLatest,
@@ -655,7 +632,7 @@ fn actions_for_inventory(
                 "cloudflare_credential",
                 BootstrapActionKind::Authenticate,
                 "Configure Cloudflare API credentials",
-                "Use Maestro settings for the primary API path; Wrangler remains fallback only.",
+                "Use Maestro settings for the native Cloudflare API path; there is no Wrangler write fallback.",
                 "Maestro Cloudflare settings",
                 None,
                 BootstrapOperation::ConfigureCloudflareManual,
@@ -711,7 +688,9 @@ fn execute_runtime_bootstrap_action_inner(
     let execution = execute_allowlisted_operation(app, plan_hash, &action, &token);
     let handoff_opened = has_manual_handoff && execution.is_ok();
     let cancelled = token.is_cancelled();
-    let _ = running_actions().lock().map(|mut running| running.remove(&run_key));
+    let _ = running_actions()
+        .lock()
+        .map(|mut running| running.remove(&run_key));
 
     let (status, message, exit_code, duration_ms, stdout, stderr) = match execution {
         Ok(Some(output)) if cancelled => (
@@ -786,7 +765,13 @@ fn execute_runtime_bootstrap_action_inner(
         });
         write_json(&bootstrap_dir()?.join("wrangler-latest.json"), &marker)?;
     }
-    emit_progress(app, action_id, plan_hash, "verifying", "running post-action probe");
+    emit_progress(
+        app,
+        action_id,
+        plan_hash,
+        "verifying",
+        "running post-action probe",
+    );
     let refreshed_plan = build_and_persist_plan(Utc::now())?;
     let post_action_dependency = refreshed_plan
         .dependencies
@@ -864,9 +849,9 @@ fn manual_handoff_url(operation: &BootstrapOperation) -> Option<&'static str> {
             Some("https://antigravity.google/cli/")
         }
         BootstrapOperation::InstallNodeManual => Some("https://nodejs.org/en/download"),
-        BootstrapOperation::InstallWebviewManual => Some(
-            "https://developer.microsoft.com/microsoft-edge/webview2/consumer/",
-        ),
+        BootstrapOperation::InstallWebviewManual => {
+            Some("https://developer.microsoft.com/microsoft-edge/webview2/consumer/")
+        }
         BootstrapOperation::InstallClaudeNpmUser
         | BootstrapOperation::UpdateClaudeOfficial
         | BootstrapOperation::InstallCodexNpmUser
@@ -1044,34 +1029,39 @@ fn operation_matches_action_id(action_id: &str, operation: &BootstrapOperation) 
         ) | (
             "repair.npx.node.manual",
             BootstrapOperation::InstallNodeManual
-        ) | (
-            "retry.network.probe",
-            BootstrapOperation::RetryNetworkProbe
-        ) | (
-            "auth.claude.interactive",
-            BootstrapOperation::AuthenticateClaudeManual
-        ) | (
-            "auth.codex.interactive",
-            BootstrapOperation::AuthenticateCodexManual
-        ) | (
-            "auth.agy.interactive",
-            BootstrapOperation::AuthenticateAgyManual
-        ) | (
-            "install.agy.vendor.manual",
-            BootstrapOperation::InstallAgyManual
-        ) | (
-            "configure.deepseek.credential",
-            BootstrapOperation::ConfigureDeepseekManual
-        ) | (
-            "configure.cloudflare.credential",
-            BootstrapOperation::ConfigureCloudflareManual
-        ) | (
-            "repair.portable_data.manual",
-            BootstrapOperation::RepairPortableDataManual
-        ) | (
-            "install.webview2.manual",
-            BootstrapOperation::InstallWebviewManual
-        )
+        ) | ("retry.network.probe", BootstrapOperation::RetryNetworkProbe)
+            | (
+                "auth.claude.interactive",
+                BootstrapOperation::AuthenticateClaudeManual
+            )
+            | (
+                "auth.codex.interactive",
+                BootstrapOperation::AuthenticateCodexManual
+            )
+            | (
+                "auth.agy.interactive",
+                BootstrapOperation::AuthenticateAgyManual
+            )
+            | (
+                "install.agy.vendor.manual",
+                BootstrapOperation::InstallAgyManual
+            )
+            | (
+                "configure.deepseek.credential",
+                BootstrapOperation::ConfigureDeepseekManual
+            )
+            | (
+                "configure.cloudflare.credential",
+                BootstrapOperation::ConfigureCloudflareManual
+            )
+            | (
+                "repair.portable_data.manual",
+                BootstrapOperation::RepairPortableDataManual
+            )
+            | (
+                "install.webview2.manual",
+                BootstrapOperation::InstallWebviewManual
+            )
     )
 }
 
@@ -1147,7 +1137,10 @@ fn probe_cli(
             recommended_action_ids: Vec::new(),
         };
     };
-    let owned_args = args.iter().map(|arg| (*arg).to_string()).collect::<Vec<_>>();
+    let owned_args = args
+        .iter()
+        .map(|arg| (*arg).to_string())
+        .collect::<Vec<_>>();
     match run_resolved_command_with_timeout(
         &path,
         &owned_args,
@@ -1176,7 +1169,11 @@ fn probe_cli(
                 } else {
                     DependencyState::Misconfigured
                 },
-                installed_version: if output.is_empty() { None } else { Some(output.clone()) },
+                installed_version: if output.is_empty() {
+                    None
+                } else {
+                    Some(output.clone())
+                },
                 latest_version: None,
                 resolved_path: Some(path.to_string_lossy().to_string()),
                 detail: if result.output.status.success() {
@@ -1206,7 +1203,10 @@ fn apply_auth_probe(dependency: &mut RuntimeDependency, command: &str, args: &[&
         dependency.state = DependencyState::Missing;
         return;
     };
-    let args = args.iter().map(|arg| (*arg).to_string()).collect::<Vec<_>>();
+    let args = args
+        .iter()
+        .map(|arg| (*arg).to_string())
+        .collect::<Vec<_>>();
     match run_resolved_command_with_timeout(
         &path,
         &args,
@@ -1224,12 +1224,12 @@ fn apply_auth_probe(dependency: &mut RuntimeDependency, command: &str, args: &[&
             dependency.state = DependencyState::AuthRequired;
             let _ = result;
             dependency.detail =
-                "authentication status probe did not confirm an authenticated session"
-                    .to_string();
+                "authentication status probe did not confirm an authenticated session".to_string();
         }
         Err(error) => {
             dependency.state = DependencyState::Misconfigured;
-            dependency.detail = sanitize_text(&format!("authentication probe failed: {error}"), 300);
+            dependency.detail =
+                sanitize_text(&format!("authentication probe failed: {error}"), 300);
         }
     }
 }
@@ -1250,13 +1250,19 @@ fn apply_latest_npm_version(dependency: &mut RuntimeDependency, package: &str) {
         .ok()
         .filter(|response| response.status().is_success())
         .and_then(|response| response.json::<serde_json::Value>().ok())
-        .and_then(|value| value.get("version").and_then(|version| version.as_str()).map(str::to_string));
+        .and_then(|value| {
+            value
+                .get("version")
+                .and_then(|version| version.as_str())
+                .map(str::to_string)
+        });
     dependency.latest_version = latest.clone();
     let installed = version_triplet(dependency.installed_version.as_deref());
     let latest_triplet = version_triplet(latest.as_deref());
     if matches!((installed, latest_triplet), (Some(current), Some(latest)) if current < latest) {
         dependency.state = DependencyState::Outdated;
-        dependency.detail = "installed version is older than the official npm latest metadata".to_string();
+        dependency.detail =
+            "installed version is older than the official npm latest metadata".to_string();
     }
 }
 
@@ -1314,10 +1320,10 @@ fn probe_wrangler_latest(npx_ready: bool) -> RuntimeDependency {
     if !npx_ready {
         return simple_dependency(
             "wrangler_latest",
-            "Wrangler @latest fallback",
-            true,
+            "Optional Wrangler @latest diagnostic",
+            false,
             DependencyState::Missing,
-            "npx is required before the fixed wrangler@latest fallback can be verified",
+            "npx is needed only to verify this optional CLI diagnostic; D1 publication uses the native API",
         );
     }
 
@@ -1345,8 +1351,8 @@ fn probe_wrangler_latest(npx_ready: bool) -> RuntimeDependency {
         {
             let mut dependency = simple_dependency(
                 "wrangler_latest",
-                "Wrangler @latest fallback",
-                true,
+                "Optional Wrangler @latest diagnostic",
+                false,
                 DependencyState::Ready,
                 "wrangler@latest was resolved and verified with operator approval in the last 24 hours",
             );
@@ -1357,8 +1363,8 @@ fn probe_wrangler_latest(npx_ready: bool) -> RuntimeDependency {
 
     simple_dependency(
         "wrangler_latest",
-        "Wrangler @latest fallback",
-        true,
+        "Optional Wrangler @latest diagnostic",
+        false,
         DependencyState::ManualActionRequired,
         "operator approval is required before npx resolves and verifies wrangler@latest",
     )
@@ -1436,7 +1442,9 @@ fn probe_cloudflare_credential() -> RuntimeDependency {
         },
         match (account, token) {
             (true, true) => "account and token sources detected; values not inspected or persisted",
-            (false, false) => "not configured; required only when Cloudflare D1 features are enabled",
+            (false, false) => {
+                "not configured; required only when Cloudflare D1 features are enabled"
+            }
             _ => "incomplete Cloudflare credential pair",
         },
     )
@@ -1609,7 +1617,9 @@ fn version_triplet(value: Option<&str>) -> Option<(u64, u64, u64)> {
         .trim_start_matches(|character: char| !character.is_ascii_digit())
         .split(|character: char| !(character.is_ascii_digit() || character == '.'))
         .next()?;
-    let mut parts = numeric.split('.').filter_map(|part| part.parse::<u64>().ok());
+    let mut parts = numeric
+        .split('.')
+        .filter_map(|part| part.parse::<u64>().ok());
     Some((
         parts.next()?,
         parts.next().unwrap_or_default(),
@@ -1658,10 +1668,7 @@ fn append_ndjson(path: &Path, value: &impl Serialize) -> Result<(), String> {
         .map_err(|error| format!("failed to flush bootstrap event: {error}"))
 }
 
-fn write_support_bundle(
-    path: &Path,
-    result: &RuntimeBootstrapActionResult,
-) -> Result<(), String> {
+fn write_support_bundle(path: &Path, result: &RuntimeBootstrapActionResult) -> Result<(), String> {
     let bundle = json!({
         "schema_version": BOOTSTRAP_SCHEMA_VERSION,
         "generated_at": Utc::now().to_rfc3339(),
@@ -1806,12 +1813,9 @@ fn support_os_version() -> String {
     {
         if let Some(path) = resolve_command("cmd") {
             let args = vec!["/D".to_string(), "/C".to_string(), "ver".to_string()];
-            if let Ok(result) = run_resolved_command_with_timeout(
-                &path,
-                &args,
-                Duration::from_secs(5),
-                None,
-            ) {
+            if let Ok(result) =
+                run_resolved_command_with_timeout(&path, &args, Duration::from_secs(5), None)
+            {
                 let version = first_output_line(&result.output.stdout, &result.output.stderr);
                 if !version.is_empty() {
                     return version;
@@ -1928,21 +1932,19 @@ mod tests {
         )
         .unwrap_err()
         .contains("approval"));
-        assert!(validate_action_request(&plan, "arbitrary", &plan.plan_hash, true, now)
-            .unwrap_err()
-            .contains("unknown"));
+        assert!(
+            validate_action_request(&plan, "arbitrary", &plan.plan_hash, true, now)
+                .unwrap_err()
+                .contains("unknown")
+        );
         let mut injected = plan.clone();
         injected.actions[0].action_id = "arbitrary".to_string();
         injected.plan_hash = compute_plan_hash(&injected).unwrap();
-        assert!(validate_action_request(
-            &injected,
-            "arbitrary",
-            &injected.plan_hash,
-            true,
-            now
-        )
-        .unwrap_err()
-        .contains("unknown"));
+        assert!(
+            validate_action_request(&injected, "arbitrary", &injected.plan_hash, true, now)
+                .unwrap_err()
+                .contains("unknown")
+        );
         assert!(validate_action_request(
             &plan,
             "install.claude.npm.user",
@@ -1972,10 +1974,13 @@ mod tests {
             assert!(spec.args.iter().all(|arg| !arg.contains("irm ")));
         }
         let claude = fixed_command_spec(&BootstrapOperation::InstallClaudeNpmUser, prefix).unwrap();
-        assert!(claude.args.contains(&"@anthropic-ai/claude-code".to_string()));
+        assert!(claude
+            .args
+            .contains(&"@anthropic-ai/claude-code".to_string()));
         let codex = fixed_command_spec(&BootstrapOperation::InstallCodexNpmUser, prefix).unwrap();
         assert!(codex.args.contains(&"@openai/codex".to_string()));
-        let wrangler = fixed_command_spec(&BootstrapOperation::VerifyWranglerLatest, prefix).unwrap();
+        let wrangler =
+            fixed_command_spec(&BootstrapOperation::VerifyWranglerLatest, prefix).unwrap();
         assert!(wrangler.args.contains(&"wrangler@latest".to_string()));
     }
 
@@ -2007,7 +2012,7 @@ mod tests {
             simple_dependency(
                 "wrangler_latest",
                 "Wrangler",
-                true,
+                false,
                 DependencyState::ManualActionRequired,
                 "approval",
             ),
@@ -2015,27 +2020,21 @@ mod tests {
         let actions = actions_for_inventory(&mut inventory);
         assert_eq!(actions[0].action_id, "install.claude.npm.user");
         assert_eq!(actions[1].action_id, "verify.wrangler.latest");
-        assert_eq!(inventory[0].recommended_action_ids, vec![actions[0].action_id.clone()]);
-        assert_eq!(inventory[1].recommended_action_ids, vec![actions[1].action_id.clone()]);
+        assert_eq!(
+            inventory[0].recommended_action_ids,
+            vec![actions[0].action_id.clone()]
+        );
+        assert_eq!(
+            inventory[1].recommended_action_ids,
+            vec![actions[1].action_id.clone()]
+        );
     }
 
     #[test]
     fn missing_npm_and_npx_receive_actionable_node_repair_handoffs() {
         let mut inventory = vec![
-            simple_dependency(
-                "npm",
-                "npm",
-                true,
-                DependencyState::Missing,
-                "missing",
-            ),
-            simple_dependency(
-                "npx",
-                "npx",
-                true,
-                DependencyState::Misconfigured,
-                "broken",
-            ),
+            simple_dependency("npm", "npm", true, DependencyState::Missing, "missing"),
+            simple_dependency("npx", "npx", true, DependencyState::Misconfigured, "broken"),
         ];
         let actions = actions_for_inventory(&mut inventory);
         assert_eq!(actions[0].action_id, "repair.npm.node.manual");
@@ -2043,7 +2042,8 @@ mod tests {
         assert!(actions.iter().all(|action| action.requires_interaction));
         assert!(actions
             .iter()
-            .all(|action| manual_handoff_url(&action.operation) == Some("https://nodejs.org/en/download")));
+            .all(|action| manual_handoff_url(&action.operation)
+                == Some("https://nodejs.org/en/download")));
     }
 
     #[test]

@@ -55,6 +55,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
+use crate::cli_adapter::verify_gemini_cli_project_permissions;
 use crate::command_path::{command_search_dirs, resolve_command};
 use crate::command_spawn::{run_resolved_command_observed, CommandProgressContext};
 use crate::editorial_helpers::{
@@ -142,6 +143,7 @@ pub(crate) fn run_editorial_agent_for_spec(
         stdin_text,
         output_path,
         timeout,
+        config,
         cancel_token,
     )
 }
@@ -206,12 +208,13 @@ fn run_editorial_agent(
     stdin_text: String,
     output_path: &Path,
     timeout: Option<Duration>,
+    config: &AiProviderConfig,
     cancel_token: &CancellationToken,
 ) -> EditorialAgentResult {
     let started = Instant::now();
     let working_dir = command_working_dir_for_output(output_path);
     let prepared_input = prepare_agent_input(name, role, &stdin_text, output_path);
-    let effective_input = effective_agent_input(command, args, &prepared_input);
+    let mut effective_input = effective_agent_input(command, args, &prepared_input);
     let _ = write_log_record(
         log_session,
         LogEventInput {
@@ -263,6 +266,95 @@ fn run_editorial_agent(
         log_editorial_agent_finished(log_session, run_id, &result, None, None, None, false);
         return result;
     };
+
+    if command == "agy" {
+        match verify_gemini_cli_project_permissions(
+            &path,
+            config,
+            &working_dir,
+            timeout.map(|limit| limit.saturating_sub(started.elapsed())),
+            Some(cancel_token),
+        ) {
+            Ok(project_argument) => effective_input.args.push(project_argument),
+            Err(guidance) => {
+                // Native policy stdout/stderr may contain local paths or MCP
+                // settings. Only the fixed, key-safe admission guidance leaves
+                // the verifier; an operational block cannot become a vote.
+                let status = if cancel_token.is_cancelled() {
+                    "STOPPED_BY_USER"
+                } else {
+                    "CLI_PERMISSION_POLICY_BLOCKED"
+                };
+                let guidance = if cancel_token.is_cancelled() {
+                    "Sessao interrompida pelo operador durante a verificacao nativa de permissoes."
+                        .to_string()
+                } else {
+                    guidance
+                };
+                let _ = write_text_file(
+                    output_path,
+                    &format!(
+                    "# {name} - {role}\n\n- CLI: `{command}`\n- Status: `{status}`\n\n{guidance}\n"
+                ),
+                );
+                let result = EditorialAgentResult {
+                    name: name.to_string(),
+                    role: role.to_string(),
+                    cli: command.to_string(),
+                    tone: "blocked".to_string(),
+                    status: status.to_string(),
+                    duration_ms: started.elapsed().as_millis(),
+                    exit_code: None,
+                    output_path: output_path.to_string_lossy().to_string(),
+                    usage_input_tokens: None,
+                    usage_output_tokens: None,
+                    cost_usd: None,
+                    cost_estimated: None,
+                    cache: None,
+                };
+                log_editorial_agent_finished(log_session, run_id, &result, None, None, None, false);
+                return result;
+            }
+        }
+    }
+    let timeout = timeout.map(|limit| limit.saturating_sub(started.elapsed()));
+    if timeout.is_some_and(|remaining| remaining.is_zero()) || cancel_token.is_cancelled() {
+        let status = if cancel_token.is_cancelled() {
+            "STOPPED_BY_USER"
+        } else {
+            "EXEC_ERROR: session deadline reached before CLI launch"
+        };
+        let _ = write_editorial_agent_error_artifact(
+            output_path,
+            name,
+            role,
+            command,
+            &path,
+            &[],
+            status,
+            started.elapsed().as_millis(),
+            0,
+            prepared_input.original_chars,
+            prepared_input.input_path.as_deref(),
+        );
+        let result = EditorialAgentResult {
+            name: name.to_string(),
+            role: role.to_string(),
+            cli: command.to_string(),
+            tone: "blocked".to_string(),
+            status: status.to_string(),
+            duration_ms: started.elapsed().as_millis(),
+            exit_code: None,
+            output_path: output_path.to_string_lossy().to_string(),
+            usage_input_tokens: None,
+            usage_output_tokens: None,
+            cost_usd: None,
+            cost_estimated: None,
+            cache: None,
+        };
+        log_editorial_agent_finished(log_session, run_id, &result, None, None, None, false);
+        return result;
+    }
 
     let _ = write_editorial_agent_running_artifact(
         output_path,
@@ -348,9 +440,9 @@ fn run_editorial_agent(
                 "error"
             };
             let note = if status == "STOPPED_BY_USER" {
-                "\n> Sessao interrompida pelo operador via botao 'Parar sessao'. CLI peer foi encerrado com `taskkill /T /F`; partial output preservado abaixo. Retome a sessao via `Retomar` para continuar do mesmo run_id.\n"
+                "\n> Sessao interrompida pelo operador via botao 'Parar sessao'. O processo CLI foi interrompido; partial output preservado abaixo. Retome a sessao via `Retomar` para continuar do mesmo run_id.\n"
             } else if status == "CODEX_WINDOWS_SANDBOX_UPSTREAM" {
-                "\n> Codex CLI 0.128.0+ no Windows roda o sandbox em PowerShell ConstrainedLanguage e trava ao desmontar o tree de processos (stderr mostra `ConstrainedLanguage`, `Cannot set property` ou `ERRO: o processo` do taskkill). Bug upstream conhecido (rastreado no cross-review-mcp v1.5.0+). Tente outro peer ou ambiente sem o sandbox.\n"
+                "\n> Codex CLI encerrou sem parecer final e o stderr indica uma restricao de linguagem do PowerShell. Esse diagnostico nao comprova a causa nem um bug de uma versao especifica. Preserve o sandbox e consulte a documentacao oficial de diagnostico do Windows: https://learn.chatgpt.com/docs/windows/windows-sandbox . Verifique o erro e as politicas do ambiente antes de retomar, ou selecione outro peer.\n"
             } else if status == "GEMINI_WORKSPACE_VIOLATION" {
                 "\n> Google CLI bloqueou uma chamada de ferramenta porque o agente tentou acessar caminho fora do workspace (`Path not in workspace` / `resolves outside the allowed workspace directories`). Esperado quando o protocolo pede recursos no diretorio pai. Tente outro peer.\n"
             } else if status == "GEMINI_RIPGREP_UNAVAILABLE" {
@@ -469,19 +561,14 @@ fn run_editorial_agent(
     }
 }
 
-/// Classify CLI failures whose stderr matches a known upstream-bug pattern.
+/// Classify CLI failures from their observed stderr diagnostics.
 ///
 /// Returns a more specific status code when the stderr fingerprint matches a
-/// documented upstream issue, so the operator-facing artifact distinguishes
-/// "agent CLI failed silently" from "agent CLI hit a known platform bug".
+/// operational diagnostic, without inferring an upstream bug or affected version.
 ///
-/// **Codex Windows sandbox bug** (Codex CLI 0.128.0+ on Windows): the
-/// PowerShell sandbox runs in `ConstrainedLanguage` mode, trips on
-/// `Cannot set property` while resolving classifier state, and the
-/// process-tree teardown emits the Portuguese `ERRO: o processo "<pid>"
-/// nao foi encontrado` from `taskkill`. Documented in the workspace memory
-/// at `reference_codex_cli_sandbox_constrained_language.md`. Tracked
-/// upstream; deferred from cross-review-mcp v1.4.0 to v1.5.0+.
+/// The legacy `CODEX_WINDOWS_SANDBOX_UPSTREAM` status is retained for saved
+/// session compatibility. A language-mode diagnostic does not establish its
+/// cause. A generic process-not-found message is not a sandbox fingerprint.
 ///
 /// **Google workspace violation** (legacy Gemini CLI / Antigravity CLI): the CLI
 /// resolves the workspace as the agent's CWD (`agent-runs/`) and refuses
@@ -494,8 +581,7 @@ fn classify_upstream_cli_failure(name: &str, stderr: &str) -> Option<&'static st
     match name {
         "Codex" => {
             if stderr.contains("ConstrainedLanguage")
-                || stderr.contains("Cannot set property")
-                || stderr.contains("ERRO: o processo")
+                || (stderr.contains("Cannot set property") && stderr.contains("this language mode"))
             {
                 Some("CODEX_WINDOWS_SANDBOX_UPSTREAM")
             } else if stderr.trim().is_empty()
@@ -529,11 +615,19 @@ mod tests {
     use super::classify_upstream_cli_failure;
 
     #[test]
-    fn classify_upstream_cli_failure_detects_codex_windows_sandbox_taskkill() {
+    fn classify_upstream_cli_failure_does_not_infer_sandbox_from_taskkill() {
         let stderr = "OpenAI Codex v0.128.0 (research preview)\nReading additional input from stdin...\nERRO: o processo \"4232\" nao foi encontrado.\n";
         assert_eq!(
             classify_upstream_cli_failure("Codex", stderr),
-            Some("CODEX_WINDOWS_SANDBOX_UPSTREAM"),
+            Some("CODEX_CLI_NO_FINAL_OUTPUT"),
+        );
+        assert_eq!(
+            classify_upstream_cli_failure("Codex", "ERRO: o processo nao foi encontrado."),
+            None,
+        );
+        assert_eq!(
+            classify_upstream_cli_failure("Codex", "Cannot set property: unknown object."),
+            None,
         );
     }
 

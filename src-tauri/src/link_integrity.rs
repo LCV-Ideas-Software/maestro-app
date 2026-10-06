@@ -944,7 +944,9 @@ pub(crate) fn run_link_integrity_audit_for_source(
         .count();
     Ok(LinkAuditResult {
         schema_version: "link_integrity_audit.v1".to_string(),
-        audit_id: sha256(format!("{source_artifact}|{source_fingerprint}|{checked_at}")),
+        audit_id: sha256(format!(
+            "{source_artifact}|{source_fingerprint}|{checked_at}"
+        )),
         source_artifact: source_artifact.to_string(),
         checked_at,
         urls_found: rows.len(),
@@ -1337,8 +1339,12 @@ mod tests {
         let nested = "[![grafico](https://example.org/chart.png)](https://example.org/report)";
         let links = extract_links(nested);
         assert_eq!(links.len(), 2);
-        assert!(links.iter().any(|link| link.original_url == "https://example.org/chart.png"));
-        assert!(links.iter().any(|link| link.original_url == "https://example.org/report"));
+        assert!(links
+            .iter()
+            .any(|link| link.original_url == "https://example.org/chart.png"));
+        assert!(links
+            .iter()
+            .any(|link| link.original_url == "https://example.org/report"));
     }
 
     #[test]

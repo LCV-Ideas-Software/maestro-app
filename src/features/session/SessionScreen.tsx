@@ -16,7 +16,10 @@ import type { ChangeEventHandler } from "react";
 import { lazy, Suspense } from "react";
 import { finalArtifacts, initialAgentOptions, verbosityOptions } from "../../constants";
 import { logEvent } from "../../diagnostics";
-import type { SharedChatImporter } from "../../editor/posteditor/editor/sharedChatImport";
+import type {
+  SharedChatImporter,
+  StoredSharedChatEvidence,
+} from "../../editor/posteditor/editor/sharedChatImport";
 import { attachmentDeliveryHint, formatBytes, humanizeRunStatus } from "../../helpers";
 import type {
   ActivityItem,
@@ -71,6 +74,7 @@ type SessionScreenProps = {
   mainSiteAuthor: string;
   mainSiteDraftStatus: string;
   mainSiteHtml: string;
+  mainSiteSharedChatEvidence?: StoredSharedChatEvidence[] | undefined;
   mainSiteIsAboutSite: boolean;
   mainSiteIsPublished: boolean;
   mainSitePostId: number | null;
@@ -105,6 +109,7 @@ type SessionScreenProps = {
     isAboutSite: boolean,
     confirmedAboutAction?: boolean,
     requestedPostId?: number,
+    sharedChatEvidence?: StoredSharedChatEvidence[],
   ) => Promise<boolean>;
   sessionLinks: string;
   sessionName: string;
@@ -151,6 +156,7 @@ export function SessionScreen({
   mainSiteAuthor,
   mainSiteDraftStatus,
   mainSiteHtml,
+  mainSiteSharedChatEvidence,
   mainSiteIsAboutSite,
   mainSiteIsPublished,
   mainSitePostId,
@@ -457,9 +463,13 @@ export function SessionScreen({
                   <strong>{gate.agent}</strong>
                   <span>{gate.status}</span>
                 </div>
-                <div className="mini-progress" aria-label={`${gate.progress}%`}>
-                  <div style={{ width: `${gate.progress}%` }} />
-                </div>
+                {gate.progress === null ? (
+                  <span>Progresso de leitura não medido.</span>
+                ) : (
+                  <div className="mini-progress" aria-label={`${gate.progress}%`}>
+                    <div style={{ width: `${gate.progress}%` }} />
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -623,6 +633,7 @@ export function SessionScreen({
               initialTitle={sessionName}
               initialAuthor={mainSiteAuthor}
               initialContent={mainSiteHtml}
+              initialSharedChatEvidence={mainSiteSharedChatEvidence}
               initialIsPublished={mainSiteIsPublished}
               initialIsAboutSite={mainSiteIsAboutSite}
               savingPost={isSavingPostEditor}

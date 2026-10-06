@@ -116,7 +116,7 @@ fn dependency_preflight_inner() -> Value {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn verify_cloudflare_credentials(
     log_session: tauri::State<LogSession>,
     request: CloudflareProbeRequest,

@@ -82,7 +82,7 @@ fn probe_openai_api(client: &Client, config: &AiProviderConfig) -> AiProviderPro
         .get("https://api.openai.com/v1/models")
         .bearer_auth(&key)
         .send();
-    summarize_ai_probe_response("OpenAI / Codex", response)
+    summarize_ai_probe_response("OpenAI / Codex", response, true)
 }
 
 fn probe_anthropic_api(client: &Client, config: &AiProviderConfig) -> AiProviderProbeRow {
@@ -98,7 +98,7 @@ fn probe_anthropic_api(client: &Client, config: &AiProviderConfig) -> AiProvider
         .header("x-api-key", &key)
         .header("anthropic-version", "2023-06-01")
         .send();
-    summarize_ai_probe_response("Anthropic / Claude", response)
+    summarize_ai_probe_response("Anthropic / Claude", response, true)
 }
 
 fn probe_gemini_api(client: &Client, config: &AiProviderConfig) -> AiProviderProbeRow {
@@ -111,9 +111,9 @@ fn probe_gemini_api(client: &Client, config: &AiProviderConfig) -> AiProviderPro
 
     let response = client
         .get("https://generativelanguage.googleapis.com/v1beta/models")
-        .query(&[("key", &key)])
+        .header("x-goog-api-key", &key)
         .send();
-    summarize_ai_probe_response("Google / Gemini", response)
+    summarize_ai_probe_response("Google / Gemini", response, true)
 }
 
 fn probe_deepseek_api(client: &Client, config: &AiProviderConfig) -> AiProviderProbeRow {
@@ -128,7 +128,7 @@ fn probe_deepseek_api(client: &Client, config: &AiProviderConfig) -> AiProviderP
         .get("https://api.deepseek.com/models")
         .bearer_auth(&key)
         .send();
-    summarize_ai_probe_response("DeepSeek", response)
+    summarize_ai_probe_response("DeepSeek", response, true)
 }
 
 fn probe_grok_api(client: &Client, config: &AiProviderConfig) -> AiProviderProbeRow {
@@ -143,7 +143,7 @@ fn probe_grok_api(client: &Client, config: &AiProviderConfig) -> AiProviderProbe
         .get("https://api.x.ai/v1/models")
         .bearer_auth(&key)
         .send();
-    summarize_ai_probe_response("Grok / xAI", response)
+    summarize_ai_probe_response("Grok / xAI", response, true)
 }
 
 fn probe_perplexity_api(client: &Client, config: &AiProviderConfig) -> AiProviderProbeRow {
@@ -151,14 +151,18 @@ fn probe_perplexity_api(client: &Client, config: &AiProviderConfig) -> AiProvide
         config.perplexity_api_key.as_deref(),
         &["MAESTRO_PERPLEXITY_API_KEY", "PERPLEXITY_API_KEY"],
     ) else {
-        return missing_provider_key_row("Perplexity / Agent API", config.perplexity_api_key_remote);
+        return missing_provider_key_row(
+            "Perplexity / Agent API",
+            config.perplexity_api_key_remote,
+        );
     };
 
     let response = client
         .get("https://api.perplexity.ai/v1/models")
         .bearer_auth(&key)
         .send();
-    summarize_ai_probe_response("Perplexity / Agent API", response)
+    // Perplexity's model catalog is public; HTTP 200 cannot prove this key.
+    summarize_ai_probe_response("Perplexity / Agent API", response, false)
 }
 
 fn missing_provider_key_row(label: &str, remote_present: bool) -> AiProviderProbeRow {
@@ -176,13 +180,22 @@ fn missing_provider_key_row(label: &str, remote_present: bool) -> AiProviderProb
 fn summarize_ai_probe_response(
     label: &str,
     response: Result<reqwest::blocking::Response, reqwest::Error>,
+    catalog_requires_auth: bool,
 ) -> AiProviderProbeRow {
     match response {
         Ok(response) => {
             let status = response.status();
             let body = response.text().unwrap_or_default();
             if status.is_success() {
-                ai_probe_row(label, "API respondeu; credencial aceita", "ok")
+                if catalog_requires_auth {
+                    ai_probe_row(label, "API respondeu; credencial aceita", "ok")
+                } else {
+                    ai_probe_row(
+                        label,
+                        "catalogo publico disponivel; validacao da credencial exige chamada Agent API",
+                        "warn",
+                    )
+                }
             } else if status.as_u16() == 401 || status.as_u16() == 403 {
                 ai_probe_row(
                     label,
@@ -197,7 +210,7 @@ fn summarize_ai_probe_response(
                 ai_probe_row(
                     label,
                     format!(
-                        "credencial aceita, mas limite ativo (HTTP {}): {}",
+                        "limite ativo; validacao da credencial inconclusiva (HTTP {}): {}",
                         status.as_u16(),
                         api_error_message(&body)
                     ),

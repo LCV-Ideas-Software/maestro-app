@@ -120,13 +120,7 @@ pub(crate) fn append_agent_cost_to_ledger(
     cost_scope_id: &str,
     agent: &EditorialAgentResult,
 ) -> Result<(), String> {
-    append_agent_cost_to_ledger_with_attribution(
-        session_dir,
-        ledger,
-        cost_scope_id,
-        agent,
-        None,
-    )
+    append_agent_cost_to_ledger_with_attribution(session_dir, ledger, cost_scope_id, agent, None)
 }
 
 pub(crate) fn append_agent_cost_to_ledger_with_attribution(
@@ -156,8 +150,7 @@ pub(crate) fn append_agent_cost_to_ledger_with_attribution(
         attempt_kind: attribution.map(|value| value.attempt_kind.to_string()),
         round: attribution.map(|value| value.round),
         turn: attribution.map(|value| value.turn),
-        corrective_retry_ordinal: attribution
-            .and_then(|value| value.corrective_retry_ordinal),
+        corrective_retry_ordinal: attribution.and_then(|value| value.corrective_retry_ordinal),
     });
     ledger.total_observed_cost_usd = observed_cost_for_run(&ledger.entries, cost_scope_id);
     write_cost_ledger(session_dir, ledger)
@@ -274,10 +267,7 @@ mod tests {
         );
         assert_eq!(new_run_ledger.entries[1].round, Some(3));
         assert_eq!(new_run_ledger.entries[1].turn, Some(4));
-        assert_eq!(
-            new_run_ledger.entries[1].corrective_retry_ordinal,
-            Some(2)
-        );
+        assert_eq!(new_run_ledger.entries[1].corrective_retry_ordinal, Some(2));
 
         let old_run_ledger = load_cost_ledger(&dir, "session-run", "old-run");
         assert_eq!(old_run_ledger.total_observed_cost_usd, 9.5);

@@ -67,9 +67,13 @@ export function AgentsScreen({
                 <strong>{gate.agent}</strong>
                 <span>{gate.status}</span>
               </div>
-              <div className="mini-progress" aria-label={`${gate.progress}%`}>
-                <div style={{ width: `${gate.progress}%` }} />
-              </div>
+              {gate.progress === null ? (
+                <span>Progresso de leitura não medido.</span>
+              ) : (
+                <div className="mini-progress" aria-label={`${gate.progress}%`}>
+                  <div style={{ width: `${gate.progress}%` }} />
+                </div>
+              )}
             </div>
           ))}
         </div>

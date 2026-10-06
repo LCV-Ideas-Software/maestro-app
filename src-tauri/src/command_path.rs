@@ -2,10 +2,10 @@
 // Descricao: PATH-resolution helpers for child command spawn extracted from
 // lib.rs in v0.3.33 per `docs/code-split-plan.md` migration step 5.
 //
-// What's here (3 functions):
+// What's here:
 //   - `resolve_command` — locates a CLI by name on the effective PATH
-//     (absolute and relative paths bypass the search). Returns the first
-//     candidate that exists as a file.
+//     (absolute and relative paths bypass the search). For bare Windows agy,
+//     native executables precede batch shims; other command ordering is unchanged.
 //   - `command_candidate_paths` — on Windows, expands a bare `<command>`
 //     stem into `[<command>.exe, <command>.cmd, <command>.bat,
 //     <command>.ps1, <command>]` so the resolver can match any common
@@ -46,8 +46,26 @@ pub(crate) fn resolve_command(command: &str) -> Option<PathBuf> {
             .find(|path| path.is_file());
     }
 
-    command_search_dirs()
-        .into_iter()
+    resolve_command_on_search_path(command, &command_search_dirs())
+}
+
+fn resolve_command_on_search_path(command: &str, search_dirs: &[PathBuf]) -> Option<PathBuf> {
+    #[cfg(windows)]
+    if command.eq_ignore_ascii_case("agy") {
+        // The official Windows CLI is native. An older npm/PATH batch shim
+        // must not hide it: PTY batch launchers cannot safely carry prompts.
+        // Keep directory order among native executables and explicit paths.
+        if let Some(path) = search_dirs
+            .iter()
+            .map(|dir| dir.join(command).with_extension("exe"))
+            .find(|path| path.is_file())
+        {
+            return Some(path);
+        }
+    }
+
+    search_dirs
+        .iter()
         .flat_map(|dir| command_candidate_paths(&dir.join(command)))
         .find(|path| path.is_file())
 }
@@ -139,6 +157,115 @@ mod tests {
             dirs.first(),
             Some(&data_dir().join("bootstrap").join("npm-user"))
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn bare_agy_prefers_native_executable_without_changing_other_resolution() {
+        let mut fixture = CommandPathFixture::new();
+        let early = fixture.directory("early-shims");
+        let first_native = fixture.directory("first-native");
+        let later_native = fixture.directory("later-native");
+        let early_agy = fixture.file(&early, "agy.cmd");
+        let first_agy = fixture.file(&first_native, "agy.exe");
+        let later_agy = fixture.file(&later_native, "agy.exe");
+        let early_claude = fixture.file(&early, "claude.cmd");
+        fixture.file(&first_native, "claude.exe");
+        let dirs = [early, first_native.clone(), later_native];
+
+        assert_eq!(
+            resolve_command_on_search_path("agy", &dirs),
+            Some(first_agy.clone()),
+            "an earlier batch shim must not hide the first available native agy executable",
+        );
+        assert_eq!(
+            resolve_command_on_search_path("AGY", &dirs),
+            Some(first_native.join("AGY.exe")),
+        );
+        assert_eq!(
+            resolve_command_on_search_path("claude", &dirs),
+            Some(early_claude),
+            "other commands must preserve the existing directory priority",
+        );
+        assert_eq!(
+            resolve_command_on_search_path("agy.cmd", &dirs),
+            Some(early_agy.clone()),
+            "an explicitly named extension must retain its existing resolution",
+        );
+        assert_eq!(
+            resolve_command(early_agy.to_str().unwrap()),
+            Some(early_agy.clone()),
+            "an explicit path must bypass native preference",
+        );
+
+        fs::remove_file(first_agy).unwrap();
+        assert_eq!(
+            resolve_command_on_search_path("agy", &dirs),
+            Some(later_agy.clone()),
+            "native candidates must retain directory order",
+        );
+        fs::remove_file(later_agy).unwrap();
+        assert_eq!(
+            resolve_command_on_search_path("agy", &dirs),
+            Some(early_agy.clone()),
+            "without a native executable, preserve resolution for the existing safe launch refusal",
+        );
+        fs::remove_file(early_agy).unwrap();
+        assert_eq!(resolve_command_on_search_path("agy", &dirs), None);
+    }
+
+    #[cfg(windows)]
+    struct CommandPathFixture {
+        root: PathBuf,
+        directories: Vec<PathBuf>,
+        files: Vec<PathBuf>,
+    }
+
+    #[cfg(windows)]
+    impl CommandPathFixture {
+        fn new() -> Self {
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!(
+                "maestro-command-path-{}-{nonce}",
+                std::process::id(),
+            ));
+            fs::create_dir(&root).unwrap();
+            Self {
+                root,
+                directories: Vec::new(),
+                files: Vec::new(),
+            }
+        }
+
+        fn directory(&mut self, name: &str) -> PathBuf {
+            let path = self.root.join(name);
+            fs::create_dir(&path).unwrap();
+            self.directories.push(path.clone());
+            path
+        }
+
+        fn file(&mut self, directory: &Path, name: &str) -> PathBuf {
+            let path = directory.join(name);
+            fs::write(&path, b"resolution-only fixture; never executed").unwrap();
+            self.files.push(path.clone());
+            path
+        }
+    }
+
+    #[cfg(windows)]
+    impl Drop for CommandPathFixture {
+        fn drop(&mut self) {
+            for path in &self.files {
+                let _ = fs::remove_file(path);
+            }
+            for path in self.directories.iter().rev() {
+                let _ = fs::remove_dir(path);
+            }
+            let _ = fs::remove_dir(&self.root);
+        }
     }
 }
 

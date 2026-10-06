@@ -137,7 +137,7 @@ export function isKnownDocumentAttachment(attachment: PromptAttachmentPayload) {
   );
 }
 
-// Keep this predictor aligned with src-tauri/src/lib.rs provider_supports_native_attachment.
+// Keep this predictor aligned with src-tauri/src/api_payloads.rs provider_supports_native_attachment.
 export function providerSupportsNativeAttachment(
   provider: NativeAttachmentProvider,
   attachment: PromptAttachmentPayload,
@@ -146,13 +146,48 @@ export function providerSupportsNativeAttachment(
   if (provider === "openai")
     return isImageAttachment(attachment) || isKnownDocumentAttachment(attachment);
   if (provider === "anthropic") return isImageAttachment(attachment) || isPdfAttachment(attachment);
+  const media = normalizedAttachmentMediaType(attachment);
+  if (provider === "grok") return media === "image/png" || media === "image/jpeg";
   return (
-    isImageAttachment(attachment) ||
-    normalizedAttachmentMediaType(attachment).startsWith("audio/") ||
-    normalizedAttachmentMediaType(attachment).startsWith("video/") ||
-    isPdfAttachment(attachment) ||
-    isTextLikeAttachment(attachment) ||
-    isKnownDocumentAttachment(attachment)
+    [
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/heic",
+      "image/heif",
+      "audio/wav",
+      "audio/mp3",
+      "audio/aiff",
+      "audio/aac",
+      "audio/ogg",
+      "audio/flac",
+      "audio/mpeg",
+      "audio/m4a",
+      "audio/l16",
+      "audio/opus",
+      "audio/alaw",
+      "audio/mulaw",
+      "audio/webm",
+      "video/mp4",
+      "video/mpeg",
+      "video/mov",
+      "video/avi",
+      "video/x-flv",
+      "video/mpg",
+      "video/webm",
+      "video/wmv",
+      "video/3gpp",
+    ].includes(media) ||
+    media.startsWith("text/") ||
+    [
+      "application/pdf",
+      "application/json",
+      "application/rtf",
+      "application/x-javascript",
+      "application/x-typescript",
+      "application/x-python-code",
+      "application/x-ipynb+json",
+    ].includes(media)
   );
 }
 
@@ -163,14 +198,12 @@ export function attachmentDeliveryPlan(
   const nativeProviders = activeApiProviders.filter(
     (provider): provider is NativeAttachmentProvider =>
       provider !== "deepseek" &&
-      provider !== "grok" &&
       provider !== "perplexity" &&
       providerSupportsNativeAttachment(provider, attachment),
   );
   const manifestProviders = activeApiProviders.filter(
     (provider) =>
       provider === "deepseek" ||
-      provider === "grok" ||
       provider === "perplexity" ||
       !nativeProviders.includes(provider as NativeAttachmentProvider),
   );
@@ -183,8 +216,7 @@ export function attachmentDeliveryPlan(
           ? "peers ativos usam CLI"
           : manifestProviders.length > 0 &&
               manifestProviders.every(
-                (provider) =>
-                  provider === "deepseek" || provider === "grok" || provider === "perplexity",
+                (provider) => provider === "deepseek" || provider === "perplexity",
               )
             ? "API text-only"
             : nativeProviders.length > 0
@@ -296,7 +328,7 @@ export function agentStateFromTone(tone: EditorialAgentResult["tone"]): AgentSta
 }
 
 export function agentResultRank(agent: EditorialAgentResult) {
-  const match = agent.output_path.match(/round-(\d{3})-/i);
+  const match = agent.output_path.match(/round-(\d{3,})-/i);
   const round = match?.[1] ? Number.parseInt(match[1], 10) : 0;
   const roleRank =
     agent.role === "review" ? 3 : agent.role === "revision" ? 2 : agent.role === "draft" ? 1 : 0;
@@ -330,16 +362,15 @@ export function latestAgentCards(agents: EditorialAgentResult[]): AgentCard[] {
 export function latestProtocolGateItems(agents: EditorialAgentResult[]): ProtocolReadingGate[] {
   return latestAgentResults(agents).map((agent) => ({
     agent: agent.name,
-    progress: agent.tone === "ok" ? 100 : agent.tone === "warn" ? 70 : 35,
-    status:
-      agent.tone === "ok" ? "Protocolo lido na ultima rodada" : humanizeAgentStatus(agent.status),
+    progress: null,
+    status: `${humanizeRole(agent.role)}: ${humanizeAgentStatus(agent.status)}`,
   }));
 }
 
 export function countAgentRounds(agents: EditorialAgentResult[]) {
   return new Set(
     agents
-      .map((agent) => agent.output_path.match(/round-(\d{3})-/i)?.[1])
+      .map((agent) => agent.output_path.match(/round-(\d{3,})-/i)?.[1])
       .filter((round): round is string => Boolean(round)),
   ).size;
 }

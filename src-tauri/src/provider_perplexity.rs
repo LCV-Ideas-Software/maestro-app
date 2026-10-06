@@ -9,6 +9,7 @@ use std::time::Instant;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
+use crate::api_payloads::{api_attachment_delivery_note, validate_native_provider_payload};
 use crate::logging::{write_log_record, LogEventInput, LogSession};
 use crate::provider_retry::{
     build_api_client_async, provider_http_error_status, provider_reqwest_error_status,
@@ -42,8 +43,12 @@ fn is_agent_model(model: &str) -> bool {
     };
     !provider.is_empty()
         && !name.is_empty()
-        && provider.chars().all(|ch| ch.is_ascii_lowercase() || ch == '-')
-        && name.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.' | '_'))
+        && provider
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch == '-')
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.' | '_'))
 }
 
 fn perplexity_agent_request_body(
@@ -57,6 +62,9 @@ fn perplexity_agent_request_body(
         "instructions": system_prompt,
         "input": prompt,
         "max_output_tokens": max_output_tokens,
+        // Current Kimi K3 routing rejects both documented maximum aliases
+        // (max/xhigh) with HTTP 400; high is the highest verified native value.
+        // Keep this explicit rather than silently retrying at a lower effort.
         "reasoning": { "effort": "high" },
         "tools": [{ "type": "web_search" }],
         "max_steps": 1,
@@ -80,6 +88,10 @@ pub(crate) async fn run_perplexity_api_agent(
         config,
         cost_guard,
     } = request;
+    let prompt = format!(
+        "{prompt}{}",
+        api_attachment_delivery_note("perplexity", attachments)
+    );
     let started = Instant::now();
     let name = "Perplexity";
     let cli = "perplexity-api";
@@ -128,9 +140,11 @@ pub(crate) async fn run_perplexity_api_agent(
     }
     if let Some(guard) = cost_guard.as_ref() {
         if let Some(limit) = guard.max_session_cost_usd {
-            let projected =
-                estimate_provider_cost_from_input_chars(input_estimate_chars, max_tokens, guard.rates)
-                    + PERPLEXITY_WEB_SEARCH_COST_USD;
+            let projected = estimate_provider_cost_from_input_chars(
+                input_estimate_chars,
+                max_tokens,
+                guard.rates,
+            ) + PERPLEXITY_WEB_SEARCH_COST_USD;
             if guard.observed_cost_usd + projected > limit {
                 return write_provider_failure_result(
                     &invocation,
@@ -184,6 +198,14 @@ pub(crate) async fn run_perplexity_api_agent(
     );
 
     let body = perplexity_agent_request_body(&model, &system_prompt, &prompt, max_tokens);
+    if let Err(error) = validate_native_provider_payload(provider, &body) {
+        return write_provider_error_result(
+            &invocation,
+            &model,
+            &format!("ATTACHMENT_ERROR: {error}"),
+            started.elapsed().as_millis(),
+        );
+    }
     let request_builder = async_client
         .post(PERPLEXITY_ENDPOINT)
         .bearer_auth(&api_key)
@@ -387,29 +409,52 @@ fn perplexity_search_executed(value: &Value) -> bool {
         .get("output")
         .and_then(Value::as_array)
         .is_some_and(|items| {
-            items.iter().any(|item| {
-                item.get("type").and_then(Value::as_str) == Some("search_results")
-            })
+            items
+                .iter()
+                .any(|item| item.get("type").and_then(Value::as_str) == Some("search_results"))
         })
 }
 
 pub(crate) fn perplexity_response_text(value: &Value) -> Option<String> {
-    if value.get("status").and_then(Value::as_str) != Some("completed") {
+    if value.get("status").and_then(Value::as_str) != Some("completed")
+        || value.get("error").is_some_and(|error| !error.is_null())
+        || value
+            .get("incomplete_details")
+            .is_some_and(|detail| !detail.is_null())
+        || value
+            .get("output")
+            .and_then(Value::as_array)
+            .is_some_and(|items| {
+                items.iter().any(|item| {
+                    item.get("type").and_then(Value::as_str) == Some("message")
+                        && item
+                            .get("status")
+                            .and_then(Value::as_str)
+                            .is_some_and(|status| status != "completed")
+                })
+            })
+    {
         return None;
     }
-    let parts = value.get("output")?.as_array()?.iter().filter_map(|item| {
-        if item.get("type").and_then(Value::as_str) != Some("message")
-            || item.get("role").and_then(Value::as_str) != Some("assistant")
-        {
-            return None;
-        }
-        item.get("content")?.as_array().map(|content| {
-            content.iter()
-                .filter(|part| part.get("type").and_then(Value::as_str) == Some("output_text"))
-                .filter_map(|part| part.get("text").and_then(Value::as_str))
-                .collect::<String>()
+    let parts = value
+        .get("output")?
+        .as_array()?
+        .iter()
+        .filter_map(|item| {
+            if item.get("type").and_then(Value::as_str) != Some("message")
+                || item.get("role").and_then(Value::as_str) != Some("assistant")
+            {
+                return None;
+            }
+            item.get("content")?.as_array().map(|content| {
+                content
+                    .iter()
+                    .filter(|part| part.get("type").and_then(Value::as_str) == Some("output_text"))
+                    .filter_map(|part| part.get("text").and_then(Value::as_str))
+                    .collect::<String>()
+            })
         })
-    }).collect::<Vec<_>>();
+        .collect::<Vec<_>>();
     let text = parts.join("\n");
     let text = text.trim();
     (!text.is_empty()).then(|| text.to_string())
@@ -521,8 +566,20 @@ mod tests {
             perplexity_response_text(&value).unwrap(),
             "MAESTRO_STATUS: READY\nReview approved."
         );
-        assert!(perplexity_response_text(&json!({"status":"failed","output":value["output"]})).is_none());
-        assert!(perplexity_response_text(&json!({"status":"completed","output":[{"type":"search_results","results":[]}]})).is_none());
+        assert!(
+            perplexity_response_text(&json!({"status":"failed","output":value["output"]}))
+                .is_none()
+        );
+        assert!(perplexity_response_text(
+            &json!({"status":"completed","output":[{"type":"search_results","results":[]}]})
+        )
+        .is_none());
+        let mut partial = value.clone();
+        partial["output"][1]["status"] = json!("incomplete");
+        assert!(perplexity_response_text(&partial).is_none());
+        let mut incomplete = value.clone();
+        incomplete["incomplete_details"] = json!({ "reason": "max_output_tokens" });
+        assert!(perplexity_response_text(&incomplete).is_none());
         assert!(perplexity_has_search_evidence(&value));
         assert!(!perplexity_has_search_evidence(&json!({
             "output": [{

@@ -34,32 +34,30 @@
 // v0.3.22 is a pure move: every signature, log line, format string and status
 // string is identical to the v0.3.21 lib.rs source (commit 8ef11ba).
 
+use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
+use crate::api_payloads::validate_native_provider_payload;
 use crate::app_paths::checked_data_child_path;
 
-/// Written to the artifact instead of a provider's raw response body when
-/// content extraction fails on an HTTP 200, mirroring the DeepSeek runner so no
-/// unbounded raw provider JSON reaches the session artifact (audit B1).
-const PROVIDER_BODY_OMITTED: &str =
-    "<provedor retornou 200 sem conteudo reconhecido; JSON bruto omitido do artefato>";
 use crate::logging::{write_log_record, LogEventInput, LogSession};
 use crate::provider_retry::{
-    build_api_client, build_api_client_async, provider_http_error_status,
-    provider_reqwest_error_status, send_with_retry_async, ProviderRequestOutcome,
+    build_api_client_async, provider_http_error_status, provider_reqwest_error_status,
+    send_with_retry_async, ProviderRequestOutcome,
 };
 use crate::session_controls::{
-    api_role_max_tokens, estimate_provider_cost_from_input_chars, provider_cache_plan,
-    provider_cache_telemetry, provider_cache_telemetry_with_plan, provider_cost, usage_tokens,
-    ProviderCachePlan, ProviderCostGuard,
+    anthropic_provider_cost, api_role_max_tokens, estimate_provider_cost_from_input_chars,
+    openai_provider_cost, provider_cache_plan, provider_cache_telemetry,
+    provider_cache_telemetry_with_plan, provider_cost, usage_tokens, ProviderCachePlan,
+    ProviderCostGuard,
 };
 use crate::session_evidence::AttachmentManifestEntry;
 use crate::{
@@ -599,7 +597,7 @@ pub(crate) async fn run_openai_api_agent(
     let name = "Codex";
     let cli = "openai-api";
     let provider = "openai";
-    let model_hint = "gpt-5.6-sol";
+    let model_hint = "gpt-6-astra";
     let invocation = ProviderInvocation {
         log_session,
         run_id,
@@ -629,21 +627,6 @@ pub(crate) async fn run_openai_api_agent(
         return result;
     }
 
-    // Two clients: blocking for the short `/models` resolve probe, async for
-    // the main editorial request whose in-flight HTTP future must yield to
-    // the cancellation token via `tokio::select!`.
-    let blocking_client = match build_api_client(timeout) {
-        Ok(client) => client,
-        Err(error) => {
-            let status = provider_reqwest_error_status("CLIENT_ERROR", error);
-            return write_provider_error_result(
-                &invocation,
-                model_hint,
-                &status,
-                started.elapsed().as_millis(),
-            );
-        }
-    };
     let async_client = match build_api_client_async(timeout) {
         Ok(client) => client,
         Err(error) => {
@@ -656,7 +639,7 @@ pub(crate) async fn run_openai_api_agent(
             );
         }
     };
-    let model = resolve_openai_model(&blocking_client, &api_key);
+    let model = resolve_openai_model(&async_client, &api_key, cancel_token).await;
     let system_prompt = editorial_api_system_prompt(name);
     let cache_plan = provider_cache_plan(provider, &model, role, name, &system_prompt);
     let input = match openai_api_input(&prompt, attachments) {
@@ -699,12 +682,28 @@ pub(crate) async fn run_openai_api_agent(
         "model": model,
         "instructions": system_prompt,
         "input": input,
-        "max_output_tokens": max_tokens,
+        "max_output_tokens": if model.starts_with("gpt-4.1") { max_tokens.min(32_768) } else { max_tokens },
         "store": false,
+        "service_tier": "default",
         "prompt_cache_key": cache_plan.cache_key
     });
     if let Some(retention) = cache_plan.cache_retention.as_deref() {
-        body["prompt_cache_retention"] = json!(retention);
+        if retention == "30m" {
+            body["prompt_cache_options"] = json!({ "ttl": "30m" });
+        } else {
+            body["prompt_cache_retention"] = json!(retention);
+        }
+    }
+    if model.starts_with("gpt-6") || model.starts_with("gpt-5.6") {
+        body["reasoning"] = json!({ "effort": "max" });
+    }
+    if let Err(error) = validate_native_provider_payload(provider, &body) {
+        return write_provider_error_result(
+            &invocation,
+            &model,
+            &format!("ATTACHMENT_ERROR: {error}"),
+            started.elapsed().as_millis(),
+        );
     }
     let endpoint = "https://api.openai.com/v1/responses";
     let request_builder = async_client
@@ -767,19 +766,29 @@ pub(crate) async fn run_openai_api_agent(
     }
 
     let parsed: Value = serde_json::from_str(&body_text).unwrap_or_else(|_| json!({}));
-    let stdout = openai_response_text(&parsed)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| PROVIDER_BODY_OMITTED.to_string());
     let (usage_input_tokens, usage_output_tokens) = usage_tokens(&parsed);
     let cache = Some(provider_cache_telemetry_with_plan(
         &cache_plan,
         provider_cache_telemetry(provider, &parsed, usage_input_tokens),
     ));
-    let cost_usd = cost_guard.as_ref().and_then(|guard| {
-        usage_input_tokens
-            .zip(usage_output_tokens)
-            .map(|(input, output)| provider_cost(input, output, guard.rates))
-    });
+    let cost_usd = cost_guard
+        .as_ref()
+        .and_then(|guard| openai_provider_cost(&parsed, &model, guard.rates));
+    let stdout = match completed_provider_response_text(provider, &parsed) {
+        Ok(text) => text,
+        Err(status) => {
+            return write_provider_error_result_with_accounting(
+                &invocation,
+                &model,
+                status,
+                started.elapsed().as_millis(),
+                usage_input_tokens,
+                usage_output_tokens,
+                cost_usd,
+                cost_usd.map(|_| true),
+            );
+        }
+    };
     let model_reported = parsed
         .get("model")
         .and_then(Value::as_str)
@@ -826,7 +835,7 @@ pub(crate) async fn run_anthropic_api_agent(
     let name = "Claude";
     let cli = "anthropic-api";
     let provider = "anthropic";
-    let model_hint = "claude-fable-5";
+    let model_hint = "claude-fable-5-1";
     let invocation = ProviderInvocation {
         log_session,
         run_id,
@@ -856,18 +865,6 @@ pub(crate) async fn run_anthropic_api_agent(
         return result;
     }
 
-    let blocking_client = match build_api_client(timeout) {
-        Ok(client) => client,
-        Err(error) => {
-            let status = provider_reqwest_error_status("CLIENT_ERROR", error);
-            return write_provider_error_result(
-                &invocation,
-                model_hint,
-                &status,
-                started.elapsed().as_millis(),
-            );
-        }
-    };
     let async_client = match build_api_client_async(timeout) {
         Ok(client) => client,
         Err(error) => {
@@ -880,7 +877,7 @@ pub(crate) async fn run_anthropic_api_agent(
             );
         }
     };
-    let model = resolve_anthropic_model(&blocking_client, &api_key);
+    let model = resolve_anthropic_model(&async_client, &api_key, cancel_token).await;
     let system_prompt = editorial_api_system_prompt(name);
     let cache_plan = provider_cache_plan(provider, &model, role, name, &system_prompt);
     let content = match anthropic_api_user_content(&prompt, attachments) {
@@ -920,7 +917,7 @@ pub(crate) async fn run_anthropic_api_agent(
         &cache_plan,
     );
 
-    let body = json!({
+    let mut body = json!({
         "model": model,
         "max_tokens": max_tokens,
         "system": system_content,
@@ -928,6 +925,18 @@ pub(crate) async fn run_anthropic_api_agent(
             { "role": "user", "content": content }
         ]
     });
+    if model.starts_with("claude-fable-") || model.starts_with("claude-opus-5") {
+        body["thinking"] = json!({ "type": "adaptive" });
+        body["output_config"] = json!({ "effort": "max" });
+    }
+    if let Err(error) = validate_native_provider_payload(provider, &body) {
+        return write_provider_error_result(
+            &invocation,
+            &model,
+            &format!("ATTACHMENT_ERROR: {error}"),
+            started.elapsed().as_millis(),
+        );
+    }
     let endpoint = "https://api.anthropic.com/v1/messages";
     let request_builder = async_client
         .post(endpoint)
@@ -995,19 +1004,29 @@ pub(crate) async fn run_anthropic_api_agent(
     }
 
     let parsed: Value = serde_json::from_str(&body_text).unwrap_or_else(|_| json!({}));
-    let stdout = anthropic_response_text(&parsed)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| PROVIDER_BODY_OMITTED.to_string());
     let (usage_input_tokens, usage_output_tokens) = usage_tokens(&parsed);
     let cache = Some(provider_cache_telemetry_with_plan(
         &cache_plan,
         provider_cache_telemetry(provider, &parsed, usage_input_tokens),
     ));
-    let cost_usd = cost_guard.as_ref().and_then(|guard| {
-        usage_input_tokens
-            .zip(usage_output_tokens)
-            .map(|(input, output)| provider_cost(input, output, guard.rates))
-    });
+    let cost_usd = cost_guard
+        .as_ref()
+        .and_then(|guard| anthropic_provider_cost(&parsed, guard.rates));
+    let stdout = match completed_provider_response_text(provider, &parsed) {
+        Ok(text) => text,
+        Err(status) => {
+            return write_provider_error_result_with_accounting(
+                &invocation,
+                &model,
+                status,
+                started.elapsed().as_millis(),
+                usage_input_tokens,
+                usage_output_tokens,
+                cost_usd,
+                cost_usd.map(|_| true),
+            );
+        }
+    };
     let model_reported = parsed
         .get("model")
         .and_then(Value::as_str)
@@ -1054,7 +1073,7 @@ pub(crate) async fn run_gemini_api_agent(
     let name = "Gemini";
     let cli = "gemini-api";
     let provider = "gemini";
-    let model_hint = "gemini-2.5-pro";
+    let model_hint = "gemini-3.1-pro-preview";
     let invocation = ProviderInvocation {
         log_session,
         run_id,
@@ -1084,18 +1103,6 @@ pub(crate) async fn run_gemini_api_agent(
         return result;
     }
 
-    let blocking_client = match build_api_client(timeout) {
-        Ok(client) => client,
-        Err(error) => {
-            let status = provider_reqwest_error_status("CLIENT_ERROR", error);
-            return write_provider_error_result(
-                &invocation,
-                model_hint,
-                &status,
-                started.elapsed().as_millis(),
-            );
-        }
-    };
     let async_client = match build_api_client_async(timeout) {
         Ok(client) => client,
         Err(error) => {
@@ -1108,7 +1115,7 @@ pub(crate) async fn run_gemini_api_agent(
             );
         }
     };
-    let model = resolve_gemini_model(&blocking_client, &api_key);
+    let model = resolve_gemini_model(&async_client, &api_key, cancel_token).await;
     let system_prompt = editorial_api_system_prompt(name);
     let cache_plan = provider_cache_plan(provider, &model, role, name, &system_prompt);
     let parts = match gemini_api_user_parts(&prompt, attachments) {
@@ -1149,7 +1156,7 @@ pub(crate) async fn run_gemini_api_agent(
 
     let endpoint =
         format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
-    let body = json!({
+    let mut body = json!({
         "systemInstruction": {
             "parts": [{ "text": system_prompt }]
         },
@@ -1163,9 +1170,20 @@ pub(crate) async fn run_gemini_api_agent(
             "maxOutputTokens": max_tokens
         }
     });
+    if model.starts_with("gemini-3") {
+        body["generationConfig"]["thinkingConfig"] = json!({ "thinkingLevel": "high" });
+    }
+    if let Err(error) = validate_native_provider_payload(provider, &body) {
+        return write_provider_error_result(
+            &invocation,
+            &model,
+            &format!("ATTACHMENT_ERROR: {error}"),
+            started.elapsed().as_millis(),
+        );
+    }
     let request_builder = async_client
         .post(&endpoint)
-        .query(&[("key", &api_key)])
+        .header("x-goog-api-key", &api_key)
         .json(&body);
     let response =
         match send_with_retry_async(log_session, run_id, "gemini", cancel_token, request_builder)
@@ -1223,9 +1241,6 @@ pub(crate) async fn run_gemini_api_agent(
     }
 
     let parsed: Value = serde_json::from_str(&body_text).unwrap_or_else(|_| json!({}));
-    let stdout = gemini_response_text(&parsed)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| PROVIDER_BODY_OMITTED.to_string());
     let (usage_input_tokens, usage_output_tokens) = gemini_usage_tokens(&parsed);
     let cache = Some(provider_cache_telemetry_with_plan(
         &cache_plan,
@@ -1236,6 +1251,21 @@ pub(crate) async fn run_gemini_api_agent(
             .zip(usage_output_tokens)
             .map(|(input, output)| provider_cost(input, output, guard.rates))
     });
+    let stdout = match completed_provider_response_text(provider, &parsed) {
+        Ok(text) => text,
+        Err(status) => {
+            return write_provider_error_result_with_accounting(
+                &invocation,
+                &model,
+                status,
+                started.elapsed().as_millis(),
+                usage_input_tokens,
+                usage_output_tokens,
+                cost_usd,
+                cost_usd.map(|_| true),
+            );
+        }
+    };
     let model_reported = parsed
         .pointer("/modelVersion")
         .and_then(Value::as_str)
@@ -1263,97 +1293,180 @@ pub(crate) async fn run_gemini_api_agent(
     )
 }
 
-pub(crate) fn resolve_openai_model(client: &Client, api_key: &str) -> String {
-    let response = client
-        .get("https://api.openai.com/v1/models")
-        .bearer_auth(api_key)
-        .send();
-    if let Ok(response) = response {
-        if response.status().is_success() {
-            let body = response.text().unwrap_or_default();
-            if let Ok(value) = serde_json::from_str::<Value>(&body) {
-                return choose_preferred_model(
-                    &api_model_ids(&value),
-                    &[
-                        "gpt-5.6-sol",
-                        "gpt-5.6-terra",
-                        "gpt-5.6-luna",
-                        "gpt-5.5",
-                        "gpt-5.4",
-                        "gpt-5.2",
-                        "gpt-5",
-                        "gpt-4.1",
-                    ],
-                    "gpt-5.6-sol",
-                );
-            }
+pub(crate) async fn fetch_provider_model_catalog(
+    request: reqwest::RequestBuilder,
+    cancel_token: &CancellationToken,
+) -> Option<Value> {
+    // Bound only metadata discovery; editorial generation keeps its own policy.
+    let fetch = async {
+        let response = request.timeout(Duration::from_secs(30)).send().await.ok()?;
+        if !response.status().is_success() {
+            return None;
         }
+        response.json::<Value>().await.ok()
+    };
+    tokio::select! {
+        biased;
+        _ = cancel_token.cancelled() => None,
+        catalog = fetch => catalog,
     }
-    "gpt-5.6-sol".to_string()
 }
 
-pub(crate) fn resolve_anthropic_model(client: &Client, api_key: &str) -> String {
-    let response = client
+pub(crate) async fn resolve_openai_model(
+    client: &Client,
+    api_key: &str,
+    cancel_token: &CancellationToken,
+) -> String {
+    let request = client
+        .get("https://api.openai.com/v1/models")
+        .bearer_auth(api_key);
+    if let Some(value) = fetch_provider_model_catalog(request, cancel_token).await {
+        return openai_catalog_model(&value);
+    }
+    "gpt-6-astra".to_string()
+}
+
+fn openai_catalog_model(value: &Value) -> String {
+    choose_preferred_model(
+        &api_model_ids(value),
+        &[
+            "gpt-6-astra",
+            "gpt-6.1-sol",
+            "gpt-6-sol",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
+            "gpt-5.5",
+            "gpt-5.4",
+            "gpt-5.2",
+            "gpt-5",
+            "gpt-4.1",
+        ],
+        "gpt-6-astra",
+    )
+}
+
+pub(crate) async fn resolve_anthropic_model(
+    client: &Client,
+    api_key: &str,
+    cancel_token: &CancellationToken,
+) -> String {
+    let request = client
         .get("https://api.anthropic.com/v1/models")
         .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .send();
-    if let Ok(response) = response {
-        if response.status().is_success() {
-            let body = response.text().unwrap_or_default();
-            if let Ok(value) = serde_json::from_str::<Value>(&body) {
-                return choose_preferred_model(
-                    &api_model_ids(&value),
-                    &[
-                        "claude-fable-5",
-                        "claude-opus-5",
-                        "claude-opus-4-8",
-                        "claude-opus-4-7",
-                        "claude-sonnet-5",
-                        "claude-opus-4-1-20250805",
-                    ],
-                    "claude-fable-5",
-                );
-            }
-        }
+        .header("anthropic-version", "2023-06-01");
+    if let Some(models) = fetch_anthropic_model_ids(request, cancel_token).await {
+        return anthropic_catalog_model(&models);
     }
-    "claude-fable-5".to_string()
+    "claude-fable-5-1".to_string()
 }
 
-pub(crate) fn resolve_gemini_model(client: &Client, api_key: &str) -> String {
-    let response = client
+async fn fetch_anthropic_model_ids(
+    request: reqwest::RequestBuilder,
+    cancel_token: &CancellationToken,
+) -> Option<Vec<String>> {
+    let request = request.query(&[("limit", 1000)]);
+    let mut cursor = None;
+    let mut seen_cursors = HashSet::new();
+    let mut models = Vec::new();
+    loop {
+        let mut page_request = request.try_clone()?;
+        if let Some(after_id) = &cursor {
+            page_request = page_request.query(&[("after_id", after_id)]);
+        }
+        let page = fetch_provider_model_catalog(page_request, cancel_token).await?;
+        models.extend(api_model_ids(&page));
+        if !page.get("has_more")?.as_bool()? {
+            return Some(models);
+        }
+        let after_id = page.get("last_id")?.as_str()?.to_string();
+        if after_id.is_empty() || !seen_cursors.insert(after_id.clone()) {
+            return None;
+        }
+        cursor = Some(after_id);
+    }
+}
+
+fn anthropic_catalog_model(models: &[String]) -> String {
+    choose_preferred_model(
+        models,
+        &[
+            "claude-fable-5-1",
+            "claude-fable-5",
+            "claude-opus-5-5",
+            "claude-opus-5",
+            "claude-opus-4-8",
+            "claude-opus-4-7",
+            "claude-sonnet-5",
+            "claude-opus-4-1-20250805",
+        ],
+        "claude-fable-5-1",
+    )
+}
+
+pub(crate) async fn resolve_gemini_model(
+    client: &Client,
+    api_key: &str,
+    cancel_token: &CancellationToken,
+) -> String {
+    let request = client
         .get("https://generativelanguage.googleapis.com/v1beta/models")
-        .query(&[("key", api_key)])
-        .send();
-    if let Ok(response) = response {
-        if response.status().is_success() {
-            let body = response.text().unwrap_or_default();
-            if let Ok(value) = serde_json::from_str::<Value>(&body) {
-                return choose_preferred_model(
-                    &gemini_model_ids(&value),
-                    &[
-                        "gemini-3.1-pro-preview",
-                        "gemini-3-pro-preview",
-                        "gemini-2.5-pro",
-                    ],
-                    "gemini-2.5-pro",
-                );
-            }
-        }
+        .header("x-goog-api-key", api_key);
+    if let Some(models) = fetch_gemini_model_ids(request, cancel_token).await {
+        return gemini_catalog_model(&models);
     }
-    "gemini-2.5-pro".to_string()
+    "gemini-3.1-pro-preview".to_string()
 }
 
-fn choose_preferred_model(models: &[String], candidates: &[&str], fallback: &str) -> String {
+async fn fetch_gemini_model_ids(
+    request: reqwest::RequestBuilder,
+    cancel_token: &CancellationToken,
+) -> Option<Vec<String>> {
+    let request = request.query(&[("pageSize", 1000)]);
+    let mut cursor = None;
+    let mut seen_cursors = HashSet::new();
+    let mut models = Vec::new();
+    loop {
+        let mut page_request = request.try_clone()?;
+        if let Some(page_token) = &cursor {
+            page_request = page_request.query(&[("pageToken", page_token)]);
+        }
+        let page = fetch_provider_model_catalog(page_request, cancel_token).await?;
+        models.extend(gemini_model_ids(&page));
+        let Some(next_page_token) = page.get("nextPageToken") else {
+            return Some(models);
+        };
+        let next_page_token = next_page_token.as_str()?.to_string();
+        if next_page_token.is_empty() {
+            return Some(models);
+        }
+        if !seen_cursors.insert(next_page_token.clone()) {
+            return None;
+        }
+        cursor = Some(next_page_token);
+    }
+}
+
+fn gemini_catalog_model(models: &[String]) -> String {
+    choose_preferred_model(
+        models,
+        &["gemini-3.1-pro-preview", "gemini-2.5-pro"],
+        "gemini-3.1-pro-preview",
+    )
+}
+
+pub(crate) fn choose_preferred_model(
+    models: &[String],
+    candidates: &[&str],
+    fallback: &str,
+) -> String {
     for candidate in candidates {
         if models.iter().any(|model| model == candidate) {
             return (*candidate).to_string();
         }
     }
-    models
-        .first()
-        .cloned()
-        .unwrap_or_else(|| fallback.to_string())
+    // Catalog ordering does not imply editorial or even text-generation support.
+    fallback.to_string()
 }
 
 fn api_model_ids(value: &Value) -> Vec<String> {
@@ -1406,16 +1519,78 @@ fn gemini_model_ids(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// A successful HTTP status does not prove a completed editorial response.
+/// Reject partial, refused, blocked, and tool-only output before its first line
+/// can become a READY vote, while the caller keeps the paid usage in the ledger.
+pub(crate) fn completed_provider_response_text(
+    provider: &str,
+    value: &Value,
+) -> Result<String, &'static str> {
+    let text = match provider {
+        "openai" | "grok" => {
+            if value.get("status").and_then(Value::as_str) != Some("completed")
+                || value.get("error").is_some_and(|error| !error.is_null())
+                || value
+                    .get("incomplete_details")
+                    .is_some_and(|detail| !detail.is_null())
+                || value
+                    .get("output")
+                    .and_then(Value::as_array)
+                    .is_some_and(|items| {
+                        items.iter().any(|item| {
+                            item.get("type").and_then(Value::as_str) == Some("message")
+                                && item
+                                    .get("status")
+                                    .and_then(Value::as_str)
+                                    .is_some_and(|status| status != "completed")
+                        })
+                    })
+            {
+                return Err("PROVIDER_INCOMPLETE_RESPONSE");
+            }
+            openai_response_text(value)
+        }
+        "anthropic" => {
+            if !matches!(
+                value.get("stop_reason").and_then(Value::as_str),
+                Some("end_turn" | "stop_sequence")
+            ) {
+                return Err("PROVIDER_INCOMPLETE_RESPONSE");
+            }
+            anthropic_response_text(value)
+        }
+        "gemini" => {
+            if value.pointer("/promptFeedback/blockReason").is_some()
+                || value
+                    .pointer("/candidates/0/finishReason")
+                    .and_then(Value::as_str)
+                    != Some("STOP")
+            {
+                return Err("PROVIDER_INCOMPLETE_RESPONSE");
+            }
+            gemini_response_text(value)
+        }
+        _ => return Err("PROVIDER_INVALID_RESPONSE"),
+    };
+    text.filter(|text| !text.trim().is_empty())
+        .ok_or("PROVIDER_EMPTY_CONTENT")
+}
+
 pub(crate) fn openai_response_text(value: &Value) -> Option<String> {
     let items = value.get("output")?.as_array()?;
     let mut text = String::new();
     for item in items {
+        if item.get("type").and_then(Value::as_str) != Some("message")
+            || item.get("role").and_then(Value::as_str) != Some("assistant")
+        {
+            continue;
+        }
         if let Some(content) = item.get("content").and_then(Value::as_array) {
             for part in content {
                 if part
                     .get("type")
                     .and_then(Value::as_str)
-                    .map(|kind| kind == "output_text" || kind == "text")
+                    .map(|kind| kind == "output_text")
                     .unwrap_or(false)
                 {
                     if let Some(piece) = part.get("text").and_then(Value::as_str) {
@@ -1459,12 +1634,15 @@ fn anthropic_response_text(value: &Value) -> Option<String> {
 fn gemini_response_text(value: &Value) -> Option<String> {
     let candidates = value.get("candidates")?.as_array()?;
     let mut text = String::new();
-    for candidate in candidates {
+    if let Some(candidate) = candidates.first() {
         if let Some(parts) = candidate
             .pointer("/content/parts")
             .and_then(Value::as_array)
         {
             for part in parts {
+                if part.get("thought").and_then(Value::as_bool) == Some(true) {
+                    continue;
+                }
                 if let Some(piece) = part.get("text").and_then(Value::as_str) {
                     text.push_str(piece);
                 }
@@ -1486,7 +1664,15 @@ fn gemini_usage_tokens(value: &Value) -> (Option<u64>, Option<u64>) {
     let output = value
         .pointer("/usageMetadata/candidatesTokenCount")
         .or_else(|| value.pointer("/usageMetadata/outputTokenCount"))
-        .and_then(Value::as_u64);
+        .and_then(Value::as_u64)
+        .map(|response_tokens| {
+            response_tokens.saturating_add(
+                value
+                    .pointer("/usageMetadata/thoughtsTokenCount")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
+            )
+        });
     (input, output)
 }
 
@@ -1533,8 +1719,13 @@ mod tests {
     }
 
     #[test]
-    fn choose_preferred_model_picks_exact_match_then_first_then_fallback() {
-        let models = vec!["gpt-5.5".to_string(), "gpt-5.6-sol".to_string()];
+    fn choose_preferred_model_uses_known_candidates_or_known_default() {
+        let models = vec![
+            "gpt-image-2".to_string(),
+            "gpt-audio".to_string(),
+            "gpt-5.5".to_string(),
+            "gpt-5.6-sol".to_string(),
+        ];
 
         assert_eq!(
             choose_preferred_model(&models, &["gpt-5.6-sol", "gpt-5.5"], "fallback"),
@@ -1542,11 +1733,333 @@ mod tests {
         );
         assert_eq!(
             choose_preferred_model(&models, &["gpt-5.6"], "fallback"),
-            "gpt-5.5"
+            "fallback"
         );
         assert_eq!(
             choose_preferred_model(&[], &["gpt-5.6-sol"], "fallback"),
             "fallback"
         );
+    }
+
+    #[test]
+    fn editorial_catalog_pickers_reject_arbitrary_modalities_and_prefer_known_strength() {
+        let mut openai = json!({ "data": [
+            { "id": "gpt-image-2" }, { "id": "gpt-realtime" },
+            { "id": "unknown-new-model" }
+        ] });
+        assert_eq!(openai_catalog_model(&openai), "gpt-6-astra");
+        openai["data"]
+            .as_array_mut()
+            .unwrap()
+            .extend([json!({ "id": "gpt-4.1" }), json!({ "id": "gpt-6-astra" })]);
+        assert_eq!(openai_catalog_model(&openai), "gpt-6-astra");
+        openai["data"].as_array_mut().unwrap().pop();
+        assert_eq!(openai_catalog_model(&openai), "gpt-4.1");
+
+        let mut anthropic = api_model_ids(&json!({ "data": [
+            { "id": "unknown-audio-only" }, { "id": "unknown-image-only" }
+        ] }));
+        assert_eq!(anthropic_catalog_model(&anthropic), "claude-fable-5-1");
+        anthropic.extend(["claude-opus-5".into(), "claude-fable-5-1".into()]);
+        assert_eq!(anthropic_catalog_model(&anthropic), "claude-fable-5-1");
+
+        let mut gemini = gemini_model_ids(&json!({ "models": [
+            { "name": "models/gemini-image-only", "supportedGenerationMethods": ["generateContent"] },
+            { "name": "models/gemini-audio-only", "supportedGenerationMethods": ["generateContent"] },
+            { "name": "models/gemini-3.1-pro-preview", "supportedGenerationMethods": ["embedContent"] }
+        ] }));
+        assert_eq!(gemini.len(), 2);
+        assert_eq!(gemini_catalog_model(&gemini), "gemini-3.1-pro-preview");
+        gemini.extend(["gemini-2.5-pro".into(), "gemini-3.1-pro-preview".into()]);
+        assert_eq!(gemini_catalog_model(&gemini), "gemini-3.1-pro-preview");
+    }
+
+    fn catalog_test_server(
+        pages: Vec<(u16, Value)>,
+    ) -> (String, std::thread::JoinHandle<Vec<String>>) {
+        use std::io::Read;
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let endpoint = format!("http://{}/models", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let mut requests = Vec::new();
+            for (status, page) in pages {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < deadline, "expected catalog request");
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("catalog test server failed: {error}"),
+                    }
+                };
+                // Winsock accepted sockets inherit the listener's nonblocking
+                // mode. Header reads must use the bounded blocking timeout.
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0_u8; 1024];
+                while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    let length = stream.read(&mut buffer).unwrap();
+                    assert!(length > 0);
+                    request.extend_from_slice(&buffer[..length]);
+                }
+                requests.push(String::from_utf8(request).unwrap());
+                let body = serde_json::to_string(&page).unwrap();
+                let response = format!(
+                    "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+            }
+            requests
+        });
+        (endpoint, server)
+    }
+
+    fn catalog_request_query(request: &str) -> Vec<(String, String)> {
+        let target = request.split_whitespace().nth(1).unwrap();
+        reqwest::Url::parse(&format!("http://localhost{target}"))
+            .unwrap()
+            .query_pairs()
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn anthropic_catalog_follows_native_cursor_and_prefers_later_flagship() {
+        let (endpoint, server) = catalog_test_server(vec![
+            (
+                200,
+                json!({ "data": [{ "id": "claude-opus-5" }], "has_more": true, "last_id": "claude-opus-5" }),
+            ),
+            (
+                200,
+                json!({ "data": [{ "id": "claude-fable-5-1" }], "has_more": false, "last_id": "claude-fable-5-1" }),
+            ),
+        ]);
+        let client = build_api_client_async(None).unwrap();
+        let models = fetch_anthropic_model_ids(
+            client
+                .get(endpoint)
+                .header("x-api-key", "test-key")
+                .header("anthropic-version", "2023-06-01"),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(anthropic_catalog_model(&models), "claude-fable-5-1");
+        let requests = server.join().unwrap();
+        assert_eq!(
+            catalog_request_query(&requests[0]),
+            vec![("limit".into(), "1000".into())]
+        );
+        assert_eq!(
+            catalog_request_query(&requests[1]),
+            vec![
+                ("limit".into(), "1000".into()),
+                ("after_id".into(), "claude-opus-5".into())
+            ]
+        );
+        assert!(requests
+            .iter()
+            .all(|request| request.contains("x-api-key: test-key\r\n")
+                && request.contains("anthropic-version: 2023-06-01\r\n")));
+    }
+
+    #[tokio::test]
+    async fn gemini_catalog_follows_native_opaque_token_and_prefers_later_pro() {
+        let (endpoint, server) = catalog_test_server(vec![
+            (
+                200,
+                json!({ "models": [
+                { "name": "models/gemini-audio-only", "supportedGenerationMethods": ["generateContent"] },
+                { "name": "models/gemini-2.5-pro", "supportedGenerationMethods": ["generateContent"] }
+            ], "nextPageToken": "opaque+/=" }),
+            ),
+            (
+                200,
+                json!({ "models": [{ "name": "models/gemini-3.1-pro-preview", "supportedGenerationMethods": ["generateContent"] }] }),
+            ),
+        ]);
+        let client = build_api_client_async(None).unwrap();
+        let models = fetch_gemini_model_ids(
+            client.get(endpoint).header("x-goog-api-key", "test-key"),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(gemini_catalog_model(&models), "gemini-3.1-pro-preview");
+        let requests = server.join().unwrap();
+        assert_eq!(
+            catalog_request_query(&requests[0]),
+            vec![("pageSize".into(), "1000".into())]
+        );
+        assert_eq!(
+            catalog_request_query(&requests[1]),
+            vec![
+                ("pageSize".into(), "1000".into()),
+                ("pageToken".into(), "opaque+/=".into())
+            ]
+        );
+        assert!(requests
+            .iter()
+            .all(|request| request.contains("x-goog-api-key: test-key\r\n")));
+    }
+
+    #[tokio::test]
+    async fn incomplete_or_repeating_catalog_pagination_discards_partial_choices() {
+        let client = build_api_client_async(None).unwrap();
+        let cancel = CancellationToken::new();
+        let anthropic_page = json!({ "data": [{ "id": "claude-opus-5" }], "has_more": true, "last_id": "same-cursor" });
+        let (endpoint, server) =
+            catalog_test_server(vec![(200, anthropic_page.clone()), (200, anthropic_page)]);
+        assert_eq!(
+            fetch_anthropic_model_ids(client.get(endpoint), &cancel).await,
+            None
+        );
+        assert_eq!(server.join().unwrap().len(), 2);
+
+        let gemini_page = json!({ "models": [{ "name": "models/gemini-2.5-pro" }], "nextPageToken": "same-token" });
+        let (endpoint, server) =
+            catalog_test_server(vec![(200, gemini_page.clone()), (200, gemini_page)]);
+        assert_eq!(
+            fetch_gemini_model_ids(client.get(endpoint), &cancel).await,
+            None
+        );
+        assert_eq!(server.join().unwrap().len(), 2);
+
+        let (endpoint, server) = catalog_test_server(vec![
+            (
+                200,
+                json!({ "models": [{ "name": "models/gemini-2.5-pro" }], "nextPageToken": "next" }),
+            ),
+            (503, json!({ "error": "unavailable" })),
+        ]);
+        assert_eq!(
+            fetch_gemini_model_ids(client.get(endpoint), &cancel).await,
+            None
+        );
+        assert_eq!(server.join().unwrap().len(), 2);
+
+        cancel.cancel();
+        assert_eq!(
+            fetch_anthropic_model_ids(client.get("http://127.0.0.1:1/models"), &cancel).await,
+            None
+        );
+        assert_eq!(
+            fetch_gemini_model_ids(client.get("http://127.0.0.1:1/models"), &cancel).await,
+            None
+        );
+    }
+
+    #[test]
+    fn responses_reject_partial_ready_votes_and_tool_or_user_text() {
+        let mut value = json!({ "status": "completed", "output": [{
+            "type": "message", "role": "assistant", "status": "completed",
+            "content": [{ "type": "output_text", "text": "MAESTRO_STATUS: READY\nComplete." }]
+        }] });
+        assert!(completed_provider_response_text("openai", &value)
+            .unwrap()
+            .starts_with("MAESTRO_STATUS: READY"));
+        for status in ["incomplete", "failed", "in_progress", "cancelled"] {
+            value["status"] = json!(status);
+            assert_eq!(
+                completed_provider_response_text("openai", &value),
+                Err("PROVIDER_INCOMPLETE_RESPONSE")
+            );
+            assert_eq!(
+                completed_provider_response_text("grok", &value),
+                Err("PROVIDER_INCOMPLETE_RESPONSE")
+            );
+        }
+        value["status"] = json!("completed");
+        value["output"][0]["status"] = json!("incomplete");
+        assert_eq!(
+            completed_provider_response_text("openai", &value),
+            Err("PROVIDER_INCOMPLETE_RESPONSE")
+        );
+        value["output"][0]["status"] = json!("completed");
+        value["output"][0]["role"] = json!("user");
+        assert_eq!(
+            completed_provider_response_text("openai", &value),
+            Err("PROVIDER_EMPTY_CONTENT")
+        );
+        value["output"][0]["role"] = json!("assistant");
+        value["output"][0]["type"] = json!("function_call");
+        assert_eq!(
+            completed_provider_response_text("openai", &value),
+            Err("PROVIDER_EMPTY_CONTENT")
+        );
+        assert!(completed_provider_response_text("openai", &json!({})).is_err());
+    }
+
+    #[test]
+    fn anthropic_rejects_truncated_and_tool_only_editorial_outputs() {
+        let mut value = json!({ "stop_reason": "end_turn", "content": [
+            { "type": "thinking", "thinking": "private" },
+            { "type": "text", "text": "MAESTRO_STATUS: READY" }
+        ] });
+        assert_eq!(
+            completed_provider_response_text("anthropic", &value).unwrap(),
+            "MAESTRO_STATUS: READY"
+        );
+        for reason in ["max_tokens", "tool_use", "pause_turn", "refusal"] {
+            value["stop_reason"] = json!(reason);
+            assert_eq!(
+                completed_provider_response_text("anthropic", &value),
+                Err("PROVIDER_INCOMPLETE_RESPONSE")
+            );
+        }
+        value["stop_reason"] = json!("end_turn");
+        value["content"] = json!([{ "type": "thinking", "thinking": "private" }]);
+        assert_eq!(
+            completed_provider_response_text("anthropic", &value),
+            Err("PROVIDER_EMPTY_CONTENT")
+        );
+    }
+
+    #[test]
+    fn gemini_uses_completed_first_candidate_without_thoughts_and_bills_thinking() {
+        let mut value = json!({ "candidates": [
+            { "finishReason": "STOP", "content": { "parts": [
+                { "thought": true, "text": "MAESTRO_STATUS: NOT_READY" },
+                { "text": "MAESTRO_STATUS: READY" }
+            ] } },
+            { "finishReason": "STOP", "content": { "parts": [{ "text": "different alternative" }] } }
+        ], "usageMetadata": { "promptTokenCount": 10, "candidatesTokenCount": 20, "thoughtsTokenCount": 30 } });
+        assert_eq!(
+            completed_provider_response_text("gemini", &value).unwrap(),
+            "MAESTRO_STATUS: READY"
+        );
+        assert_eq!(gemini_usage_tokens(&value), (Some(10), Some(50)));
+        value["candidates"][0]["finishReason"] = json!("MAX_TOKENS");
+        assert_eq!(
+            completed_provider_response_text("gemini", &value),
+            Err("PROVIDER_INCOMPLETE_RESPONSE")
+        );
+        value["candidates"][0]["finishReason"] = json!("STOP");
+        value["promptFeedback"] = json!({ "blockReason": "SAFETY" });
+        assert_eq!(
+            completed_provider_response_text("gemini", &value),
+            Err("PROVIDER_INCOMPLETE_RESPONSE")
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelled_model_lookup_never_blocks_the_async_runtime() {
+        let client = build_api_client_async(None).unwrap();
+        let token = CancellationToken::new();
+        token.cancel();
+        // This request must not reach the network, even on an invalid endpoint.
+        let result =
+            fetch_provider_model_catalog(client.get("http://127.0.0.1:1/models"), &token).await;
+        assert_eq!(result, None);
     }
 }
