@@ -10,16 +10,17 @@ import type {
 type AiProviderSettingsPanelProps = {
   aiConfigStatus: string;
   aiCredentials: Record<AiCredentialKey, string>;
-  geminiCliProjectId: string;
+  agyCliProjectId: string;
   isSaving: boolean;
   isVerifying: boolean;
+  isBusy?: boolean;
   probeRows: AiProviderProbeRow[];
   providerInputRates: Record<ProviderRateKey, string>;
   providerMode: ProviderMode;
   providerOutputRates: Record<ProviderRateKey, string>;
   onChooseProviderMode: (mode: ProviderMode) => void;
   onCredentialChange: (provider: AiCredentialKey, value: string) => void;
-  onGeminiCliProjectIdChange: (value: string) => void;
+  onAgyCliProjectIdChange: (value: string) => void;
   onInputRateChange: (provider: ProviderRateKey, value: string) => void;
   onOutputRateChange: (provider: ProviderRateKey, value: string) => void;
   onSave: () => void;
@@ -29,21 +30,23 @@ type AiProviderSettingsPanelProps = {
 export function AiProviderSettingsPanel({
   aiConfigStatus,
   aiCredentials,
-  geminiCliProjectId,
+  agyCliProjectId,
   isSaving,
   isVerifying,
+  isBusy = false,
   probeRows,
   providerInputRates,
   providerMode,
   providerOutputRates,
   onChooseProviderMode,
   onCredentialChange,
-  onGeminiCliProjectIdChange,
+  onAgyCliProjectIdChange,
   onInputRateChange,
   onOutputRateChange,
   onSave,
   onVerify,
 }: AiProviderSettingsPanelProps) {
+  const controlsDisabled = isSaving || isVerifying || isBusy;
   return (
     <div className="panel settings-panel">
       <div className="panel-heading">
@@ -61,7 +64,7 @@ export function AiProviderSettingsPanel({
             className={providerMode === mode ? "active" : ""}
             type="button"
             aria-pressed={providerMode === mode}
-            disabled={isSaving || isVerifying}
+            disabled={controlsDisabled}
             onClick={() => onChooseProviderMode(mode)}
           >
             {mode === "hybrid" ? "Hibrido" : mode.toUpperCase()}
@@ -72,10 +75,11 @@ export function AiProviderSettingsPanel({
         <strong>Execucao API real por peer</strong>
         <span>
           <strong>API</strong> roda os 6 peers via provedores oficiais. <strong>Hibrido</strong>{" "}
-          reserva DeepSeek, Grok e Perplexity para API (nao tem CLI) e Claude, Codex, Gemini via
-          Antigravity CLI (agy), sempre, independentemente das chaves. <strong>CLI</strong> roda os
-          3 peers com CLI; DeepSeek, Grok e Perplexity ficam desabilitados porque nao possuem
-          integracao CLI. Tarifas continuam obrigatorias para qualquer chamada de API.
+          reserva DeepSeek, Grok e Perplexity para API (nao tem CLI), Claude e Codex para seus CLIs
+          e Gemini para Antigravity CLI (agy), sempre, independentemente das chaves.{" "}
+          <strong>CLI</strong> roda os 3 peers com CLI; DeepSeek, Grok e Perplexity ficam
+          desabilitados porque nao possuem integracao CLI. Tarifas continuam obrigatorias para
+          qualquer chamada de API.
         </span>
       </div>
 
@@ -90,7 +94,7 @@ export function AiProviderSettingsPanel({
               {provider.secretLabel}
               <input
                 type="password"
-                disabled={isSaving || isVerifying}
+                disabled={controlsDisabled}
                 autoComplete="off"
                 spellCheck={false}
                 value={aiCredentials[provider.key]}
@@ -110,19 +114,19 @@ export function AiProviderSettingsPanel({
             <span>Projeto nativo configurado neste computador</span>
           </div>
           <label>
-            ID do projeto nativo do Gemini CLI
+            ID do projeto nativo do AGY CLI
             <input
               type="text"
-              disabled={isSaving || isVerifying}
+              disabled={controlsDisabled}
               autoComplete="off"
               spellCheck={false}
-              value={geminiCliProjectId}
-              onChange={(event) => onGeminiCliProjectIdChange(event.target.value)}
+              value={agyCliProjectId}
+              onChange={(event) => onAgyCliProjectIdChange(event.target.value)}
               placeholder="ID criado pelo Antigravity"
-              aria-describedby="gemini-cli-project-help"
+              aria-describedby="agy-cli-project-help"
             />
           </label>
-          <em id="gemini-cli-project-help">
+          <em id="agy-cli-project-help">
             Configure no projeto nativo as regras Deny: write_file(*), command(*), mcp(*) e
             execute_url(*). O Maestro verifica essa politica antes de cada chamada CLI e bloqueia a
             execucao se ela nao for confirmada. Para usar a API, selecione o modo API.
@@ -154,7 +158,7 @@ export function AiProviderSettingsPanel({
                 <span>Entrada USD / 1M</span>
                 <input
                   inputMode="decimal"
-                  disabled={isSaving || isVerifying}
+                  disabled={controlsDisabled}
                   value={providerInputRates[provider.key]}
                   onChange={(event) => onInputRateChange(provider.key, event.target.value)}
                   placeholder="ex.: 0.55"
@@ -164,7 +168,7 @@ export function AiProviderSettingsPanel({
                 <span>Saida USD / 1M</span>
                 <input
                   inputMode="decimal"
-                  disabled={isSaving || isVerifying}
+                  disabled={controlsDisabled}
                   value={providerOutputRates[provider.key]}
                   onChange={(event) => onOutputRateChange(provider.key, event.target.value)}
                   placeholder="ex.: 2.19"
@@ -184,7 +188,7 @@ export function AiProviderSettingsPanel({
           className={isSaving ? "secondary-button busy" : "secondary-button"}
           type="button"
           onClick={onSave}
-          disabled={isSaving || isVerifying}
+          disabled={controlsDisabled}
           aria-busy={isSaving}
         >
           <KeyRound size={18} />
@@ -194,7 +198,7 @@ export function AiProviderSettingsPanel({
           className={isVerifying ? "secondary-button busy" : "secondary-button"}
           type="button"
           onClick={onVerify}
-          disabled={isSaving || isVerifying}
+          disabled={controlsDisabled}
           aria-busy={isVerifying}
         >
           <ListChecks size={18} />

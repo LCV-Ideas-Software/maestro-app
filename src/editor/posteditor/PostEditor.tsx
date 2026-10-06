@@ -225,6 +225,9 @@ export default function PostEditor({
   const tiptapExtensions = useMemo(() => buildTiptapExtensions(mentionItems), [mentionItems]);
 
   const editor = useEditor({
+    // The lazy desktop screen may commit after TipTap's eager cleanup timer.
+    // Create the editor in the committed effect, never during a suspended render.
+    immediatelyRender: false,
     extensions: tiptapExtensions,
     content: migratedInitialContent,
   });
@@ -792,7 +795,7 @@ export default function PostEditor({
 
   const runTableCommand = useCallback(
     (
-      command: (chain: ReturnType<typeof editor.chain>) => { run: () => boolean },
+      command: (chain: ReturnType<NonNullable<typeof editor>["chain"]>) => { run: () => boolean },
       successMessage: string,
       errorMessage: string,
     ) => {
@@ -1015,10 +1018,10 @@ export default function PostEditor({
 
       try {
         if (format === "pdf") {
-          downloadExportArtifact(buildPdfProvenanceExport(exportInput), ownerDocument);
           openFinalContentPrintDialog(exportInput, ownerWindow);
+          downloadExportArtifact(buildPdfProvenanceExport(exportInput), ownerDocument);
           showNotification(
-            "Diálogo de impressão aberto. Selecione “Salvar como PDF”; a proveniência foi baixada separadamente.",
+            "Impressão solicitada. Selecione “Salvar como PDF” no diálogo; a proveniência foi baixada separadamente.",
             "success",
           );
           return;

@@ -1,7 +1,7 @@
 # Runtime Bootstrapper
 
 Status: implemented; release publication requires the repository validation gates.
-Updated: 2026-10-05.
+Updated: 2026-10-06 (source 0.5.72; publication awaits operator testing).
 
 Maestro must be able to prepare a Windows 11+ machine for full operation on first run.
 
@@ -28,8 +28,9 @@ No package, CLI, credential, login, or configuration change may be installed sil
 - The backend accepts only a fixed typed operation allowlist, verifies the persisted plan hash, schema version, expiry, action/operation pair, and resolved-command fingerprint, and permits only one running action.
 - Claude Code and Codex npm installs use `data/bootstrap/npm-user` inside Maestro's portable folder. Maestro does not write the Registry or persist changes to the Windows `PATH`; its own command resolver searches this portable prefix first.
 - Vendor scripts, browser authentication, MFA, credential entry, WebView repair, and other interactive or elevated work remain explicit handoffs. Official instruction pages are opened only after per-action approval; Cloudflare and DeepSeek credentials route to the existing secure Settings surface.
+- When AGY is missing, installation opens the [official Windows CLI instructions](https://www.antigravity.google/docs/cli/install/#windows), not an installer script or the Unix installer endpoint. Maestro does not offer a separate AGY authentication action or open an interactive terminal for login.
 - Approved background commands emit lifecycle/heartbeat progress. Stdout and stderr are bounded and redacted before they enter the UI, JSON/NDJSON records, or the support bundle.
-- Every action is followed by a fresh inventory. Plans, controls, action results, progress records, and the support bundle remain under ignored `data/bootstrap/` storage beside the portable application.
+- Every action is followed by a fresh inventory. Saving provider or bootstrap settings invalidates the previous displayed plan and requests a new inventory; obsolete responses cannot restore earlier actions. Plans, controls, action results, progress records, and the support bundle remain under ignored `data/bootstrap/` storage beside the portable application.
 
 ## Dependency Classes
 
@@ -38,9 +39,7 @@ Required for runtime:
 - WebView2 Runtime.
 - Network access.
 - Local writable app folder.
-- Claude CLI.
-- Codex CLI.
-- Antigravity CLI (`agy`) for the Gemini peer.
+- Claude CLI, Codex CLI and Antigravity CLI (`agy`) for the corresponding peers when their selected provider mode uses CLI execution. API mode does not require these CLIs or their Node.js/npm/npx provisioning tools.
 - DeepSeek API credential when DeepSeek is enabled as an editorial peer.
 - Cloudflare API credential validation when D1 import/export is enabled.
 
@@ -80,8 +79,8 @@ Maestro must be able to manage these CLIs:
 
 - `claude` / Claude CLI.
 - `codex` / Codex CLI.
-- `agy` / Antigravity CLI for the Gemini peer. Legacy `gemini` may be detected only as deprecated diagnostic context.
-- `MAESTRO_DEEPSEEK_API_KEY` or `DEEPSEEK_API_KEY` for DeepSeek API peer execution.
+- `agy` / Antigravity CLI for the Gemini peer.
+- The saved DeepSeek credential or `MAESTRO_DEEPSEEK_API_KEY` / `DEEPSEEK_API_KEY` for DeepSeek API peer execution. Setup uses the same effective credential resolution as Settings; a saved local key does not need to be duplicated into the process environment.
 - Cloudflare API credentials for primary D1 operations.
 - `wrangler` / Cloudflare CLI for optional, separately authorized diagnostics.
 
@@ -97,6 +96,8 @@ Wrangler rule:
 Lifecycle operations:
 
 - Detect executable path and version.
+- Version metadata uses the bounded managed-pipe transport, including `agy --version`. A timeout reports an inconclusive diagnostic for an executable that was found; it does not prove absence or authentication. Editorial PTY execution keeps its separate transport and security guards.
+- AGY executable/version readiness does not attest authentication. Setup does not create an unverified `agy_auth` dependency: the headless editorial invocation reuses the vendor's existing native session and reports actual authentication failures. The selected project's native permission check remains mandatory before editorial or smoke model turns; no login process, browser authentication flow or custom OAuth is launched by Maestro for AGY.
 - Run a headless smoke probe for each agent CLI after installation/authentication.
 - Install when missing.
 - Update when outdated and authorized.

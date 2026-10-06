@@ -24,6 +24,8 @@ export type FinalContentExport = {
 };
 
 const WINDOWS_RESERVED_FILENAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+const PRINT_ROOT_ID = "maestro-final-content-print";
+const activePrintRequests = new WeakMap<Window, { cleanup: () => void; inCall: boolean }>();
 
 function plainText(value: unknown, maxLength: number): string {
   if (typeof value !== "string") return "";
@@ -304,6 +306,19 @@ export function buildPdfProvenanceExport(rawInput: FinalContentExportInput): Exp
   return buildProvenanceArtifact(input, "pdf", filename);
 }
 
+function printDocumentStyles(selector: string): string {
+  return `
+    @page { margin: 2cm; }
+    ${selector} { color: #111; font-family: Georgia, "Times New Roman", serif; line-height: 1.55; margin: 0 auto; max-width: 48rem; }
+    ${selector} > header { border-bottom: 1px solid #bbb; margin-bottom: 2rem; padding-bottom: 1rem; }
+    ${selector} h1 { line-height: 1.2; }
+    ${selector} img, ${selector} iframe { height: auto; max-width: 100%; }
+    ${selector} table { border-collapse: collapse; width: 100%; }
+    ${selector} td, ${selector} th { border: 1px solid #999; padding: .4rem; }
+    ${selector} pre { overflow-wrap: anywhere; white-space: pre-wrap; }
+  `;
+}
+
 export function buildPrintDocument(rawInput: FinalContentExportInput): string {
   const input = normalizedInput(rawInput);
   const title = escapeHtml(input.title);
@@ -315,16 +330,7 @@ export function buildPrintDocument(rawInput: FinalContentExportInput): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="maestro-export" content="pdf-print">
   <title>${title}</title>
-  <style>
-    @page { margin: 2cm; }
-    body { color: #111; font-family: Georgia, "Times New Roman", serif; line-height: 1.55; margin: 0 auto; max-width: 48rem; }
-    header { border-bottom: 1px solid #bbb; margin-bottom: 2rem; padding-bottom: 1rem; }
-    h1 { line-height: 1.2; }
-    img, iframe { height: auto; max-width: 100%; }
-    table { border-collapse: collapse; width: 100%; }
-    td, th { border: 1px solid #999; padding: .4rem; }
-    pre { overflow-wrap: anywhere; white-space: pre-wrap; }
-  </style>
+  <style>${printDocumentStyles("body")}</style>
 </head>
 <body>
   <header><h1>${title}</h1>${author ? `<p>Autoria: ${author}</p>` : ""}</header>
@@ -353,21 +359,64 @@ export function openFinalContentPrintDialog(
   input: FinalContentExportInput,
   ownerWindow: Window = window,
 ): void {
-  const documentBlob = new Blob([buildPrintDocument(input)], { type: "text/html;charset=utf-8" });
-  const url = URL.createObjectURL(documentBlob);
-  const printWindow = ownerWindow.open(url, "_blank");
-  if (!printWindow) {
-    URL.revokeObjectURL(url);
-    throw new Error("O sistema bloqueou a janela de impressão.");
+  const previous = activePrintRequests.get(ownerWindow);
+  if (previous?.inCall) {
+    throw new Error("Uma solicitação de impressão já está em andamento.");
   }
-  printWindow.opener = null;
-  printWindow.addEventListener(
-    "load",
-    () => {
-      URL.revokeObjectURL(url);
-      printWindow.focus();
-      printWindow.print();
-    },
-    { once: true },
-  );
+  // Ignored native print requests may emit no afterprint event. Retire only
+  // our previous projection before taking the next document snapshot.
+  previous?.cleanup();
+  const ownerDocument = ownerWindow.document;
+  if (ownerDocument.getElementById(PRINT_ROOT_ID)) {
+    throw new Error("A área de impressão já está ocupada.");
+  }
+  const printable = new DOMParser().parseFromString(buildPrintDocument(input), "text/html");
+  const projection = ownerDocument.createElement("section");
+  projection.id = PRINT_ROOT_ID;
+  projection.dataset.maestroExport = "pdf-print";
+  projection.style.display = "none";
+  for (const child of printable.body.childNodes) {
+    projection.append(ownerDocument.importNode(child, true));
+  }
+  const style = ownerDocument.createElement("style");
+  style.dataset.maestroExport = "pdf-print";
+  style.media = "print";
+  style.textContent = `
+    html, body { height: auto !important; min-height: 0 !important; max-height: none !important; overflow: visible !important; }
+    body { display: block !important; margin: 0 !important; background: white !important; }
+    body > :not(#${PRINT_ROOT_ID}) { display: none !important; }
+    #${PRINT_ROOT_ID} { display: block !important; height: auto !important; overflow: visible !important; }
+    ${printDocumentStyles(`#${PRINT_ROOT_ID}`)}
+  `;
+  const originalTitle = ownerDocument.title;
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    ownerWindow.removeEventListener("afterprint", cleanup);
+    ownerWindow.removeEventListener("pagehide", cleanup);
+    projection.remove();
+    style.remove();
+    ownerDocument.title = originalTitle;
+    if (activePrintRequests.get(ownerWindow) === request) activePrintRequests.delete(ownerWindow);
+  };
+  const request = { cleanup, inCall: true };
+  activePrintRequests.set(ownerWindow, request);
+  try {
+    ownerWindow.addEventListener("afterprint", cleanup, { once: true });
+    ownerWindow.addEventListener("pagehide", cleanup, { once: true });
+    ownerDocument.head.append(style);
+    ownerDocument.body.append(projection);
+    ownerDocument.title = printable.title;
+    // WebView2 does not create browser popups by default. Print its existing
+    // top-level document; print media exposes only the sanitized article.
+    ownerWindow.print();
+  } catch (error) {
+    cleanup();
+    throw error;
+  } finally {
+    // Native print may return before its dialog closes. afterprint owns DOM
+    // cleanup, including cancellation; return does not prove a PDF was saved.
+    request.inCall = false;
+  }
 }

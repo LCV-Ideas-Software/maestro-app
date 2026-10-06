@@ -1,12 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildFinalContentExport,
   buildPrintDocument,
   htmlToCitationAuditMarkdown,
   htmlToLinkAuditMarkdown,
+  openFinalContentPrintDialog,
   sanitizeExportFilename,
 } from "./exportFinalContent";
+
+afterEach(() => {
+  window.dispatchEvent(new Event("afterprint"));
+  document.getElementById("test-workbench")?.remove();
+  vi.restoreAllMocks();
+});
 
 describe("htmlToCitationAuditMarkdown", () => {
   it("turns editor HTML into visible citation text and a References heading", () => {
@@ -246,5 +253,96 @@ describe("buildPrintDocument", () => {
     );
     expect(document).not.toContain("<img src=x");
     expect(document).not.toContain('<a href="javascript:');
+  });
+});
+
+describe("native final-content printing", () => {
+  it("prints only the sanitized article through the existing window even when popups are denied", () => {
+    const workbench = document.createElement("div");
+    workbench.id = "test-workbench";
+    workbench.innerHTML = "<button>PRIVATE_EDITOR_CONTROLS</button><aside>PRIVATE_SIDEBAR</aside>";
+    document.body.append(workbench);
+    const initialTitle = document.title;
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const print = vi.spyOn(window, "print").mockImplementation(() => {
+      const projection = document.querySelector('section[data-maestro-export="pdf-print"]');
+      expect(projection).not.toBeNull();
+      expect(projection?.textContent).toContain(input.title);
+      expect(projection?.textContent).toContain("Resultados");
+      expect(projection?.innerHTML).not.toContain("<script");
+      expect(projection?.innerHTML).not.toContain("onclick");
+      expect(projection?.textContent).not.toContain("PRIVATE_");
+      expect(projection?.innerHTML).not.toContain(sharedChatEvidence.source_url);
+      expect(document.title).toBe(input.title);
+    });
+
+    openFinalContentPrintDialog(input, window);
+
+    expect(open).not.toHaveBeenCalled();
+    expect(print).toHaveBeenCalledOnce();
+    expect(document.querySelector('[data-maestro-export="pdf-print"]')).not.toBeNull();
+    expect(workbench.isConnected).toBe(true);
+    window.dispatchEvent(new Event("afterprint"));
+    expect(document.querySelector('[data-maestro-export="pdf-print"]')).toBeNull();
+    expect(document.querySelector('style[data-maestro-export="pdf-print"]')).toBeNull();
+    expect(document.title).toBe(initialTitle);
+    expect(workbench.isConnected).toBe(true);
+  });
+
+  it("cleans up a failed native print request and preserves the workbench title", () => {
+    const initialTitle = document.title;
+    vi.spyOn(window, "open").mockReturnValue(null);
+    vi.spyOn(window, "print").mockImplementation(() => {
+      throw new Error("Native print unavailable");
+    });
+
+    expect(() => openFinalContentPrintDialog(input, window)).toThrow("Native print unavailable");
+    expect(document.querySelector('[data-maestro-export="pdf-print"]')).toBeNull();
+    expect(document.title).toBe(initialTitle);
+  });
+
+  it("retires an ignored print request before the next article without accumulating hidden documents", () => {
+    const initialTitle = document.title;
+    vi.spyOn(window, "open").mockReturnValue(null);
+    const snapshots: string[] = [];
+    vi.spyOn(window, "print").mockImplementation(() => {
+      snapshots.push(
+        document.querySelector('section[data-maestro-export="pdf-print"]')?.textContent ?? "",
+      );
+    });
+
+    openFinalContentPrintDialog({ ...input, html: "<p>FIRST_PRINT_SNAPSHOT</p>" }, window);
+    openFinalContentPrintDialog(
+      { ...input, title: "Second article", html: "<p>SECOND_PRINT_SNAPSHOT</p>" },
+      window,
+    );
+
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[0]).toContain("FIRST_PRINT_SNAPSHOT");
+    expect(snapshots[0]).not.toContain("SECOND_PRINT_SNAPSHOT");
+    expect(snapshots[1]).toContain("SECOND_PRINT_SNAPSHOT");
+    expect(snapshots[1]).not.toContain("FIRST_PRINT_SNAPSHOT");
+    expect(document.querySelectorAll('section[data-maestro-export="pdf-print"]')).toHaveLength(1);
+    expect(document.querySelectorAll('style[data-maestro-export="pdf-print"]')).toHaveLength(1);
+    window.dispatchEvent(new Event("afterprint"));
+    expect(document.querySelector('[data-maestro-export="pdf-print"]')).toBeNull();
+    expect(document.title).toBe(initialTitle);
+  });
+
+  it("rejects a reentrant print call without replacing the document currently being captured", () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    vi.spyOn(window, "print").mockImplementation(() => {
+      expect(() =>
+        openFinalContentPrintDialog({ ...input, title: "Reentrant article" }, window),
+      ).toThrow("Uma solicitação de impressão já está em andamento.");
+      expect(document.title).toBe(input.title);
+      expect(
+        document.querySelector('section[data-maestro-export="pdf-print"]')?.textContent,
+      ).toContain(input.title);
+    });
+
+    openFinalContentPrintDialog(input, window);
+    window.dispatchEvent(new Event("afterprint"));
+    expect(document.querySelector('[data-maestro-export="pdf-print"]')).toBeNull();
   });
 });

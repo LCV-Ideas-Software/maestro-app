@@ -1,6 +1,6 @@
 {
   "name": "maestro-app",
-  "version": "0.5.71",
+  "version": "0.5.72",
   "private": true,
   "description": "Portable Windows editorial workbench for protocol-driven AI drafting, source verification, and multi-agent editorial convergence.",
   "type": "module",
@@ -83,6 +83,9 @@
   },
   "overrides": {
     "linkify-it": "5.0.2",
-    "markdown-it": "14.3.2"
+    "markdown-it": "14.3.2",
+    "mammoth": {
+      "argparse": "2.0.1"
+    }
   }
 }

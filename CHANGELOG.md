@@ -6,6 +6,43 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Fixed
 
+- Keep the latest selected protocol and wait for attachment reads before
+  submitting or resuming; preserve accepted evidence when a local read fails.
+- Request PDF printing through the existing native WebView instead of a blocked
+  popup; print only the sanitized article and keep provenance separate.
+- Create the lazy PostEditor after React commits its screen, preventing the
+  destroyed-editor crash when opening a new post.
+- Use the saved provider configuration in Setup, matching Settings credential
+  resolution, and require CLIs only when the selected provider mode uses them.
+- Capture Antigravity version metadata through managed pipes. A failed version
+  diagnostic no longer treats an existing executable as missing.
+- Open the official Windows AGY installation instructions instead of the Unix
+  installer endpoint.
+- Remove the unverified AGY authentication dependency and login action. Setup
+  checks its executable/version; headless execution uses the existing native
+  session and reports real authentication failures without opening a terminal.
+- Remove obsolete Gemini CLI detection, startup logging and workspace-trust
+  environment handling. Use AGY naming for its native project configuration.
+- Preserve native AGY permission blocks across artifact recovery and exclude
+  these operational failures from editorial revision history.
+- Refresh Setup after provider settings are saved and reject obsolete inventory
+  responses; keep the current plan as the displayed inventory source.
+- Verify Perplexity credentials with its authenticated native Skills metadata
+  endpoint, without requesting generation. Distinguish invalid credentials from
+  credit, permission and rate limits.
+- Update source-map-js to official 1.2.2 for GHSA-68fv-2mgg-jv7q.
+- Remove vulnerable sprintf-js through npm's native scoped override selecting
+  official argparse 2.0.1 for Mammoth. Preserve Mammoth's deprecated v1 CLI
+  argument API and DOCX/browser conversion; argparse 3 removes that API.
+
+### Changed
+
+- Prepare source 0.5.72 for operator testing before the next release PR.
+
+## [v0.5.71] - 05/10/2026
+
+### Fixed
+
 - Treat Wrangler verification as an optional diagnostic, matching the native
   Cloudflare API publication path without a CLI write fallback.
 - Preserve circular editorial custody through independent current-version
@@ -56,8 +93,7 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ### Changed
 
-- Prepare source 0.5.71. Delivery still requires native GitHub checks, a
-  Windows archive, checksums, attestation and GHCR verification.
+- Publish source 0.5.71 through the native Windows release workflow.
 - Align provider, protocol acknowledgment and budget documentation with
   implemented behavior and distinguish it from proposed guarantees.
 

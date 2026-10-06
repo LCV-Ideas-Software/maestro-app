@@ -570,6 +570,7 @@ pub(crate) fn parse_agent_artifact_result(
     } else if status == "CLI_NOT_FOUND"
         || status == "API_KEY_NOT_AVAILABLE"
         || status == "REMOTE_SECRET_NOT_READABLE"
+        || status == "CLI_PERMISSION_POLICY_BLOCKED"
         || status == "PERPLEXITY_AGENT_MODEL_REQUIRED"
         || status == "COST_LIMIT_REACHED"
         || status == "STOPPED_BY_USER"
@@ -583,9 +584,7 @@ pub(crate) fn parse_agent_artifact_result(
         || status == "RUNNING"
         || status == "CODEX_CLI_NO_FINAL_OUTPUT"
         || status == "CODEX_WINDOWS_SANDBOX_UPSTREAM"
-        || status == "GEMINI_CLI_NO_FINAL_OUTPUT"
-        || status == "GEMINI_RIPGREP_UNAVAILABLE"
-        || status == "GEMINI_WORKSPACE_VIOLATION"
+        || status == "AGY_CLI_NO_FINAL_OUTPUT"
     {
         "error"
     } else {
@@ -657,14 +656,84 @@ fn parse_cache_telemetry_from_artifact(text: &str) -> Option<ProviderCacheTeleme
 #[cfg(test)]
 mod tests {
     use super::{
-        circular_draft_sha256, load_resume_session_state, parse_agent_artifact_name,
-        parse_agent_artifact_result, write_circular_review_state, CircularReviewState,
-        CIRCULAR_REVIEW_STATE_FILE, CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
+        circular_draft_sha256, load_agent_results_from_dir, load_resume_session_state,
+        parse_agent_artifact_name, parse_agent_artifact_result, write_circular_review_state,
+        CircularReviewState, CIRCULAR_REVIEW_STATE_FILE, CIRCULAR_REVIEW_STATE_SCHEMA_VERSION,
     };
     use crate::{sessions_dir, write_text_file};
     use std::path::PathBuf;
     use std::thread;
     use std::time::Duration;
+
+    #[test]
+    fn resume_preserves_native_agy_policy_blocks_and_excludes_them_from_editorial_history() {
+        use crate::editorial_prompts::{build_revision_history_block, is_operational_agent_result};
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = sessions_dir();
+        let session_dir = root.join(format!(
+            "maestro-agy-policy-resume-test-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let canonical_session_dir = session_dir.canonicalize().unwrap();
+        let canonical_root = root.canonicalize().unwrap();
+        assert_eq!(
+            canonical_session_dir.parent(),
+            Some(canonical_root.as_path())
+        );
+        struct FixtureCleanup(PathBuf);
+        impl Drop for FixtureCleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = FixtureCleanup(canonical_session_dir);
+        let agent_dir = session_dir.join("agent-runs");
+        std::fs::create_dir(&agent_dir).unwrap();
+
+        // Source 0.5.71's actual admission artifact omitted Tone. Preserve its
+        // operational custody without requiring a rewrite of stored artifacts.
+        for (name, tone) in [
+            ("round-001-gemini-review.md", ""),
+            (
+                "round-001-gemini-review-attempt-002.md",
+                "- Tone: `blocked`\n",
+            ),
+        ] {
+            write_text_file(
+                &agent_dir.join(name),
+                &format!(
+                    "# Gemini - review\n\n- CLI: `agy`\n- Status: `CLI_PERMISSION_POLICY_BLOCKED`\n{tone}\nAGY CLI bloqueada: política nativa não confirmada.\n"
+                ),
+            )
+            .unwrap();
+        }
+
+        let recovered = load_agent_results_from_dir(&agent_dir).unwrap();
+        assert_eq!(recovered.len(), 2);
+        for agent in &recovered {
+            assert_eq!(agent.cli, "agy");
+            assert_eq!(agent.status, "CLI_PERMISSION_POLICY_BLOCKED");
+            assert_eq!(agent.tone, "blocked");
+            assert!(is_operational_agent_result(agent));
+        }
+        let empty_history = "No prior revision reports are recorded for this serial cycle.";
+        assert_eq!(build_revision_history_block(&recovered), empty_history);
+
+        // The status remains operational even if an older checkpoint already
+        // captured the previously incorrect warning tone.
+        let mut prior_warning = recovered[0].clone();
+        prior_warning.tone = "warn".to_string();
+        assert!(is_operational_agent_result(&prior_warning));
+        assert_eq!(
+            build_revision_history_block(&[prior_warning]),
+            empty_history
+        );
+    }
 
     #[test]
     fn resume_preserves_blocked_perplexity_model_failure() {

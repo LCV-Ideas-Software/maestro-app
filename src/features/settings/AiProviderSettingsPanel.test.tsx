@@ -13,7 +13,7 @@ function panelProps(): ComponentProps<typeof AiProviderSettingsPanel> {
     aiCredentials: Object.fromEntries(
       aiProviderRows.map((provider) => [provider.key, ""]),
     ) as Record<AiCredentialKey, string>,
-    geminiCliProjectId: "",
+    agyCliProjectId: "",
     isSaving: false,
     isVerifying: false,
     probeRows: [],
@@ -26,7 +26,7 @@ function panelProps(): ComponentProps<typeof AiProviderSettingsPanel> {
     providerMode: "hybrid",
     onChooseProviderMode: vi.fn(),
     onCredentialChange: vi.fn(),
-    onGeminiCliProjectIdChange: vi.fn(),
+    onAgyCliProjectIdChange: vi.fn(),
     onInputRateChange: vi.fn(),
     onOutputRateChange: vi.fn(),
     onSave: vi.fn(),
@@ -35,7 +35,7 @@ function panelProps(): ComponentProps<typeof AiProviderSettingsPanel> {
 }
 
 describe("provider configuration custody", () => {
-  it.each(["isSaving", "isVerifying"] as const)(
+  it.each(["isSaving", "isVerifying", "isBusy"] as const)(
     "prevents overlapping mode writes and input loss during %s",
     (busyFlag) => {
       const props = panelProps();
@@ -59,28 +59,28 @@ describe("provider configuration custody", () => {
   it("keeps the native project selection explicit and separate from credentials", () => {
     const props = panelProps();
     const view = render(<AiProviderSettingsPanel {...props} />);
-    const projectInput = screen.getByLabelText("ID do projeto nativo do Gemini CLI");
+    const projectInput = screen.getByLabelText("ID do projeto nativo do AGY CLI");
     expect(projectInput).toHaveValue("");
     expect(projectInput).toHaveAttribute("type", "text");
     fireEvent.change(projectInput, { target: { value: "operator-selected-native-project" } });
-    expect(props.onGeminiCliProjectIdChange).toHaveBeenCalledExactlyOnceWith(
+    expect(props.onAgyCliProjectIdChange).toHaveBeenCalledExactlyOnceWith(
       "operator-selected-native-project",
     );
     expect(props.onCredentialChange).not.toHaveBeenCalled();
     expect(props.onChooseProviderMode).not.toHaveBeenCalled();
     expect(props.onSave).not.toHaveBeenCalled();
-    view.rerender(<AiProviderSettingsPanel {...props} geminiCliProjectId="saved-native-project" />);
+    view.rerender(<AiProviderSettingsPanel {...props} agyCliProjectId="saved-native-project" />);
     expect(projectInput).toHaveValue("saved-native-project");
     expect(projectInput).toHaveAccessibleDescription(/bloqueia a execucao/);
   });
 
   it("preserves the configured CLI selection across explicit API mode changes", () => {
-    const props = { ...panelProps(), geminiCliProjectId: "saved-native-project" };
+    const props = { ...panelProps(), agyCliProjectId: "saved-native-project" };
     const view = render(<AiProviderSettingsPanel {...props} providerMode="api" />);
-    expect(screen.queryByLabelText("ID do projeto nativo do Gemini CLI")).toBeNull();
-    expect(props.onGeminiCliProjectIdChange).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("ID do projeto nativo do AGY CLI")).toBeNull();
+    expect(props.onAgyCliProjectIdChange).not.toHaveBeenCalled();
     view.rerender(<AiProviderSettingsPanel {...props} providerMode="cli" />);
-    expect(screen.getByLabelText("ID do projeto nativo do Gemini CLI")).toHaveValue(
+    expect(screen.getByLabelText("ID do projeto nativo do AGY CLI")).toHaveValue(
       "saved-native-project",
     );
   });

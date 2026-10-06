@@ -55,7 +55,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use crate::cli_adapter::verify_gemini_cli_project_permissions;
+use crate::cli_adapter::verify_agy_cli_project_permissions;
 use crate::command_path::{command_search_dirs, resolve_command};
 use crate::command_spawn::{run_resolved_command_observed, CommandProgressContext};
 use crate::editorial_helpers::{
@@ -268,7 +268,7 @@ fn run_editorial_agent(
     };
 
     if command == "agy" {
-        match verify_gemini_cli_project_permissions(
+        match verify_agy_cli_project_permissions(
             &path,
             config,
             &working_dir,
@@ -294,7 +294,7 @@ fn run_editorial_agent(
                 let _ = write_text_file(
                     output_path,
                     &format!(
-                    "# {name} - {role}\n\n- CLI: `{command}`\n- Status: `{status}`\n\n{guidance}\n"
+                    "# {name} - {role}\n\n- CLI: `{command}`\n- Status: `{status}`\n- Tone: `blocked`\n\n{guidance}\n"
                 ),
                 );
                 let result = EditorialAgentResult {
@@ -425,9 +425,7 @@ fn run_editorial_agent(
                 || status == "CODEX_CLI_NO_FINAL_OUTPUT"
                 || status == "AGENT_FAILED_NO_OUTPUT"
                 || status == "CODEX_WINDOWS_SANDBOX_UPSTREAM"
-                || status == "GEMINI_CLI_NO_FINAL_OUTPUT"
-                || status == "GEMINI_RIPGREP_UNAVAILABLE"
-                || status == "GEMINI_WORKSPACE_VIOLATION"
+                || status == "AGY_CLI_NO_FINAL_OUTPUT"
             {
                 "error"
             } else if result.output.status.success()
@@ -443,12 +441,8 @@ fn run_editorial_agent(
                 "\n> Sessao interrompida pelo operador via botao 'Parar sessao'. O processo CLI foi interrompido; partial output preservado abaixo. Retome a sessao via `Retomar` para continuar do mesmo run_id.\n"
             } else if status == "CODEX_WINDOWS_SANDBOX_UPSTREAM" {
                 "\n> Codex CLI encerrou sem parecer final e o stderr indica uma restricao de linguagem do PowerShell. Esse diagnostico nao comprova a causa nem um bug de uma versao especifica. Preserve o sandbox e consulte a documentacao oficial de diagnostico do Windows: https://learn.chatgpt.com/docs/windows/windows-sandbox . Verifique o erro e as politicas do ambiente antes de retomar, ou selecione outro peer.\n"
-            } else if status == "GEMINI_WORKSPACE_VIOLATION" {
-                "\n> Google CLI bloqueou uma chamada de ferramenta porque o agente tentou acessar caminho fora do workspace (`Path not in workspace` / `resolves outside the allowed workspace directories`). Esperado quando o protocolo pede recursos no diretorio pai. Tente outro peer.\n"
-            } else if status == "GEMINI_RIPGREP_UNAVAILABLE" {
-                "\n> Google CLI indicou que `rg`/ripgrep nao esta disponivel no ambiente do processo. A revisao foi tratada como falha operacional recuperavel; ajuste o PATH efetivo ou tente outro peer antes de retomar.\n"
-            } else if status == "GEMINI_CLI_NO_FINAL_OUTPUT" {
-                "\n> Google CLI encerrou sem stdout nem diagnostico util. A revisao foi tratada como falha operacional recuperavel, nao como parecer editorial.\n"
+            } else if status == "AGY_CLI_NO_FINAL_OUTPUT" {
+                "\n> AGY CLI encerrou sem stdout nem diagnostico util. A revisao foi tratada como falha operacional recuperavel, nao como parecer editorial.\n"
             } else if status == "CODEX_CLI_NO_FINAL_OUTPUT" {
                 "\n> Codex CLI encerrou sem entregar parecer final em stdout. Quando o transcript aparece no stderr, ele e diagnostico operacional e nao substitui o parecer editorial estruturado.\n"
             } else if status == "AGENT_FAILED_NO_OUTPUT" {
@@ -570,13 +564,9 @@ fn run_editorial_agent(
 /// session compatibility. A language-mode diagnostic does not establish its
 /// cause. A generic process-not-found message is not a sandbox fingerprint.
 ///
-/// **Google workspace violation** (legacy Gemini CLI / Antigravity CLI): the CLI
-/// resolves the workspace as the agent's CWD (`agent-runs/`) and refuses
-/// any file-system tool that touches the parent session directory; emits
-/// `Error executing tool list_directory: Path not in workspace` /
-/// `resolves outside the allowed workspace directories`. Surfaces when
-/// the protocol prompt asks the agent to read sibling files (the input
-/// file lives in `agent-runs/` but the protocol references the parent).
+/// The Gemini peer uses AGY. Empty output without stderr remains operational;
+/// other diagnostics retain the generic failure until their native cause is
+/// established. Native AGY project policy is checked before launching a turn.
 fn classify_upstream_cli_failure(name: &str, stderr: &str) -> Option<&'static str> {
     match name {
         "Codex" => {
@@ -594,14 +584,8 @@ fn classify_upstream_cli_failure(name: &str, stderr: &str) -> Option<&'static st
             }
         }
         "Gemini" => {
-            if stderr.contains("Path not in workspace")
-                || stderr.contains("resolves outside the allowed workspace directories")
-            {
-                Some("GEMINI_WORKSPACE_VIOLATION")
-            } else if stderr.contains("Ripgrep is not available") {
-                Some("GEMINI_RIPGREP_UNAVAILABLE")
-            } else if stderr.trim().is_empty() {
-                Some("GEMINI_CLI_NO_FINAL_OUTPUT")
+            if stderr.trim().is_empty() {
+                Some("AGY_CLI_NO_FINAL_OUTPUT")
             } else {
                 None
             }
@@ -641,15 +625,6 @@ mod tests {
     }
 
     #[test]
-    fn classify_upstream_cli_failure_detects_gemini_workspace_violation() {
-        let stderr = "Error executing tool list_directory: Path not in workspace: Attempted path \"C:\\Users\\leona\\OneDrive\\Downloads\\maestro-editorial-ai\\data\\sessions\\run-2026-05-02T11-39-41-113Z\" resolves outside the allowed workspace directories: C:\\Users\\leona\\OneDrive\\Downloads\\maestro-editorial-ai\\data\\sessions\\run-2026-05-02T11-39-41-113Z\\agent-runs\n";
-        assert_eq!(
-            classify_upstream_cli_failure("Gemini", stderr),
-            Some("GEMINI_WORKSPACE_VIOLATION"),
-        );
-    }
-
-    #[test]
     fn classify_upstream_cli_failure_returns_none_when_stderr_is_clean() {
         assert_eq!(
             classify_upstream_cli_failure("Codex", ""),
@@ -661,7 +636,7 @@ mod tests {
         );
         assert_eq!(
             classify_upstream_cli_failure("Gemini", ""),
-            Some("GEMINI_CLI_NO_FINAL_OUTPUT")
+            Some("AGY_CLI_NO_FINAL_OUTPUT")
         );
         assert_eq!(
             classify_upstream_cli_failure("Gemini", "Warning: 256-color support not detected.\n"),
@@ -670,13 +645,10 @@ mod tests {
     }
 
     #[test]
-    fn classify_upstream_cli_failure_detects_gemini_missing_ripgrep() {
+    fn classify_upstream_cli_failure_does_not_guess_an_agy_failure_cause() {
         assert_eq!(
-            classify_upstream_cli_failure(
-                "Gemini",
-                "Warning: 256-color support not detected.\nRipgrep is not available. Falling back to GrepTool.\n"
-            ),
-            Some("GEMINI_RIPGREP_UNAVAILABLE")
+            classify_upstream_cli_failure("Gemini", "Command failed: permission denied.\n"),
+            None
         );
     }
 
@@ -698,7 +670,7 @@ mod tests {
     #[test]
     fn classify_upstream_cli_failure_does_not_misclassify_other_agents() {
         // Claude/DeepSeek do not have classified upstream-bug fingerprints; even
-        // when their stderr includes substrings that would match Codex/Gemini
+        // when their stderr includes substrings that would match Codex/AGY
         // patterns, they must return None to preserve the generic
         // EMPTY_DRAFT/AGENT_FAILED_EMPTY classification.
         assert_eq!(

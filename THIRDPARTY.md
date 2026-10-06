@@ -271,6 +271,29 @@ Microsoft SDK grant and native-loader supplement remain byte-identical.
 This is a targeted release inventory refresh, not certification that every
 build, development or other-platform lock entry is distributed.
 
+## v0.5.72 npm security refresh - 05/10/2026
+
+The official source-map-js 1.2.2 release fixes GHSA-68fv-2mgg-jv7q and fits
+the existing PostCSS/css-tree dependency ranges. Its complete upstream license
+is retained in THIRD-PARTY-NOTICES.txt with the historical vendor notices.
+
+Mammoth 1.13.0 still requires the deprecated argparse v1 API in its CLI. npm's
+native scoped override selects official argparse 2.0.1, whose built-in v1
+compatibility preserves those calls and removes sprintf-js from the installed
+dependency graph. The complete argparse 2.0.1 license is already retained in
+THIRD-PARTY-NOTICES.txt. Historical argparse 1.0.10 and sprintf-js vendor blocks
+remain preserved; they do not describe the current installed graph.
+
+Argparse 3 removes that compatibility API and is deliberately not forced onto
+Mammoth. Native CLI help, HTML/Markdown conversion, style maps, mutual exclusion,
+Node conversion and browser ArrayBuffer conversion were exercised with the
+official 2.0.1 package. No dependency source patch or fork is used.
+
+References: [source-map-js advisory](https://github.com/advisories/GHSA-68fv-2mgg-jv7q),
+[sprintf-js advisory](https://github.com/advisories/GHSA-hp3w-g68c-fv3c),
+[argparse changelog](https://github.com/nodeca/argparse/blob/master/CHANGELOG.md),
+and [native npm overrides](https://docs.npmjs.com/cli/v11/configuring-npm/package-json#overrides).
+
 ## v0.5.71 exact-version inventory refresh - 05/10/2026
 
 Cargo's official locked Windows metadata selects 294 upstream identities in

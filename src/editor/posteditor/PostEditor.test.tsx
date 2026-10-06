@@ -1,7 +1,13 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Editor } from "@tiptap/core";
+import { lazy, StrictMode, Suspense } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildFinalContentExport } from "./editor/exportFinalContent";
+import { ErrorBoundary } from "../../components/ErrorBoundary";
+import {
+  buildFinalContentExport,
+  downloadExportArtifact,
+  openFinalContentPrintDialog,
+} from "./editor/exportFinalContent";
 import PostEditor, { type PostEditorProps } from "./PostEditor";
 
 const editorBox = vi.hoisted(() => ({ current: null as Editor | null }));
@@ -17,17 +23,6 @@ vi.mock("@tiptap/react", async (importOriginal) => {
     },
   };
 });
-vi.mock("./editor/extensions", async () => {
-  const { default: StarterKit } = await import("@tiptap/starter-kit");
-  const { CharacterCount } = await import("@tiptap/extension-character-count");
-  return {
-    EDITORIAL_MENTION_BASE_ITEMS: [],
-    buildTiptapExtensions: () => [StarterKit, CharacterCount],
-  };
-});
-vi.mock("@tiptap/extension-drag-handle-react", () => ({ DragHandle: () => null }));
-vi.mock("./editor/BubbleMenu", () => ({ EditorBubbleMenu: () => null }));
-vi.mock("./editor/FloatingMenu", () => ({ EditorFloatingMenu: () => null }));
 vi.mock("./editor/exportFinalContent", async (importOriginal) => {
   const module = await importOriginal<typeof import("./editor/exportFinalContent")>();
   return {
@@ -69,6 +64,55 @@ afterEach(() => {
 });
 
 describe("PostEditor desktop custody", () => {
+  it("opens and saves a new post after delayed lazy loading through the complete production editor", async () => {
+    const save = vi.fn().mockResolvedValue(true);
+    let resolveEditor!: (module: { default: typeof PostEditor }) => void;
+    const LazyPostEditor = lazy(
+      () =>
+        new Promise<{ default: typeof PostEditor }>((resolve) => {
+          resolveEditor = resolve;
+        }),
+    );
+    render(
+      <StrictMode>
+        <ErrorBoundary>
+          <p>Workbench remains available</p>
+          <Suspense fallback={<p>Loading editorial screen</p>}>
+            <LazyPostEditor
+              editingPostId={null}
+              initialTitle="New article"
+              initialAuthor="Author"
+              initialContent="<h1>Article in preparation</h1><p>Initial editorial text.</p>"
+              savingPost={false}
+              showNotification={vi.fn()}
+              onSave={save}
+              onClose={vi.fn()}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      </StrictMode>,
+    );
+    expect(screen.getByText("Loading editorial screen")).toBeInTheDocument();
+    expect(editorBox.current).toBeNull();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      resolveEditor({ default: PostEditor });
+    });
+    const create = await screen.findByRole("button", { name: "Criar post" });
+    expect(screen.getByText("Workbench remains available")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(editorBox.current?.isEditable).toBe(true);
+    expect(editorBox.current?.getText()).toContain("Initial editorial text.");
+    fireEvent.click(create);
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect(save.mock.calls[0]?.[0]).toBe("New article");
+    expect(save.mock.calls[0]?.[1]).toBe("Author");
+    expect(save.mock.calls[0]?.[2]).toContain("Article in preparation");
+    expect(save.mock.calls[0]?.[2]).toContain("Initial editorial text.");
+    expect(screen.getByText("Workbench remains available")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("exposes unavailable native capabilities as disabled controls without calling an admin HTTP endpoint", async () => {
     renderEditor();
     await waitFor(() => expect(editorBox.current).not.toBeNull());
@@ -164,5 +208,26 @@ describe("PostEditor desktop custody", () => {
     const call = vi.mocked(buildFinalContentExport).mock.calls[0];
     expect(call?.[0].evidence).toEqual([evidence]);
     expect(call?.[0].html).not.toContain(evidence.source_url);
+  });
+
+  it("reports a failed native PDF request before downloading provenance and preserves article editing", async () => {
+    renderEditor({ initialSharedChatEvidence: [evidence] });
+    await waitFor(() => expect(editorBox.current).not.toBeNull());
+    vi.mocked(openFinalContentPrintDialog).mockImplementationOnce(() => {
+      throw new Error("Native print unavailable");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+
+    expect(downloadExportArtifact).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("Native print unavailable");
+    expect(editorBox.current?.isEditable).toBe(true);
+    expect(editorBox.current?.getText()).toBe("alpha beta alpha");
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    expect(downloadExportArtifact).toHaveBeenCalledOnce();
+    expect(vi.mocked(downloadExportArtifact).mock.calls[0]?.[0].filename).toBe(
+      "draft.provenance.json",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Impressão solicitada");
   });
 });

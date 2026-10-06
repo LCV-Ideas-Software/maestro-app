@@ -2,7 +2,7 @@
 
 Status: historical implementation plan with a current permission correction.
 Historical snapshot date: 2026-05-23.
-Permission contract reviewed: 2026-10-05.
+Permission contract reviewed: 2026-10-05; AGY transport cleanup: 2026-10-06.
 
 This audit records what Maestro must rely on, verify, and defend against when orchestrating Codex CLI, Claude CLI, and Gemini via Google Antigravity CLI (`agy`) in background.
 
@@ -34,7 +34,9 @@ Maestro removes the unconditional Antigravity permission bypass from both editor
 
 Antigravity supports isolated native projects: `agy --new-project` creates one and `agy --project=<project_id>` selects the existing provider-generated identity. The native `/permissions` manager exposes a Project scope where deny rules can be validated and saved before submitting a model prompt. A read-only editorial policy needs deny rules for `write_file(*)`, `command(*)`, `mcp(*)`, and `execute_url(*)`; native Deny rules precede Ask and Allow rules. CLI 1.1.12 also introduced headless `/permissions` readback without starting a model turn. See [native project selection](https://www.antigravity.google/docs/projects/), the [Project permission manager](https://www.antigravity.google/docs/cli/commands/permissions/), and the [official CLI changelog](https://www.antigravity.google/docs/changelog?tab=cli). This documents an available provisioning path; Maestro does not itself provision native policy. Do not infer its enforcement from an unverified project name, a global preset, a TUI list of saved rules, or a successful model response. The selected project's headless permission readback must confirm the policy before editorial use.
 
-Maestro stores the optional Gemini CLI project ID locally and passes it through native `--project=<project_id>`. Before each editorial or smoke model turn, it reads the selected project's native `/permissions` JSON in the same working directory. The readback must report success, zero model turns/usage and exactly one Project scope containing all four exact deny rules. Missing selection, malformed output or unconfirmed policy blocks the turn with native project/API guidance; inherited Shared/Global rules do not replace this Project check. API remains an explicit operator choice. The 2026-10-05 native TUI/headless probe did not confirm the policy, so no protected installed Gemini CLI profile is claimed.
+Maestro stores the optional AGY CLI project ID locally as `agy_cli_project_id` and passes it through native `--project=<project_id>`. The native configuration reader preserves the same AGY selection saved by source 0.5.71 under its previous field name; new writes use the canonical AGY name. Before each editorial or smoke model turn, it reads the selected project's native `/permissions` JSON in the same working directory. The readback must report success, zero model turns/usage and exactly one Project scope containing all four exact deny rules. Missing selection, malformed output or unconfirmed policy blocks the turn with native project/API guidance; inherited Shared/Global rules do not replace this Project check. API remains an explicit operator choice. The 2026-10-05 native TUI/headless probe did not confirm the policy, so no protected installed AGY CLI profile is claimed.
+
+When the AGY executable is missing, installation opens the [official Windows CLI instructions](https://www.antigravity.google/docs/cli/install/#windows). That documentation page is distinct from the Unix installer returned by the bare `/cli/` endpoint. Setup uses executable/version readiness and does not invent an authentication dependency or offer an AGY login action. Maestro does not open an interactive terminal or launch a browser authentication flow for AGY. The headless editorial invocation reuses the vendor's existing native session and reports actual authentication failures; version metadata and installation instructions do not prove authentication. The separate native Project permission admission check remains unchanged.
 
 ## Official Documentation Consulted
 
@@ -85,7 +87,7 @@ Required adapter choices:
 
 ### Gemini / Antigravity CLI
 
-Gemini remains a Maestro peer identity, but the local CLI transport is now Antigravity CLI (`agy`). Google announced the consumer/free Gemini CLI transition to Antigravity CLI, with consumer/free Gemini CLI requests stopping on June 18, 2026. Maestro must therefore treat the legacy `gemini` binary as fallback/diagnostic evidence only.
+Gemini remains a Maestro peer identity, and its local CLI transport is Antigravity CLI (`agy`). Maestro neither invokes nor inventories the retired executable.
 
 Required adapter choices:
 
@@ -94,7 +96,7 @@ Required adapter choices:
 - Capture `agy` through the PTY runner, because local plain-pipe tests exited successfully without returning the generated answer on stdout.
 - Do not rely on `--dangerously-skip-permissions` or prompt-level file prohibitions for editorial custody. Follow the current native permission boundary above; `agy` execution remains subject to its actual permission settings.
 - Treat Antigravity tool/web evidence as model-mediated evidence, not raw mechanical verification. Maestro's own Web Evidence Engine remains authoritative for link validation.
-- Probe `agy --version` during dependency preflight and log `gemini_legacy` separately when present, so support can distinguish current and deprecated Google transports.
+- Probe `agy --version` through the bounded managed-pipe metadata transport during dependency preflight and log the actual `agy` resolution. Version metadata confirms the executable; authentication and Project policy require their own native checks.
 
 ## Cross-Agent Adapter Contract
 
