@@ -1,19 +1,26 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildFinalContentExport,
   buildPrintDocument,
+  downloadExportArtifact,
   htmlToCitationAuditMarkdown,
   htmlToLinkAuditMarkdown,
   openFinalContentPrintDialog,
   sanitizeExportFilename,
 } from "./exportFinalContent";
 
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), isTauri: vi.fn(() => false) }));
+
 afterEach(() => {
   window.dispatchEvent(new Event("afterprint"));
   document.getElementById("test-workbench")?.remove();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.mocked(isTauri).mockReturnValue(false);
+  vi.mocked(invoke).mockReset();
 });
 
 describe("htmlToCitationAuditMarkdown", () => {
@@ -225,6 +232,65 @@ describe("buildFinalContentExport", () => {
 
     expect(result.provenance.content).not.toContain("Bearer segredo");
     expect(result.provenance.content).not.toContain("token-secreto");
+  });
+});
+
+describe("portable desktop export custody", () => {
+  it("awaits native storage of exact article and provenance instead of downloading into Windows Downloads", async () => {
+    const exported = buildFinalContentExport(input, "html");
+    const createObjectURL = vi.fn(() => "blob:export-fixture");
+    const revokeObjectURL = vi.fn();
+    const NativeURL = URL;
+    vi.stubGlobal(
+      "URL",
+      class extends NativeURL {
+        static override createObjectURL = createObjectURL;
+        static override revokeObjectURL = revokeObjectURL;
+      },
+    );
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.mocked(isTauri).mockReturnValue(true);
+    let resolve!: () => void;
+    vi.mocked(invoke).mockImplementationOnce(
+      () =>
+        new Promise<void>((finish) => {
+          resolve = finish;
+        }),
+    );
+    let completed = false;
+    const pending = Promise.resolve(downloadExportArtifact(exported.content)).then(() => {
+      completed = true;
+    });
+    await Promise.resolve();
+    expect(invoke).toHaveBeenCalledWith("persist_editor_export", {
+      request: {
+        format: "html",
+        filename: exported.content.filename,
+        content: exported.content.content,
+      },
+    });
+    expect(completed).toBe(false);
+    expect(createObjectURL).not.toHaveBeenCalled();
+    resolve();
+    await pending;
+    await downloadExportArtifact(exported.provenance);
+    expect(invoke).toHaveBeenLastCalledWith("persist_editor_export", {
+      request: {
+        format: "html",
+        filename: exported.provenance.filename,
+        content: exported.provenance.content,
+      },
+    });
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("surfaces native disk failures without a browser download fallback", async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    vi.mocked(invoke).mockRejectedValueOnce(new Error("portable folder is read-only"));
+    const exported = buildFinalContentExport(input, "markdown");
+    await expect(
+      Promise.resolve().then(() => downloadExportArtifact(exported.content)),
+    ).rejects.toThrow("portable folder is read-only");
   });
 });
 

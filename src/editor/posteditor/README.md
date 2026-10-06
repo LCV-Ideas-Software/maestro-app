@@ -50,6 +50,8 @@ The 2026-10-06 desktop correction sets TipTap's native `immediatelyRender: false
 
 PDF export requests the existing WebView's native `window.print()` rather than a browser popup. A temporary print-only projection contains the same escaped title, author and sanitized article; print media hides the workbench and portals and permits multiple pages. `afterprint` removes that projection when printing or preview ends, including cancellation. A returned print request does not prove a PDF was saved, and provenance remains a separate sidecar.
 
+Desktop article exports use the official native Tauri command boundary and the existing atomic data writer, not WebView downloads. Exact Markdown/HTML and their separate JSON provenance are stored under executable-relative `data/exports/markdown/` or `data/exports/html/`; the PDF-request sidecar is stored under `data/exports/pdf/`. Native validation fixes each subtype, accepts only safe derived filenames, rejects mismatched provenance and verifies written bytes before success. The existing Windows print dialog still owns PDF creation and the destination selected by the user. Browser previews retain their download fallback.
+
 ## Repository conventions
 
 - **License**: [AGPL-3.0-or-later](../../../LICENSE). Network-service trigger applies: running a modified fork as a public service obligates you to publish modifications.

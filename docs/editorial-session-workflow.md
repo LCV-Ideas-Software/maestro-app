@@ -20,23 +20,28 @@ The operator provides:
 
 Each session pins the protocol by file name, declared version when available, import timestamp, byte size, line count, and SHA-256 hash.
 
-## Protocol delivery and requested reading acknowledgments
+## Protocol delivery and declared reading acknowledgments
 
 Every drafting/review prompt includes the complete pinned protocol. Long CLI prompts use a complete sidecar when required; its presence is delivery evidence, not proof of model cognition.
 
-The original design requests an explicit reading acknowledgment before a round. The fields below are design requirements that are not currently enforced or persisted by the native runtime. No UI percentage or phase label proves them. Implementing this acknowledgment contract is tracked separately from the circular custody correction.
+Before drafting or reviewing, each start and resume requests a fresh reading acknowledgment from every selected peer, including the prospective author. The existing CLI and six-provider text transports carry the complete pinned protocol and a native source manifest. Maestro validates the returned JSON locally; no provider-specific response-format capability is assumed. These calls use the same session cost, cancellation and time controls as editorial calls.
 
-Requested acknowledgment record per agent (not an implemented gate):
+Required acknowledgment record per agent:
 
-- `protocol_hash`
+- `protocol_name` (exact active source identity)
+- `protocol_hash` (native SHA-256 of the exact UTF-8 text bytes supplied)
 - `line_count_expected`
 - `line_count_acknowledged`
 - `read_mode: full_line_by_line`
-- `acknowledged_sections`
-- `missing_ranges`
-- `status`
+- `acknowledged_sections` (all manifest sections exactly once and in order)
+- `missing_ranges` (empty for admission)
+- `status: ACKNOWLEDGED`
 
-The proposed acknowledgment gate would prevent a round when that record is incomplete. Current runtime admission checks that the complete protocol is supplied, but does not require this per-agent acknowledgment. Neither delivery nor an acknowledgment proves every line was cognitively processed.
+Sections are contiguous, one-based physical line intervals of at most 128 lines. A final newline does not create an extra empty line. Each section has `section_id`, `start_line` and `end_line`; this covers blank lines and code without guessing Markdown heading semantics. Expected and declared line counts must match, `read_mode` must be `full_line_by_line`, and identity/hash/ranges must match the native manifest. Unknown or duplicate fields, prose/fences, malformed JSON and incomplete coverage fail closed. The model may report `INCOMPLETE`, `partial`, actual acknowledged sections and missing ranges; these declarations are retained and pause the session with no drafting/review round and no final artifact.
+
+Private native artifacts and source-bound JSON records are append-only under `data/sessions/<run>/protocol-acknowledgements/`; they never count as drafts or editorial READY votes. The session minutes preserve each attempt, its source, declaration and admission result. A resumed session always requests new declarations; an earlier acknowledgment or a response for a changed protocol cannot unlock the current invocation. Legacy citation/context hash fields retain their existing meaning; the acknowledgment independently computes its explicit SHA-256. Resume preserves the exact protocol bytes rather than trimming them.
+
+Neither delivery nor an acknowledgment proves every line was cognitively processed. The UI reports declared coverage and pending/invalid acknowledgment without invented percentages or cognitive certification.
 
 If any peer remains `NOT_READY` or `NEEDS_EVIDENCE`, the session continues, pauses for operator evidence, or exports only a non-publicable working draft. It must not emit `texto-final.md`.
 
@@ -163,7 +168,7 @@ This pass is still conservative. The deterministic link checker, ABNT engine, ca
 The UI must show a calm operational view, not raw terminal output:
 
 - Active phase and progress.
-- Protocol delivery metadata and explicitly unmeasured reading phase.
+- Protocol delivery metadata, declared acknowledgment status and explicitly unmeasured cognition.
 - Per-agent status.
 - Round timeline.
 - Evidence requests.
@@ -192,7 +197,7 @@ ata-da-sessao.md
 - Session manifest.
 - Operator prompt.
 - Protocol identity and hash.
-- Protocol delivery metadata; per-agent reading acknowledgments are not currently persisted.
+- Protocol delivery metadata and source-bound per-agent acknowledgment attempts, including incomplete/invalid declarations.
 - Round timeline.
 - Agent positions.
 - Evidence requests and resolutions.

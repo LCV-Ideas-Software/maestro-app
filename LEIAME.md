@@ -18,6 +18,8 @@ Este pacote e portatil para Windows 11+. Ele nao instala servicos, nao cria entr
 - `data/config/ai-providers.json`: arquivo local das credenciais de API dos agentes quando o usuario clicar em `Salvar APIs`.
 - `data/logs/maestro-<timestamp>-pid<id>.ndjson`: um arquivo novo por execucao do app.
 - `data/sessions/<run>/`: prompt, protocolo fixado, saidas dos agentes, ata da sessao e texto final quando houver unanimidade.
+- `data/exports/markdown/` e `data/exports/html/`: exportacoes do PostEditor e sua proveniencia JSON separada, dentro da pasta portatil do executavel.
+- `data/exports/pdf/`: proveniencia JSON das solicitacoes de impressao. O dialogo nativo do Windows permite escolher onde salvar o PDF; uma solicitacao de impressao nao confirma que o arquivo foi salvo.
 - Cache e artefatos ficam sob `data/` e continuam fora do Git.
 
 ## Bootstrap de configuracao

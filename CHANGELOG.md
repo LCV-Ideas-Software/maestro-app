@@ -4,8 +4,22 @@ All notable changes to Maestro Editorial AI will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Require every selected peer to declare complete protocol coverage before
+  drafting or reviewing on start/resume. Validate exact source identity, native
+  SHA-256, line counts and section ranges; retain private raw/JSON attempts and
+  session minutes. Missing or invalid declarations pause without final delivery.
+- Display declared acknowledgement without claiming cognitive proof or inventing
+  reading percentages. Keep native provider transports and session cost controls.
+
 ### Fixed
 
+- Store PostEditor Markdown/HTML and provenance exports in the portable app's
+  native `data/exports/` subtype directories instead of Windows Downloads.
+  Verify atomic writes before reporting success; preserve the native PDF dialog.
+- Preserve exact pinned protocol bytes on resume, including CRLF and boundary
+  whitespace, so source-bound reading declarations use the bytes actually sent.
 - Keep the latest selected protocol and wait for attachment reads before
   submitting or resuming; preserve accepted evidence when a local read fails.
 - Request PDF printing through the existing native WebView instead of a blocked

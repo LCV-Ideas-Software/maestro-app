@@ -5,6 +5,7 @@ import {
   countAgentRounds,
   latestAgentResults,
   latestProtocolGateItems,
+  protocolLineCount,
   providerSupportsNativeAttachment,
 } from "./helpers";
 import type { EditorialAgentResult } from "./types";
@@ -23,6 +24,43 @@ function result(round: string, status: string): EditorialAgentResult {
 }
 
 describe("editorial round display", () => {
+  it("shows the declared acknowledgement separately from later editorial approval", () => {
+    const acknowledged = {
+      ...result("000", "PROTOCOL_ACKNOWLEDGED"),
+      role: "protocol_ack",
+      output_path: "protocol-acknowledgements/ack-001-claude.md",
+    };
+    const [gate] = latestProtocolGateItems([acknowledged, result("010", "READY")]);
+    expect(gate?.status).toBe("Reconhecimento declarado: Cobertura integral declarada");
+    expect(gate?.progress).toBeNull();
+    const invalid = { ...acknowledged, status: "PROTOCOL_ACK_INVALID" };
+    expect(
+      latestProtocolGateItems([acknowledged, invalid, result("010", "READY")])[0]?.status,
+    ).toContain("incompleto ou invalido");
+  });
+
+  it("retains undeclared selected peers after an early acknowledgement failure and excludes unselected peers", () => {
+    const failed = { ...result("000", "PROTOCOL_ACK_INVALID"), role: "protocol_ack" };
+    expect(
+      latestProtocolGateItems(
+        [failed, { ...result("999", "READY"), name: "Codex" }],
+        ["claude", "codex"],
+      ),
+    ).toEqual([
+      { agent: "Claude", progress: null, status: "Reconhecimento incompleto ou invalido" },
+      { agent: "Codex", progress: null, status: "Reconhecimento nao declarado nesta chamada" },
+    ]);
+  });
+
+  it.each([
+    ["", 0],
+    ["a", 1],
+    ["a\n", 1],
+    ["a\r\n", 1],
+    ["\r\na\r\n\r\n", 3],
+  ])("matches native physical line counting for %j", (text, expected) => {
+    expect(protocolLineCount(text as string)).toBe(expected);
+  });
   it("ranks and counts the minimum-width native round format after round 999", () => {
     const previous = result("999", "READY");
     const latest = result("1000", "NOT_READY");

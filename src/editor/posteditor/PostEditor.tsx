@@ -1019,17 +1019,17 @@ export default function PostEditor({
       try {
         if (format === "pdf") {
           await openFinalContentPrintDialog(exportInput, ownerWindow);
-          downloadExportArtifact(buildPdfProvenanceExport(exportInput), ownerDocument);
+          await downloadExportArtifact(buildPdfProvenanceExport(exportInput), ownerDocument);
           showNotification(
-            "Impressão solicitada. Selecione “Salvar como PDF” no diálogo; a proveniência foi baixada separadamente.",
+            "Impressão solicitada. Escolha onde salvar o PDF no diálogo; a proveniência foi exportada separadamente.",
             "success",
           );
           return;
         }
 
         const exported = buildFinalContentExport(exportInput, format);
-        downloadExportArtifact(exported.content, ownerDocument);
-        downloadExportArtifact(exported.provenance, ownerDocument);
+        await downloadExportArtifact(exported.content, ownerDocument);
+        await downloadExportArtifact(exported.provenance, ownerDocument);
         showNotification(
           `${format === "html" ? "HTML MainSite" : "Markdown"} e proveniência exportados separadamente.`,
           "success",

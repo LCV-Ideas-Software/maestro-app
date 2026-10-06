@@ -252,11 +252,10 @@ fn resume_editorial_session_blocking(
     let override_protocol = request
         .protocol_text
         .as_deref()
-        .map(str::trim)
-        .filter(|value| value.len() >= 100)
+        .filter(|value| value.trim().len() >= 100)
         .map(str::to_string);
     let using_protocol_override = override_protocol.is_some();
-    let protocol_text = override_protocol.unwrap_or_else(|| saved_protocol.trim().to_string());
+    let protocol_text = override_protocol.unwrap_or_else(|| saved_protocol.clone());
     let protocol_name = if using_protocol_override {
         request
             .protocol_name
@@ -274,17 +273,16 @@ fn resume_editorial_session_blocking(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| stable_text_fingerprint(&protocol_text));
 
-    let protocol_backup_path =
-        if using_protocol_override && saved_protocol.trim() != protocol_text.trim() {
-            let backup_path = session_dir.join(format!(
-                "protocolo-anterior-{}.md",
-                Utc::now().format("%Y%m%dT%H%M%SZ")
-            ));
-            write_text_file(&backup_path, &saved_protocol)?;
-            Some(backup_path)
-        } else {
-            None
-        };
+    let protocol_backup_path = if using_protocol_override && saved_protocol != protocol_text {
+        let backup_path = session_dir.join(format!(
+            "protocolo-anterior-{}.md",
+            Utc::now().format("%Y%m%dT%H%M%SZ")
+        ));
+        write_text_file(&backup_path, &saved_protocol)?;
+        Some(backup_path)
+    } else {
+        None
+    };
 
     let agent_dir = checked_data_child_path(&session_dir.join("agent-runs"))?;
     fs::create_dir_all(&agent_dir)

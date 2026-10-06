@@ -62,9 +62,14 @@ use crate::link_integrity::{
     LINK_INTEGRITY_MAX_OCCURRENCES,
 };
 use crate::logging::{write_log_record, LogEventInput, LogSession};
+use crate::protocol_ack::{
+    build_protocol_ack_prompt, protocol_ack_attempt_path, record_protocol_acknowledgement,
+    ProtocolAckSource,
+};
 use crate::provider_config::{
     api_provider_for_agent, provider_cost_rates_from_config, should_run_agent_via_api,
 };
+use crate::provider_runners::EditorialAgentRequest;
 use crate::session_artifacts::{
     circular_draft_sha256, parse_agent_artifact_name, write_circular_review_state,
     CircularReviewState, CIRCULAR_REVIEW_ROSTER_SCHEMA_VERSION,
@@ -106,6 +111,49 @@ pub(crate) fn run_editorial_session_core(
     resume_state: Option<ResumeSessionState>,
     cancel_token: &tokio_util::sync::CancellationToken,
 ) -> Result<EditorialSessionResult, String> {
+    let ai_provider_config =
+        read_ai_provider_config().unwrap_or_else(|_| AiProviderConfig::default());
+    run_editorial_session_core_with_runner(
+        request,
+        log_session,
+        resume_state,
+        cancel_token,
+        &ai_provider_config,
+        &mut |spec, invocation, use_api_agent, cancellation| {
+            run_editorial_agent_for_spec(
+                invocation.log_session,
+                invocation.run_id,
+                spec,
+                invocation.role,
+                invocation.prompt,
+                invocation.attachments,
+                invocation.output_path,
+                invocation.timeout,
+                invocation.config,
+                invocation.cost_guard,
+                use_api_agent,
+                cancellation,
+            )
+        },
+    )
+}
+
+fn run_editorial_session_core_with_runner<F>(
+    request: &EditorialSessionRequest,
+    log_session: &LogSession,
+    resume_state: Option<ResumeSessionState>,
+    cancel_token: &tokio_util::sync::CancellationToken,
+    ai_provider_config: &AiProviderConfig,
+    runner: &mut F,
+) -> Result<EditorialSessionResult, String>
+where
+    F: FnMut(
+        crate::EditorialAgentSpec,
+        EditorialAgentRequest<'_>,
+        bool,
+        &tokio_util::sync::CancellationToken,
+    ) -> EditorialAgentResult,
+{
     let run_id = sanitize_path_segment(&request.run_id, 120);
     if run_id.is_empty() {
         return Err("run_id vazio".to_string());
@@ -194,12 +242,10 @@ pub(crate) fn run_editorial_session_core(
                 .filter(|value| !value.trim().is_empty())
         })
         .unwrap_or_else(|| draft_lead_key.to_string());
-    let ai_provider_config =
-        read_ai_provider_config().unwrap_or_else(|_| AiProviderConfig::default());
     let mut cost_ledger = load_cost_ledger(&session_dir, &run_id, &cost_scope_id);
     let api_agent_keys = active_agent_keys
         .iter()
-        .filter(|key| should_run_agent_via_api(key, &ai_provider_config))
+        .filter(|key| should_run_agent_via_api(key, ai_provider_config))
         .cloned()
         .collect::<BTreeSet<_>>();
     if !api_agent_keys.is_empty() && max_session_cost_usd.is_none() {
@@ -263,7 +309,7 @@ pub(crate) fn run_editorial_session_core(
     }
     let mut provider_cost_rates = BTreeMap::new();
     for agent_key in &api_agent_keys {
-        match provider_cost_rates_from_config(agent_key, &ai_provider_config) {
+        match provider_cost_rates_from_config(agent_key, ai_provider_config) {
             Ok(rates) => {
                 provider_cost_rates.insert(agent_key.clone(), rates);
             }
@@ -494,6 +540,104 @@ pub(crate) fn run_editorial_session_core(
         );
     }
 
+    let protocol_ack_source = ProtocolAckSource::from_request(request);
+    for spec in selected_editorial_agent_specs(draft_lead_key, &active_agent_keys) {
+        let stop_status = if cancel_token.is_cancelled() {
+            Some("STOPPED_BY_USER")
+        } else if session_time_exhausted(time_budget_anchor, max_session_minutes) {
+            Some("TIME_LIMIT_REACHED")
+        } else {
+            None
+        };
+        let mut pause_status = stop_status;
+        if pause_status.is_none() {
+            let output_path = protocol_ack_attempt_path(&session_dir, &cost_scope_id, spec.key)?;
+            let use_api_agent = api_agent_keys.contains(spec.key);
+            let cost_guard = if use_api_agent {
+                provider_cost_guard_for(
+                    max_session_cost_usd,
+                    provider_cost_rates.get(spec.key).copied(),
+                    &cost_ledger,
+                )
+            } else {
+                None
+            };
+            let mut result = runner(
+                spec,
+                EditorialAgentRequest {
+                    log_session,
+                    run_id: &run_id,
+                    role: "protocol_ack",
+                    prompt: build_protocol_ack_prompt(request, &protocol_ack_source),
+                    attachments: &[],
+                    output_path: &output_path,
+                    timeout: remaining_session_duration(time_budget_anchor, max_session_minutes),
+                    config: ai_provider_config,
+                    cost_guard,
+                },
+                use_api_agent,
+                cancel_token,
+            );
+            append_agent_cost_to_ledger(&session_dir, &mut cost_ledger, &cost_scope_id, &result)?;
+            let admitted = record_protocol_acknowledgement(
+                request,
+                &protocol_ack_source,
+                &cost_scope_id,
+                spec.key,
+                &mut result,
+            )?;
+            let _ = write_log_record(log_session, LogEventInput {
+                level: if admitted { "info" } else { "warn" }.to_string(),
+                category: "session.protocol_ack.finished".to_string(),
+                message: "declared protocol coverage validated; this is not cognitive proof or an editorial vote".to_string(),
+                    context: Some(json!({ "run_id": &run_id, "agent": spec.name, "agent_key": spec.key, "role": "protocol_ack", "status": &result.status, "tone": &result.tone, "admitted": admitted, "protocol_sha256": &protocol_ack_source.protocol_hash, "line_count_expected": protocol_ack_source.line_count_expected, "output_path": &result.output_path })),
+            });
+            pause_status = if cancel_token.is_cancelled() {
+                Some("STOPPED_BY_USER")
+            } else if session_time_exhausted(time_budget_anchor, max_session_minutes) {
+                Some("TIME_LIMIT_REACHED")
+            } else if !admitted {
+                Some(if result.status == "COST_LIMIT_REACHED" {
+                    "COST_LIMIT_REACHED"
+                } else {
+                    "PAUSED_PROTOCOL_ACK_REQUIRED"
+                })
+            } else {
+                None
+            };
+            agents.push(result);
+        }
+        if let Some(status) = pause_status {
+            let minutes_path = session_dir.join("ata-da-sessao.md");
+            write_text_file(
+                &minutes_path,
+                &build_session_minutes(request, &run_id, &agents, false, None),
+            )?;
+            let context = SessionResultContext {
+                run_id: &run_id,
+                session_dir: &session_dir,
+                prompt_path: &prompt_path,
+                protocol_path: &protocol_path,
+                active_agents: &active_agent_keys,
+                max_session_cost_usd,
+                max_session_minutes,
+                observed_cost_usd: cost_ledger.total_observed_cost_usd,
+                links_path: evidence.links_path.as_ref(),
+                attachments_manifest_path: evidence.attachments_manifest_path.as_ref(),
+                human_log_path: &human_log_path,
+            };
+            return Ok(editorial_session_result(
+                &context,
+                None,
+                &minutes_path,
+                current_draft_path,
+                agents,
+                false,
+                status,
+            ));
+        }
+    }
+
     if current_draft.trim().is_empty() {
         let draft_specs = selected_editorial_agent_specs(draft_lead_key, &active_agent_keys);
 
@@ -539,17 +683,19 @@ pub(crate) fn run_editorial_session_core(
             } else {
                 None
             };
-            let draft_run = run_editorial_agent_for_spec(
-                log_session,
-                &run_id,
+            let draft_run = runner(
                 spec,
-                "draft",
-                build_draft_prompt(request, &run_id, &evidence.block),
-                &evidence.attachments,
-                &output_path,
-                timeout,
-                &ai_provider_config,
-                cost_guard,
+                EditorialAgentRequest {
+                    log_session,
+                    run_id: &run_id,
+                    role: "draft",
+                    prompt: build_draft_prompt(request, &run_id, &evidence.block),
+                    attachments: &evidence.attachments,
+                    output_path: &output_path,
+                    timeout,
+                    config: ai_provider_config,
+                    cost_guard,
+                },
                 use_api_agent,
                 cancel_token,
             );
@@ -1524,17 +1670,19 @@ pub(crate) fn run_editorial_session_core(
         } else {
             None
         };
-        let mut result = run_editorial_agent_for_spec(
-            log_session,
-            &run_id,
+        let mut result = runner(
             spec,
-            "review",
-            review_prompt,
-            &evidence.attachments,
-            &output_path,
-            timeout,
-            &ai_provider_config,
-            cost_guard,
+            EditorialAgentRequest {
+                log_session,
+                run_id: &run_id,
+                role: "review",
+                prompt: review_prompt,
+                attachments: &evidence.attachments,
+                output_path: &output_path,
+                timeout,
+                config: ai_provider_config,
+                cost_guard,
+            },
             use_api_agent,
             cancel_token,
         );
@@ -3517,6 +3665,503 @@ fn agent_attempt_output_path(agent_dir: &Path, round: usize, agent: &str, role: 
     agent_dir.join(format!(
         "round-{round:03}-{agent}-{role}-attempt-{fallback_attempt}.md"
     ))
+}
+
+#[cfg(test)]
+mod protocol_ack_integration_tests {
+    use super::*;
+    use crate::protocol_ack::{ProtocolAcknowledgement, ProtocolLineRange};
+    use crate::session_artifacts::load_resume_session_state;
+    use std::sync::{Arc, Mutex};
+
+    fn fixture(label: &str) -> (EditorialSessionRequest, LogSession, AiProviderConfig) {
+        let run_id = format!("ack-{label}-{}", Utc::now().timestamp_nanos_opt().unwrap());
+        let protocol_text = format!(
+            "\r\n# Protocolo de teste\r\n{}\r\n",
+            (1..=260)
+                .map(|line| format!(
+                    "Regra {line}: preserve evidencias e a autoria independente.\r\n"
+                ))
+                .collect::<String>()
+        );
+        let request = EditorialSessionRequest {
+            run_id: run_id.clone(),
+            session_name: "Declaracao de cobertura".to_string(),
+            prompt: "Escreva um artigo com o protocolo fornecido.".to_string(),
+            protocol_name: "protocolo-completo.md".to_string(),
+            protocol_hash: "fnv64-legacy-identity".to_string(),
+            protocol_text,
+            initial_agent: Some("claude".to_string()),
+            active_agents: Some(crate::session_controls::all_agent_keys()),
+            max_session_cost_usd: Some(50.0),
+            max_session_minutes: Some(5),
+            attachments: None,
+            links: None,
+        };
+        let log = LogSession {
+            id: format!("log-{run_id}"),
+            path: crate::app_paths::logs_dir().join(format!("{run_id}.ndjson")),
+            write_lock: Arc::new(Mutex::new(())),
+            event_emitter: None,
+        };
+        let config = AiProviderConfig {
+            provider_mode: "api".to_string(),
+            openai_input_usd_per_million: Some(1.0),
+            openai_output_usd_per_million: Some(1.0),
+            anthropic_input_usd_per_million: Some(1.0),
+            anthropic_output_usd_per_million: Some(1.0),
+            gemini_input_usd_per_million: Some(1.0),
+            gemini_output_usd_per_million: Some(1.0),
+            deepseek_input_usd_per_million: Some(1.0),
+            deepseek_output_usd_per_million: Some(1.0),
+            grok_input_usd_per_million: Some(1.0),
+            grok_output_usd_per_million: Some(1.0),
+            perplexity_input_usd_per_million: Some(1.0),
+            perplexity_output_usd_per_million: Some(1.0),
+            ..AiProviderConfig::default()
+        };
+        (request, log, config)
+    }
+
+    fn acknowledgement(source: &ProtocolAckSource) -> ProtocolAcknowledgement {
+        ProtocolAcknowledgement {
+            protocol_name: source.protocol_name.clone(),
+            protocol_hash: source.protocol_hash.clone(),
+            line_count_expected: source.line_count_expected,
+            line_count_acknowledged: source.line_count_expected,
+            read_mode: "full_line_by_line".to_string(),
+            acknowledged_sections: source.sections.clone(),
+            missing_ranges: vec![],
+            status: "ACKNOWLEDGED".to_string(),
+        }
+    }
+
+    fn native_mock_result(
+        spec: crate::EditorialAgentSpec,
+        invocation: &EditorialAgentRequest<'_>,
+        stdout: &str,
+        status: &str,
+        tone: &str,
+        cost: Option<f64>,
+    ) -> EditorialAgentResult {
+        write_text_file(invocation.output_path, &format!("# {} - {}\n\n- CLI: `{}-api`\n- Status: `{status}`\n- Tone: `{tone}`\n- Exit code: `0`\n- Stdout chars: `{}`\n- Stderr chars: `0`\n\n## Stdout\n\n```text\n{stdout}\n```\n\n## Stderr\n\n```text\n\n```\n", spec.name, invocation.role, spec.key, stdout.chars().count())).unwrap();
+        EditorialAgentResult {
+            name: spec.name.to_string(),
+            role: invocation.role.to_string(),
+            cli: format!("{}-api", spec.key),
+            tone: tone.to_string(),
+            status: status.to_string(),
+            duration_ms: 1,
+            exit_code: Some(0),
+            output_path: invocation.output_path.to_string_lossy().to_string(),
+            usage_input_tokens: Some(100),
+            usage_output_tokens: Some(20),
+            cost_usd: cost,
+            cost_estimated: Some(false),
+            cache: None,
+        }
+    }
+
+    #[test]
+    fn protocol_ack_real_start_gates_all_six_peers_and_counts_cost_before_drafting() {
+        let (request, log, config) = fixture("start-all-six");
+        let source = ProtocolAckSource::from_request(&request);
+        let mut calls = Vec::new();
+        let result = run_editorial_session_core_with_runner(
+            &request,
+            &log,
+            None,
+            &tokio_util::sync::CancellationToken::new(),
+            &config,
+            &mut |spec, invocation, use_api, _| {
+                assert!(use_api);
+                assert!(invocation.timeout.is_some());
+                let guard = invocation.cost_guard.as_ref().unwrap();
+                assert_eq!(guard.max_session_cost_usd, Some(50.0));
+                if invocation.role == "protocol_ack" {
+                    assert_eq!(
+                        calls.len(),
+                        calls
+                            .iter()
+                            .filter(|(_, role)| *role == "protocol_ack")
+                            .count()
+                    );
+                    assert!((guard.observed_cost_usd - calls.len() as f64 * 0.01).abs() < 1e-8);
+                    assert!(invocation.prompt.ends_with(&request.protocol_text));
+                    assert!(invocation.prompt.contains(&source.protocol_hash));
+                    assert!(invocation.attachments.is_empty());
+                    calls.push((spec.key, "protocol_ack"));
+                    native_mock_result(
+                        spec,
+                        &invocation,
+                        &serde_json::to_string(&acknowledgement(&source)).unwrap(),
+                        "DRAFT_CREATED",
+                        "ok",
+                        Some(0.01),
+                    )
+                } else {
+                    assert_eq!(calls.len(), 6);
+                    assert_eq!(invocation.role, "draft");
+                    calls.push((spec.key, "draft"));
+                    native_mock_result(
+                        spec,
+                        &invocation,
+                        "No editorial output; controlled cost stop.",
+                        "COST_LIMIT_REACHED",
+                        "blocked",
+                        None,
+                    )
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|(_, role)| *role == "protocol_ack")
+                .map(|(agent, _)| *agent)
+                .collect::<BTreeSet<_>>(),
+            crate::session_controls::all_agent_keys()
+                .iter()
+                .map(String::as_str)
+                .collect()
+        );
+        assert_eq!(result.status, "COST_LIMIT_REACHED");
+        assert!(!result.consensus_ready && result.final_markdown_path.is_none());
+        assert!((result.observed_cost_usd.unwrap() - 0.06).abs() < 1e-8);
+        let minutes =
+            crate::editorial_io::read_text_file(Path::new(&result.session_minutes_path)).unwrap();
+        assert_eq!(minutes.matches("\"admitted\": true").count(), 6);
+        assert!(
+            minutes.contains("line_count_acknowledged")
+                && minutes.contains("missing_ranges")
+                && minutes.contains("Nao comprova cognicao")
+        );
+        assert_eq!(
+            crate::editorial_io::read_text_file(Path::new(&result.protocol_path)).unwrap(),
+            request.protocol_text
+        );
+        assert_eq!(request.protocol_hash, "fnv64-legacy-identity");
+        assert!(result
+            .agents
+            .iter()
+            .take(6)
+            .all(|agent| agent.status == "PROTOCOL_ACKNOWLEDGED" && agent.role == "protocol_ack"));
+    }
+
+    #[test]
+    fn protocol_ack_real_start_rejects_each_selected_peer_and_never_enters_a_round() {
+        for (target, defect) in crate::session_controls::all_agent_keys().iter().zip(0..6) {
+            let (request, log, config) = fixture(target);
+            let source = ProtocolAckSource::from_request(&request);
+            let mut calls = Vec::new();
+            let result = run_editorial_session_core_with_runner(
+                &request,
+                &log,
+                None,
+                &tokio_util::sync::CancellationToken::new(),
+                &config,
+                &mut |spec, invocation, _, _| {
+                    assert_eq!(invocation.role, "protocol_ack");
+                    calls.push(spec.key.to_string());
+                    let mut ack = acknowledgement(&source);
+                    if spec.key == target {
+                        match defect {
+                            0 => ack.protocol_name.push_str("-wrong"),
+                            1 => ack.protocol_hash = "0".repeat(64),
+                            2 => ack.line_count_acknowledged -= 1,
+                            3 => {
+                                ack.acknowledged_sections.pop();
+                            }
+                            4 => ack.missing_ranges.push(ProtocolLineRange {
+                                start_line: 2,
+                                end_line: 3,
+                            }),
+                            _ => {
+                                ack.read_mode = "partial".to_string();
+                                ack.status = "INCOMPLETE".to_string();
+                            }
+                        }
+                    }
+                    native_mock_result(
+                        spec,
+                        &invocation,
+                        &serde_json::to_string(&ack).unwrap(),
+                        "DRAFT_CREATED",
+                        "ok",
+                        Some(0.01),
+                    )
+                },
+            )
+            .unwrap();
+            assert_eq!(calls.last(), Some(target));
+            assert_eq!(result.status, "PAUSED_PROTOCOL_ACK_REQUIRED");
+            assert!(
+                !result.consensus_ready
+                    && result.final_markdown_path.is_none()
+                    && result.draft_path.is_none()
+            );
+            assert_eq!(result.agents.last().unwrap().status, "PROTOCOL_ACK_INVALID");
+            assert!(
+                crate::editorial_io::read_text_file(Path::new(&result.session_minutes_path))
+                    .unwrap()
+                    .contains("\"admitted\": false")
+            );
+            let resume =
+                load_resume_session_state(&PathBuf::from(&result.session_dir).join("agent-runs"))
+                    .unwrap();
+            assert!(resume.current_draft.is_empty() && resume.existing_agents.is_empty());
+        }
+    }
+
+    #[test]
+    fn protocol_ack_real_resume_requires_fresh_ack_and_rejects_old_hash_after_protocol_change() {
+        let (mut request, log, config) = fixture("resume-source-change");
+        request.active_agents = Some(vec!["claude".to_string(), "codex".to_string()]);
+        let old_source = ProtocolAckSource::from_request(&request);
+        let first_cancel = tokio_util::sync::CancellationToken::new();
+        let first = run_editorial_session_core_with_runner(&request, &log, None, &first_cancel, &config, &mut |spec, invocation, _, cancellation| {
+            if invocation.role == "protocol_ack" {
+                native_mock_result(spec, &invocation, &serde_json::to_string(&acknowledgement(&old_source)).unwrap(), "DRAFT_CREATED", "ok", Some(0.01))
+            } else {
+                assert_eq!(invocation.role, "draft");
+                cancellation.cancel();
+                native_mock_result(spec, &invocation, "Texto de trabalho preservado para a retomada.\n\nEste conteudo possui autoria identificavel e nao constitui entrega final nem pode ser aprovado pelo proprio autor.", "DRAFT_CREATED", "ok", Some(0.01))
+            }
+        }).unwrap();
+        assert!(first.draft_path.is_some() && first.final_markdown_path.is_none());
+        let agent_dir = PathBuf::from(&first.session_dir).join("agent-runs");
+        let saved_state = load_resume_session_state(&agent_dir).unwrap();
+        assert!(!saved_state.current_draft.is_empty());
+        let mut same_calls = 0;
+        let same = run_editorial_session_core_with_runner(
+            &request,
+            &log,
+            Some(saved_state),
+            &tokio_util::sync::CancellationToken::new(),
+            &config,
+            &mut |spec, invocation, _, _| {
+                assert_eq!(invocation.role, "protocol_ack");
+                same_calls += 1;
+                native_mock_result(
+                    spec,
+                    &invocation,
+                    "Unavailable; previous acknowledgement cannot admit this invocation.",
+                    "PROVIDER_INCOMPLETE_RESPONSE",
+                    "error",
+                    None,
+                )
+            },
+        )
+        .unwrap();
+        assert_eq!(same_calls, 1);
+        assert_eq!(same.status, "PAUSED_PROTOCOL_ACK_REQUIRED");
+        assert_eq!(
+            same.agents.last().unwrap().status,
+            "PROVIDER_INCOMPLETE_RESPONSE"
+        );
+        request
+            .protocol_text
+            .push_str("Nova regra com identidade diferente.\r\n");
+        request.protocol_name = "protocolo-atualizado.md".to_string();
+        let changed_source = ProtocolAckSource::from_request(&request);
+        assert_ne!(changed_source.protocol_hash, old_source.protocol_hash);
+        let mut changed_calls = 0;
+        let changed = run_editorial_session_core_with_runner(
+            &request,
+            &log,
+            Some(load_resume_session_state(&agent_dir).unwrap()),
+            &tokio_util::sync::CancellationToken::new(),
+            &config,
+            &mut |spec, invocation, _, _| {
+                assert_eq!(invocation.role, "protocol_ack");
+                changed_calls += 1;
+                assert!(invocation.prompt.ends_with(&request.protocol_text));
+                assert!(invocation.prompt.contains(&changed_source.protocol_hash));
+                native_mock_result(
+                    spec,
+                    &invocation,
+                    &serde_json::to_string(&acknowledgement(&old_source)).unwrap(),
+                    "DRAFT_CREATED",
+                    "ok",
+                    Some(0.01),
+                )
+            },
+        )
+        .unwrap();
+        assert_eq!(changed_calls, 1);
+        assert_eq!(changed.status, "PAUSED_PROTOCOL_ACK_REQUIRED");
+        assert!(changed.draft_path.is_some() && changed.final_markdown_path.is_none());
+        let minutes =
+            crate::editorial_io::read_text_file(Path::new(&changed.session_minutes_path)).unwrap();
+        assert_eq!(minutes.matches("\"schema_version\": 1").count(), 4);
+        assert!(
+            minutes.contains(&old_source.protocol_hash)
+                && minutes.contains(&changed_source.protocol_hash)
+        );
+        assert_eq!(
+            crate::editorial_io::read_text_file(Path::new(&changed.protocol_path)).unwrap(),
+            request.protocol_text
+        );
+
+        let mut fresh_resume_calls = Vec::new();
+        let fresh = run_editorial_session_core_with_runner(
+            &request,
+            &log,
+            Some(load_resume_session_state(&agent_dir).unwrap()),
+            &tokio_util::sync::CancellationToken::new(),
+            &config,
+            &mut |spec, invocation, _, _| {
+                fresh_resume_calls.push(invocation.role.to_string());
+                if invocation.role == "protocol_ack" {
+                    native_mock_result(
+                        spec,
+                        &invocation,
+                        &serde_json::to_string(&acknowledgement(&changed_source)).unwrap(),
+                        "DRAFT_CREATED",
+                        "ok",
+                        Some(0.01),
+                    )
+                } else {
+                    assert_eq!(invocation.role, "review");
+                    assert_ne!(
+                        spec.key, "claude",
+                        "the acknowledged author still cannot self-review"
+                    );
+                    native_mock_result(
+                        spec,
+                        &invocation,
+                        "Controlled budget stop after acknowledged resume.",
+                        "COST_LIMIT_REACHED",
+                        "blocked",
+                        None,
+                    )
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            fresh_resume_calls
+                .iter()
+                .filter(|role| role.as_str() == "protocol_ack")
+                .count(),
+            2
+        );
+        assert!(fresh.final_markdown_path.is_none());
+        assert!(fresh
+            .agents
+            .iter()
+            .filter(|agent| agent.role == "protocol_ack")
+            .all(|agent| agent.status == "PROTOCOL_ACKNOWLEDGED"));
+        assert!(matches!(
+            fresh.status.as_str(),
+            "COST_LIMIT_REACHED" | "PAUSED_LEGACY_RETRY_ACCOUNTING_UNKNOWN"
+        ));
+    }
+
+    #[test]
+    fn protocol_ack_real_phase_honors_cancellation_and_cost_failure() {
+        for cost_stop in [false, true] {
+            let (request, log, config) = fixture("cancel-or-cost");
+            let source = ProtocolAckSource::from_request(&request);
+            let cancel = tokio_util::sync::CancellationToken::new();
+            let mut calls = 0;
+            let result = run_editorial_session_core_with_runner(
+                &request,
+                &log,
+                None,
+                &cancel,
+                &config,
+                &mut |spec, invocation, _, cancellation| {
+                    assert_eq!(invocation.role, "protocol_ack");
+                    calls += 1;
+                    if cost_stop {
+                        native_mock_result(
+                            spec,
+                            &invocation,
+                            "Budget guard denied the invocation.",
+                            "COST_LIMIT_REACHED",
+                            "blocked",
+                            None,
+                        )
+                    } else {
+                        cancellation.cancel();
+                        native_mock_result(
+                            spec,
+                            &invocation,
+                            &serde_json::to_string(&acknowledgement(&source)).unwrap(),
+                            "DRAFT_CREATED",
+                            "ok",
+                            Some(0.01),
+                        )
+                    }
+                },
+            )
+            .unwrap();
+            assert_eq!(calls, 1);
+            assert_eq!(
+                result.status,
+                if cost_stop {
+                    "COST_LIMIT_REACHED"
+                } else {
+                    "STOPPED_BY_USER"
+                }
+            );
+            assert!(result.final_markdown_path.is_none() && result.draft_path.is_none());
+        }
+    }
+
+    #[test]
+    fn protocol_ack_real_phase_stops_before_drafting_if_last_valid_peer_cancels() {
+        let (mut request, log, config) = fixture("last-peer-cancellation");
+        request.active_agents = Some(vec!["claude".to_string(), "codex".to_string()]);
+        let source = ProtocolAckSource::from_request(&request);
+        let cancellation = tokio_util::sync::CancellationToken::new();
+        let mut calls = Vec::new();
+        let result = run_editorial_session_core_with_runner(
+            &request,
+            &log,
+            None,
+            &cancellation,
+            &config,
+            &mut |spec, invocation, _, cancel| {
+                calls.push(invocation.role.to_string());
+                if invocation.role == "protocol_ack" {
+                    if calls.len() == 2 {
+                        cancel.cancel();
+                    }
+                    native_mock_result(
+                        spec,
+                        &invocation,
+                        &serde_json::to_string(&acknowledgement(&source)).unwrap(),
+                        "DRAFT_CREATED",
+                        "ok",
+                        Some(0.01),
+                    )
+                } else {
+                    native_mock_result(
+                        spec,
+                        &invocation,
+                        "No drafting may be dispatched after cancellation.",
+                        "COST_LIMIT_REACHED",
+                        "blocked",
+                        None,
+                    )
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, vec!["protocol_ack", "protocol_ack"]);
+        assert_eq!(result.status, "STOPPED_BY_USER");
+        assert!(result.final_markdown_path.is_none() && result.draft_path.is_none());
+        assert!(result
+            .agents
+            .iter()
+            .all(|agent| agent.status == "PROTOCOL_ACKNOWLEDGED"));
+        let minutes =
+            crate::editorial_io::read_text_file(Path::new(&result.session_minutes_path)).unwrap();
+        assert_eq!(minutes.matches("\"admitted\": true").count(), 2);
+    }
 }
 
 #[cfg(test)]

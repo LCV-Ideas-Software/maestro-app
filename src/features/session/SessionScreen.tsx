@@ -452,10 +452,14 @@ export function SessionScreen({
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Regra obrigatoria</p>
-              <h2>Leitura integral</h2>
+              <h2>Reconhecimento do protocolo</h2>
             </div>
             <ShieldCheck size={20} />
           </div>
+          <p>
+            Todos os peers devem declarar cobertura integral. A declaracao nao comprova cognicao de
+            cada linha.
+          </p>
           <div className="reading-list">
             {protocolGateItems.map((gate) => (
               <div className="reading-row" key={gate.agent}>
