@@ -506,10 +506,10 @@ fn actions_for_inventory(dependencies: &mut [RuntimeDependency]) -> Vec<RuntimeB
                 "agy",
                 BootstrapActionKind::Manual,
                 "Instalar o Antigravity CLI",
-                "Abra as instruções oficiais e execute manualmente o instalador do fornecedor após revisá-lo.",
-                "https://www.antigravity.google/docs/cli/install/#windows",
-                Some("irm https://antigravity.google/cli/install.ps1 | iex"),
-                BootstrapOperation::InstallAgyManual,
+            "Abra as instruções oficiais e execute manualmente o instalador do fornecedor após revisá-lo.",
+            "https://www.antigravity.google/docs/cli/install/#windows",
+            None,
+            BootstrapOperation::InstallAgyManual,
             )],
             ("node", DependencyState::Missing | DependencyState::Outdated) => {
                 let kind = if dependency.state == DependencyState::Missing {
@@ -2011,6 +2011,67 @@ mod tests {
             manual_handoff_url(&BootstrapOperation::InstallAgyManual),
             Some("https://www.antigravity.google/docs/cli/install/#windows")
         );
+    }
+
+    #[test]
+    fn missing_agy_manual_handoff_has_truthful_confirmation_metadata() {
+        let now = DateTime::parse_from_rfc3339("2026-08-21T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut dependency = simple_dependency(
+            "agy",
+            "Antigravity CLI",
+            true,
+            DependencyState::Missing,
+            "missing",
+        );
+        let actions = actions_for_inventory(std::slice::from_mut(&mut dependency));
+        assert_eq!(actions.len(), 1);
+        assert_eq!(
+            dependency.recommended_action_ids,
+            ["install.agy.vendor.manual"]
+        );
+        let mut plan = test_plan(now);
+        plan.dependencies = vec![dependency];
+        plan.actions = actions;
+        plan.plan_hash = compute_plan_hash(&plan).unwrap();
+
+        assert!(validate_action_request(
+            &plan,
+            "install.agy.vendor.manual",
+            &plan.plan_hash,
+            false,
+            now,
+        )
+        .unwrap_err()
+        .contains("approval"));
+        let approved = validate_action_request(
+            &plan,
+            "install.agy.vendor.manual",
+            &plan.plan_hash,
+            true,
+            now,
+        )
+        .unwrap();
+        assert_eq!(approved.kind, BootstrapActionKind::Manual);
+        assert_eq!(approved.operation, BootstrapOperation::InstallAgyManual);
+        assert_eq!(approved.command_preview, None);
+        assert_eq!(
+            manual_handoff_url(&approved.operation),
+            Some(approved.source.as_str())
+        );
+        assert_eq!(approved.install_scope, "manual_operator_handoff");
+        assert!(approved.requires_interaction);
+        assert!(!approved.requires_elevation);
+        assert!(fixed_command_spec(&approved.operation, Path::new("fixture-prefix")).is_none());
+
+        let confirmation = serde_json::to_value(approved).unwrap();
+        assert_eq!(confirmation["command_preview"], serde_json::Value::Null);
+        assert_eq!(
+            confirmation["source"],
+            "https://www.antigravity.google/docs/cli/install/#windows"
+        );
+        assert_eq!(confirmation["operation"], "install_agy_manual");
     }
 
     #[test]

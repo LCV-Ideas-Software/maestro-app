@@ -1004,7 +1004,7 @@ export default function PostEditor({
   );
 
   const handleFinalContentExport = useCallback(
-    (format: FinalContentExportFormat | "pdf") => {
+    async (format: FinalContentExportFormat | "pdf") => {
       if (!editor) return;
       const ownerDocument = editor.view.dom.ownerDocument;
       const ownerWindow = ownerDocument.defaultView ?? window;
@@ -1018,7 +1018,7 @@ export default function PostEditor({
 
       try {
         if (format === "pdf") {
-          openFinalContentPrintDialog(exportInput, ownerWindow);
+          await openFinalContentPrintDialog(exportInput, ownerWindow);
           downloadExportArtifact(buildPdfProvenanceExport(exportInput), ownerDocument);
           showNotification(
             "Impressão solicitada. Selecione “Salvar como PDF” no diálogo; a proveniência foi baixada separadamente.",

@@ -25,6 +25,7 @@ export type FinalContentExport = {
 
 const WINDOWS_RESERVED_FILENAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 const PRINT_ROOT_ID = "maestro-final-content-print";
+const PRINT_MEDIA_TIMEOUT_MS = 30_000;
 const activePrintRequests = new WeakMap<Window, { cleanup: () => void; inCall: boolean }>();
 
 function plainText(value: unknown, maxLength: number): string {
@@ -355,10 +356,97 @@ export function downloadExportArtifact(
   queueMicrotask(() => URL.revokeObjectURL(url));
 }
 
-export function openFinalContentPrintDialog(
+function preparePrintMedia(projection: HTMLElement, ownerWindow: Window) {
+  const media = [
+    ...projection.querySelectorAll<HTMLImageElement | HTMLIFrameElement>("img, iframe"),
+  ];
+  let resolveReady: () => void;
+  let rejectReady: (error: Error) => void;
+  const ready = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  const removeListeners: (() => void)[] = [];
+  const checkCachedImages: (() => void)[] = [];
+  let remaining = media.length;
+  let finished = false;
+  let timer: number | undefined;
+  const finish = (error?: Error) => {
+    if (finished) return;
+    finished = true;
+    for (const remove of removeListeners) remove();
+    if (timer !== undefined) ownerWindow.clearTimeout(timer);
+    if (error) rejectReady(error);
+    else resolveReady();
+  };
+  const settled = () => {
+    if (finished) return;
+    remaining -= 1;
+    if (remaining === 0) finish();
+  };
+  for (const element of media) {
+    // The projection stays hidden on screen. Native eager loading avoids
+    // lazy resources waiting for a viewport that only exists during print.
+    element.loading = "eager";
+    let handled = false;
+    const remove = () => {
+      element.removeEventListener("load", loaded);
+      element.removeEventListener("error", failed);
+    };
+    const failed = () => {
+      if (handled) return;
+      handled = true;
+      remove();
+      settled();
+    };
+    const loaded = () => {
+      if (handled) return;
+      handled = true;
+      remove();
+      if (element.tagName === "IMG" && typeof (element as HTMLImageElement).decode === "function") {
+        try {
+          (element as HTMLImageElement).decode().then(settled, settled);
+        } catch {
+          settled();
+        }
+      } else {
+        settled();
+      }
+    };
+    removeListeners.push(remove);
+    element.addEventListener("load", loaded);
+    element.addEventListener("error", failed);
+    if (element.tagName === "IMG") {
+      checkCachedImages.push(() => {
+        if ((element as HTMLImageElement).complete) loaded();
+      });
+    }
+  }
+  if (remaining === 0) finish();
+  else {
+    timer = ownerWindow.setTimeout(
+      () =>
+        finish(
+          new Error(
+            "As mídias não terminaram de carregar. Verifique a conexão e tente exportar o PDF novamente.",
+          ),
+        ),
+      PRINT_MEDIA_TIMEOUT_MS,
+    );
+  }
+  return {
+    ready,
+    checkCachedImages: () => {
+      for (const check of checkCachedImages) check();
+    },
+    cancel: () => finish(new Error("A preparação da impressão foi cancelada.")),
+  };
+}
+
+export async function openFinalContentPrintDialog(
   input: FinalContentExportInput,
   ownerWindow: Window = window,
-): void {
+): Promise<void> {
   const previous = activePrintRequests.get(ownerWindow);
   if (previous?.inCall) {
     throw new Error("Uma solicitação de impressão já está em andamento.");
@@ -389,12 +477,14 @@ export function openFinalContentPrintDialog(
     ${printDocumentStyles(`#${PRINT_ROOT_ID}`)}
   `;
   const originalTitle = ownerDocument.title;
+  let mediaPreparation: ReturnType<typeof preparePrintMedia> | undefined;
   let cleaned = false;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
     ownerWindow.removeEventListener("afterprint", cleanup);
     ownerWindow.removeEventListener("pagehide", cleanup);
+    mediaPreparation?.cancel();
     projection.remove();
     style.remove();
     ownerDocument.title = originalTitle;
@@ -406,8 +496,15 @@ export function openFinalContentPrintDialog(
     ownerWindow.addEventListener("afterprint", cleanup, { once: true });
     ownerWindow.addEventListener("pagehide", cleanup, { once: true });
     ownerDocument.head.append(style);
+    // Subscribe before insertion so even an immediately loaded frame is observed.
+    mediaPreparation = preparePrintMedia(projection, ownerWindow);
     ownerDocument.body.append(projection);
     ownerDocument.title = printable.title;
+    mediaPreparation.checkCachedImages();
+    await mediaPreparation.ready;
+    if (cleaned || activePrintRequests.get(ownerWindow) !== request) {
+      throw new Error("A preparação da impressão foi cancelada.");
+    }
     // WebView2 does not create browser popups by default. Print its existing
     // top-level document; print media exposes only the sanitized article.
     ownerWindow.print();

@@ -25,7 +25,7 @@
     "mainsite-worker/src/lib/sanitize.ts": "b4286d4c2009ba43390f268d51302df99f18cb2cb814e460c4a087306aca685f"
   },
   "maestro_files": {
-    "src/editor/posteditor/PostEditor.tsx": "de18e80851dda11049becd326036c422ced5bd4e75c06210c5debcae16f755fb",
+    "src/editor/posteditor/PostEditor.tsx": "fa14fbeca83152c9b6ad1f4cf3c02ae151c7785853c3e6f194f6a00d343a9ea6",
     "src/editor/posteditor/README.md": "f4aad251197d43605b076f47b0b45d909c47bf060674a8844cd8eaebcf1ad4ad",
     "src/editor/posteditor/editor/BubbleMenu.tsx": "25dfeb6531f1ebaa6e95122e751aec0240ca19f279384323cb9a02b2ebe08b5d",
     "src/editor/posteditor/editor/extensions.ts": "a0321cd72bc753e554aaf797a6aac4af57b4a4de25a6c231c4199c0fb54e88ff",
@@ -41,7 +41,7 @@
     "src/editor/posteditor/editor/sanitizeFinalHtml.ts": "a346780ebf1adb7f4c03608c867af1ffa7325c5545f250203281499827c53f15",
     "src/editor/posteditor/editor/finalHtmlFixtures.ts": "6700eac7871a1febe04fe9657ae05bac4351a11f49a051f679718ba976977670",
     "src/editor/posteditor/editor/sharedChatImport.ts": "da2111247dbb9fe1b007fbdd6bf899272fcda6faae0d12a53aefed699279a024",
-    "src/editor/posteditor/editor/exportFinalContent.ts": "e89d0befb7ae1702b9a405dfe80d3c3b7dd0c3ee4abd81fe63d16c511b472947",
+    "src/editor/posteditor/editor/exportFinalContent.ts": "4fcadbedf17bf2af7b7a31777f94244e8c8104b0071ac045b84e1121a768aa70",
     "src/editor/posteditor/editor/editorOperation.ts": "cb939fd6592da9bf82d3374d9dc84986b3073f9425b678f7dffe82a3418757ae"
   },
   "intentional_divergences": [
@@ -56,6 +56,7 @@
     "Desktop AI transformation and image upload require explicit native capability callbacks; unavailable callbacks expose disabled controls instead of relative admin HTTP requests.",
     "Formatting and media buttons support native keyboard clicks while preserving editor selection on pointer presses.",
     "The lazy desktop screen uses native deferred TipTap creation after React commit; the extension set and persisted HTML contract are unchanged.",
-    "PDF requests use the existing WebView native print dialog with an article-only print-media projection; popup permissions and CSP stay unchanged, and provenance stays separate."
+    "PDF requests use the existing WebView native print dialog with an article-only print-media projection; popup permissions and CSP stay unchanged, and provenance stays separate.",
+    "Desktop PDF printing waits for eagerly loaded projected media and image decoding with a bounded deadline; asynchronous errors and cancellation are handled before printing or downloading provenance."
   ]
 }

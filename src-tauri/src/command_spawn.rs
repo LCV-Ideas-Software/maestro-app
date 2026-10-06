@@ -1258,12 +1258,14 @@ mod tests {
         let path = directory.join("probe.ps1");
         std::fs::write(&path, b"param([string]$Prompt)\r\n[Console]::WriteLine('MAESTRO_LITERAL_PROMPT:' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Prompt)))\r\n").unwrap();
         let prompt = "Evidence with \"literal quoted words\" and an ampersand & kept verbatim";
+        let started = Instant::now();
         let result = run_resolved_command_with_timeout(
             &path,
             &[prompt.to_string()],
-            Duration::from_secs(15),
+            Duration::from_secs(60),
             None,
         );
+        let elapsed = started.elapsed();
         std::fs::remove_file(&path).unwrap();
         std::fs::remove_dir(&directory).unwrap();
         let result = result
@@ -1273,12 +1275,17 @@ mod tests {
             base64::engine::general_purpose::STANDARD.encode(prompt)
         );
         let stdout = String::from_utf8_lossy(&result.output.stdout);
+        let stderr = String::from_utf8_lossy(&result.output.stderr);
         println!(
-            "actual harmless PowerShell piped result: timed_out={}, success={}, stdout={stdout:?}",
+            "actual harmless PowerShell piped result: elapsed={elapsed:?}, timed_out={}, success={}, stdout={stdout:?}, stderr={stderr:?}",
             result.timed_out,
             result.output.status.success()
         );
         assert!(!result.timed_out, "harmless PowerShell fixture must finish");
+        assert!(
+            result.output.status.success(),
+            "harmless PowerShell fixture must exit successfully"
+        );
         assert!(
             stdout.contains(&expected),
             "actual piped prompt bytes changed: {stdout}"

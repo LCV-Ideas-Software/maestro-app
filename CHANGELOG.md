@@ -10,6 +10,8 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   submitting or resuming; preserve accepted evidence when a local read fails.
 - Request PDF printing through the existing native WebView instead of a blocked
   popup; print only the sanitized article and keep provenance separate.
+- Wait for projected images and frames before printing, including image decode;
+  report media preparation timeouts without printing an incomplete document.
 - Create the lazy PostEditor after React commits its screen, preventing the
   destroyed-editor crash when opening a new post.
 - Use the saved provider configuration in Setup, matching Settings credential
@@ -18,6 +20,8 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   diagnostic no longer treats an existing executable as missing.
 - Open the official Windows AGY installation instructions instead of the Unix
   installer endpoint.
+- Show the AGY documentation handoff without an unrelated installer command in
+  the authorization preview.
 - Remove the unverified AGY authentication dependency and login action. Setup
   checks its executable/version; headless execution uses the existing native
   session and reports real authentication failures without opening a terminal.

@@ -213,18 +213,24 @@ describe("PostEditor desktop custody", () => {
   it("reports a failed native PDF request before downloading provenance and preserves article editing", async () => {
     renderEditor({ initialSharedChatEvidence: [evidence] });
     await waitFor(() => expect(editorBox.current).not.toBeNull());
-    vi.mocked(openFinalContentPrintDialog).mockImplementationOnce(() => {
-      throw new Error("Native print unavailable");
-    });
+    let rejectPrint!: (error: Error) => void;
+    vi.mocked(openFinalContentPrintDialog).mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectPrint = reject;
+        }),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "PDF" }));
 
     expect(downloadExportArtifact).not.toHaveBeenCalled();
+    expect(screen.queryByRole("status")).toBeNull();
+    await act(async () => rejectPrint(new Error("Native print unavailable")));
     expect(screen.getByRole("status")).toHaveTextContent("Native print unavailable");
     expect(editorBox.current?.isEditable).toBe(true);
     expect(editorBox.current?.getText()).toBe("alpha beta alpha");
     fireEvent.click(screen.getByRole("button", { name: "PDF" }));
-    expect(downloadExportArtifact).toHaveBeenCalledOnce();
+    await waitFor(() => expect(downloadExportArtifact).toHaveBeenCalledOnce());
     expect(vi.mocked(downloadExportArtifact).mock.calls[0]?.[0].filename).toBe(
       "draft.provenance.json",
     );
