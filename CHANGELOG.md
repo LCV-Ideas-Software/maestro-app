@@ -25,6 +25,9 @@ All notable changes to Maestro Editorial AI will be documented in this file.
   environment handling. Use AGY naming for its native project configuration.
 - Preserve native AGY permission blocks across artifact recovery and exclude
   these operational failures from editorial revision history.
+- Recover persisted CLI operational failures without an explicit tone as errors
+  and exclude them from resumed editorial history, including sessions written
+  before the AGY naming migration.
 - Refresh Setup after provider settings are saved and reject obsolete inventory
   responses; keep the current plan as the displayed inventory source.
 - Verify Perplexity credentials with its authenticated native Skills metadata

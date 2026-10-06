@@ -384,6 +384,28 @@ pub(crate) fn build_revision_history_block(agents: &[EditorialAgentResult]) -> S
     }
 }
 
+/// Persisted CLI failures remain operational across provider/tool retirement.
+/// Match only the uppercase status identifier grammar, not editorial verdicts.
+pub(crate) fn is_cli_operational_failure_status(status: &str) -> bool {
+    [
+        "_CLI_NO_FINAL_OUTPUT",
+        "_RIPGREP_UNAVAILABLE",
+        "_WORKSPACE_VIOLATION",
+    ]
+    .iter()
+    .any(|suffix| {
+        status.strip_suffix(suffix).is_some_and(|provider| {
+            provider
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_uppercase)
+                && provider
+                    .bytes()
+                    .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+        })
+    })
+}
+
 pub(crate) fn is_operational_agent_result(agent: &EditorialAgentResult) -> bool {
     agent.tone == "error"
         || agent.tone == "blocked"
@@ -398,9 +420,8 @@ pub(crate) fn is_operational_agent_result(agent: &EditorialAgentResult) -> bool 
         || agent.status == "API_KEY_NOT_AVAILABLE"
         || agent.status == "REMOTE_SECRET_NOT_READABLE"
         || agent.status == "CLI_PERMISSION_POLICY_BLOCKED"
-        || agent.status == "CODEX_CLI_NO_FINAL_OUTPUT"
+        || is_cli_operational_failure_status(&agent.status)
         || agent.status == "CODEX_WINDOWS_SANDBOX_UPSTREAM"
-        || agent.status == "AGY_CLI_NO_FINAL_OUTPUT"
         || agent.status.starts_with("EXEC_ERROR")
         || agent.status.starts_with("PROVIDER_")
 }

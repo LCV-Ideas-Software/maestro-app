@@ -38,6 +38,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::app_paths::{checked_data_child_path, sanitize_path_segment};
 use crate::editorial_content_lock::canonical_editorial_text;
+use crate::editorial_prompts::is_cli_operational_failure_status;
 use crate::session_persistence::load_session_contract;
 use crate::session_resume::{
     count_known_session_markdown_artifacts, extract_bullet_code_value, extract_saved_session_name,
@@ -582,9 +583,8 @@ pub(crate) fn parse_agent_artifact_result(
         || status == "AGENT_FAILED_EMPTY"
         || status == "EMPTY_DRAFT"
         || status == "RUNNING"
-        || status == "CODEX_CLI_NO_FINAL_OUTPUT"
+        || is_cli_operational_failure_status(&status)
         || status == "CODEX_WINDOWS_SANDBOX_UPSTREAM"
-        || status == "AGY_CLI_NO_FINAL_OUTPUT"
     {
         "error"
     } else {
@@ -664,6 +664,114 @@ mod tests {
     use std::path::PathBuf;
     use std::thread;
     use std::time::Duration;
+
+    #[test]
+    fn resume_preserves_persisted_cli_failures_without_editorial_history() {
+        use crate::editorial_prompts::{build_revision_history_block, is_operational_agent_result};
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = sessions_dir();
+        let session_dir = root.join(format!(
+            "maestro-persisted-cli-failure-test-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let canonical_session = session_dir.canonicalize().unwrap();
+        assert_eq!(
+            canonical_session.parent(),
+            Some(root.canonicalize().unwrap().as_path())
+        );
+        struct FixtureCleanup(PathBuf);
+        impl Drop for FixtureCleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = FixtureCleanup(canonical_session);
+        let agent_dir = session_dir.join("agent-runs");
+        std::fs::create_dir(&agent_dir).unwrap();
+        let failure_statuses = [
+            "GEMINI_CLI_NO_FINAL_OUTPUT",
+            "GEMINI_RIPGREP_UNAVAILABLE",
+            "GEMINI_WORKSPACE_VIOLATION",
+            "AGY_CLI_NO_FINAL_OUTPUT",
+            "CODEX_CLI_NO_FINAL_OUTPUT",
+        ];
+        let mut originals = Vec::new();
+        for (index, status) in failure_statuses.iter().enumerate() {
+            let (agent, title, cli) = if status.starts_with("CODEX_") {
+                ("codex", "Codex", "codex")
+            } else {
+                ("gemini", "Gemini", "agy")
+            };
+            let name = if index == 0 {
+                "round-001-gemini-review.md".to_string()
+            } else {
+                format!("round-001-{agent}-review-attempt-{:03}.md", index + 1)
+            };
+            let path = agent_dir.join(name);
+            let body = format!(
+                "# {title} - review\n\n- CLI: `{cli}`\n- Status: `{status}`\n- Exit code: `0`\n- Duration ms: `1`\n- Timed out: `false`\n\n## Stdout\n\n```text\n\n```\n\n## Stderr\n\n```text\nArchived operational diagnostic, not an editorial report.\n```\n"
+            );
+            write_text_file(&path, &body).unwrap();
+            originals.push((path, body.into_bytes()));
+        }
+        for (agent, status, report) in [
+            (
+                "claude",
+                "NOT_READY",
+                "Editorial blocker must survive resume.",
+            ),
+            (
+                "codex",
+                "NEEDS_EVIDENCE",
+                "Operator evidence request must survive resume.",
+            ),
+        ] {
+            write_text_file(
+                &agent_dir.join(format!("round-001-{agent}-review.md")),
+                &format!(
+                    "# Review\n\n- Status: `{status}`\n\n## Stdout\n\n```text\n<maestro_revision_report>{report}</maestro_revision_report>\n```\n"
+                ),
+            ).unwrap();
+        }
+        let restored = load_agent_results_from_dir(&agent_dir).unwrap();
+        assert_eq!(restored.len(), 7);
+        let history = build_revision_history_block(&restored);
+        assert!(history.contains("Editorial blocker must survive resume."));
+        assert!(history.contains("Operator evidence request must survive resume."));
+        for status in failure_statuses {
+            assert!(
+                !history.contains(status),
+                "Operational status entered revision history: {history}"
+            );
+            let result = restored
+                .iter()
+                .find(|agent| agent.status == status)
+                .unwrap();
+            assert_eq!(result.tone, "error");
+            assert!(is_operational_agent_result(result));
+            for historical_tone in ["warn", "ok"] {
+                let mut prior_result = result.clone();
+                prior_result.tone = historical_tone.to_string();
+                assert!(is_operational_agent_result(&prior_result));
+                assert_eq!(
+                    build_revision_history_block(&[prior_result]),
+                    "No prior revision reports are recorded for this serial cycle."
+                );
+            }
+        }
+        for (path, before) in originals {
+            assert_eq!(
+                std::fs::read(path).unwrap(),
+                before,
+                "Resume must not rewrite persisted artifacts."
+            );
+        }
+    }
 
     #[test]
     fn resume_preserves_native_agy_policy_blocks_and_excludes_them_from_editorial_history() {
