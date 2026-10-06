@@ -1,6 +1,6 @@
 # Targeted code owners for sensitive and source changes.
-# Avoid a repository-wide wildcard so routine Dependabot manifest updates do
-# not request review automatically.
+# Keep ownership targeted by path; dependency manifests below explicitly
+# request review from their listed code owners, including Dependabot updates.
 
 # Agent and repository governance
 /AGENTS.md @lcv-leo

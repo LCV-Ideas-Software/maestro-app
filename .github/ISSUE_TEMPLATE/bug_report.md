@@ -24,7 +24,7 @@ type: Bug
 
 ## Evidence
 
-Logs, failing check URLs, error output. Redact secrets and real identifiers.
+Logs, failing check URLs, error output. Redact credentials, personal data and confidential values. Necessary nonsecret identifiers may be included under AGENTS.md.
 
 ## What Was Attempted
 

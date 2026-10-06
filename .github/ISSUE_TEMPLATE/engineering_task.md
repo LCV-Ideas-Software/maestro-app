@@ -13,9 +13,11 @@ type: Task
 > a supply-chain issue, or a deployment misconfiguration — **do not use this public
 > template**: track the work through the private channel in `SECURITY.md`.
 >
-> **Public repository — placeholders only.** When the task touches cloud, database, domain,
-> account, or deployment configuration, describe scope and validation with placeholder
-> identifiers (e.g. `proj-x`, `exemplo-projeto-000`), never real operational identifiers.
+> **Public repository — protect confidential information.** Necessary nonsecret
+> account, project, database, domain, and deployment identifiers may be included
+> when useful for scope or validation under the public-metadata policy in `AGENTS.md`.
+> Use placeholders for confidential values and omit credentials, private editorial
+> material, personal data, and confidential agreement contents.
 
 
 ## Objective
